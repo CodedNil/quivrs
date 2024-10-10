@@ -9,27 +9,57 @@ dioxus-logger = "0.5.1"
 
 # Serialization
 serde = { version = "1.0.210", features = ["derive"] }
+toml = "0.8.19"
+ron = "0.8.1"
 
 # Utility
 anyhow = "1.0.89"
 
+# Client dependencies
+dioxus-web = { version = "0.5.6", features = ["hydrate"], optional = true }
+
 # Server dependencies
+tokio = { version = "1.40.0", optional = true }
+axum = { version = "0.7.7", optional = true }
+axum_session = { version = "0.14.2", optional = true }
+axum_session_auth = { version = "0.14.1", optional = true }
+axum_session_sqlx = { version = "0.3.0", default-features = false, features = [
+    "sqlite",
+    "tls-rustls",
+], optional = true }
+sqlx = { version = "0.8.2", features = [
+    "macros",
+    "migrate",
+    "postgres",
+    "sqlite",
+    "_unstable-all-types",
+    "tls-rustls",
+    "runtime-tokio",
+], optional = true }
+http = { version = "1.1.0", optional = true }
+async-trait = { version = "0.1.71", optional = true }
 candle-core = { version = "0.7.2", optional = true }
 candle-transformers = { version = "0.7.2", optional = true }
 candle-nn = { version = "0.7.2", optional = true }
 tokenizers = { version = "0.20.1", optional = true }
 hf-hub = { version = "0.3.2", optional = true }
-tokio = { version = "1.40.0", optional = true }
 
 [features]
 default = []
 server = [
     "dioxus/axum",
     "tokio",
+    "axum",
+    "axum_session",
+    "axum_session_auth",
+    "axum_session_sqlx",
+    "sqlx",
+    "http",
+    "async-trait",
     "candle-core",
     "candle-transformers",
     "candle-nn",
     "tokenizers",
     "hf-hub",
 ]
-web = ["dioxus/web"]
+web = ["dioxus-web"]
