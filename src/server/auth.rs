@@ -1,241 +1,174 @@
-use async_trait::async_trait;
-use axum::response::{IntoResponse, Response};
-use axum_session_auth::{Authentication, HasPermission};
-use axum_session_sqlx::SessionSqlitePool;
+use crate::common::TOKEN_LENGTH;
+use anyhow::{anyhow, Result};
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+use arrayvec::ArrayString;
+use chrono::{DateTime, Utc};
+use rand::{distributions, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashMap;
+use tokio::{
+    fs::{self, OpenOptions},
+    io::AsyncReadExt,
+};
+use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: i32,
-    pub anonymous: bool,
-    pub username: String,
-    pub permissions: HashSet<String>,
+const MIN_PASSWORD_LENGTH: usize = 6;
+const AUTH_FILE: &str = "auth.ron";
+
+#[derive(Serialize, Deserialize)]
+struct Account {
+    admin: bool,
+    uuid: Uuid,
+    username: String,
+    password_hash: String,
+    tokens: Vec<Token>,
 }
 
-#[derive(sqlx::FromRow, Clone)]
-pub struct SqlPermissionTokens {
-    pub token: String,
+#[derive(Serialize, Deserialize)]
+struct Token {
+    token: ArrayString<TOKEN_LENGTH>,
+    last_used: DateTime<Utc>,
 }
 
-impl Default for User {
-    fn default() -> Self {
-        let mut permissions = HashSet::new();
+type Accounts = HashMap<Uuid, Account>;
 
-        permissions.insert("Category::View".to_owned());
+async fn read_accounts() -> Result<Accounts> {
+    if fs::metadata(AUTH_FILE).await.is_err() {
+        return Ok(HashMap::new());
+    }
 
-        Self {
-            id: 1,
-            anonymous: true,
-            username: "Guest".into(),
-            permissions,
+    let mut file = OpenOptions::new().read(true).open(AUTH_FILE).await?;
+    let mut data = String::new();
+    file.read_to_string(&mut data).await?;
+    let accounts: Accounts = ron::from_str(&data)?;
+    Ok(accounts)
+}
+
+async fn write_accounts(accounts: &Accounts) -> Result<()> {
+    let pretty = ron::ser::PrettyConfig::new().compact_arrays(true);
+    let data = ron::ser::to_string_pretty(accounts, pretty)?;
+    fs::write(AUTH_FILE, data).await?;
+    Ok(())
+}
+
+/// Login to account, returning a token
+/// If no password is set, it will set the password
+/// If no accounts exist, it will create an admin account
+pub async fn login(
+    username: String,
+    password: String,
+) -> Result<(String, ArrayString<TOKEN_LENGTH>)> {
+    let mut accounts = read_accounts().await.unwrap_or_default();
+
+    // Create initial admin account if no accounts exist
+    if accounts.is_empty() {
+        if password.len() < MIN_PASSWORD_LENGTH {
+            return Err(anyhow!(
+                "Password must be at least {} characters long",
+                MIN_PASSWORD_LENGTH
+            ));
+        }
+
+        // Hash the password
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .map_err(|_| anyhow!("Failed to hash password"))?
+            .to_string();
+
+        // Create a new admin account
+        let (token_entry, token) = generate_token();
+        let new_account = Account {
+            admin: true,
+            uuid: Uuid::new_v4(),
+            username: username.clone(),
+            password_hash,
+            tokens: vec![token_entry],
+        };
+
+        // Serialize and save the admin account to the database
+        accounts.insert(new_account.uuid, new_account);
+        write_accounts(&accounts).await?;
+
+        return Ok(("Admin Account Created".to_string(), token));
+    }
+
+    // Retrieve account data using username as the key
+    let account = accounts.values_mut().find(|acc| acc.username == username);
+    if let Some(account) = account {
+        if account.password_hash.is_empty() {
+            // This is a new account setup case
+            if password.len() < MIN_PASSWORD_LENGTH {
+                return Err(anyhow!("Password must be at least 6 characters long"));
+            }
+
+            // Hash the new password
+            let password_hash = Argon2::default()
+                .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+                .map_err(|_| anyhow!("Failed to hash password"))?
+                .to_string();
+
+            // Update the account with the new password and add a token
+            let (token_entry, token) = generate_token();
+            account.tokens.push(token_entry);
+            account.password_hash = password_hash;
+
+            write_accounts(&accounts).await?;
+
+            return Ok(("Admit Set".to_string(), token));
+        }
+
+        // Verify password for an existing account
+        let parsed_hash = PasswordHash::new(&account.password_hash)
+            .map_err(|_| anyhow!("Incorrect username or password"))?;
+
+        if Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok()
+        {
+            let (token_entry, token) = generate_token();
+            account.tokens.push(token_entry);
+            write_accounts(&accounts).await?;
+            return Ok((String::new(), token));
         }
     }
+    Err(anyhow!("Incorrect username or password"))
 }
 
-#[async_trait]
-impl Authentication<Self, i64, SqlitePool> for User {
-    async fn load_user(userid: i64, pool: Option<&SqlitePool>) -> Result<Self, anyhow::Error> {
-        let pool = pool.unwrap();
-
-        Self::get_user(userid, pool)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Could not load user"))
+/// Helper function to generate a random token
+fn generate_token() -> (Token, ArrayString<TOKEN_LENGTH>) {
+    let mut new_token = ArrayString::<TOKEN_LENGTH>::new();
+    let mut rng = thread_rng();
+    for _ in 0..TOKEN_LENGTH {
+        new_token.push(rng.sample(distributions::Alphanumeric) as char);
     }
 
-    fn is_authenticated(&self) -> bool {
-        !self.anonymous
-    }
-
-    fn is_active(&self) -> bool {
-        !self.anonymous
-    }
-
-    fn is_anonymous(&self) -> bool {
-        self.anonymous
-    }
+    (
+        Token {
+            token: new_token,
+            last_used: Utc::now(),
+        },
+        new_token,
+    )
 }
 
-#[async_trait]
-impl HasPermission<SqlitePool> for User {
-    async fn has(&self, perm: &str, _pool: &Option<&SqlitePool>) -> bool {
-        self.permissions.contains(perm)
-    }
-}
+/// Verify tokens, updating the `last_used`
+pub async fn verify_token(input_token: ArrayString<TOKEN_LENGTH>) -> Result<bool> {
+    let mut accounts = read_accounts().await?;
 
-impl User {
-    pub async fn get_user(id: i64, pool: &SqlitePool) -> Option<Self> {
-        let sqluser = sqlx::query_as::<_, SqlUser>("SELECT * FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .ok()?;
-
-        //lets just get all the tokens the user can use, we will only use the full permissions if modifing them.
-        let sql_user_perms = sqlx::query_as::<_, SqlPermissionTokens>(
-            "SELECT token FROM user_permissions WHERE user_id = $1;",
-        )
-        .bind(id)
-        .fetch_all(pool)
-        .await
-        .ok()?;
-
-        Some(sqluser.into_user(Some(sql_user_perms)))
-    }
-
-    pub async fn create_user_tables(pool: &SqlitePool) {
-        sqlx::query(
-            r#"
-                CREATE TABLE IF NOT EXISTS users (
-                    "id" INTEGER PRIMARY KEY,
-                    "anonymous" BOOLEAN NOT NULL,
-                    "username" VARCHAR(256) NOT NULL
-                )
-            "#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r#"
-                CREATE TABLE IF NOT EXISTS user_permissions (
-                    "user_id" INTEGER NOT NULL,
-                    "token" VARCHAR(256) NOT NULL
-                )
-        "#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r"
-                INSERT INTO users
-                    (id, anonymous, username) SELECT 1, true, 'Guest'
-                ON CONFLICT(id) DO UPDATE SET
-                    anonymous = EXCLUDED.anonymous,
-                    username = EXCLUDED.username
-            ",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r"
-                INSERT INTO users
-                    (id, anonymous, username) SELECT 2, false, 'Test'
-                ON CONFLICT(id) DO UPDATE SET
-                    anonymous = EXCLUDED.anonymous,
-                    username = EXCLUDED.username
-            ",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r"
-                INSERT INTO user_permissions
-                    (user_id, token) SELECT 2, 'Category::View'
-            ",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-}
-
-#[derive(sqlx::FromRow, Clone)]
-pub struct SqlUser {
-    pub id: i32,
-    pub anonymous: bool,
-    pub username: String,
-}
-
-impl SqlUser {
-    pub fn into_user(self, sql_user_perms: Option<Vec<SqlPermissionTokens>>) -> User {
-        User {
-            id: self.id,
-            anonymous: self.anonymous,
-            username: self.username,
-            permissions: sql_user_perms.map_or_else(HashSet::<String>::new, |user_perms| {
-                user_perms
-                    .into_iter()
-                    .map(|x| x.token)
-                    .collect::<HashSet<String>>()
-            }),
+    for account in accounts.values_mut() {
+        if let Some(token_entry) = account
+            .tokens
+            .iter_mut()
+            .find(|token| token.token == input_token)
+        {
+            token_entry.last_used = Utc::now();
+            write_accounts(&accounts).await?;
+            return Ok(true);
         }
     }
-}
 
-pub async fn connect_to_database() -> sqlx::Pool<sqlx::Sqlite> {
-    let connect_opts = SqliteConnectOptions::from_str("sqlite::memory:").unwrap();
-
-    SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(connect_opts)
-        .await
-        .unwrap()
-}
-
-pub struct Session(
-    pub axum_session_auth::AuthSession<User, i64, SessionSqlitePool, sqlx::SqlitePool>,
-);
-
-impl std::ops::Deref for Session {
-    type Target = axum_session_auth::AuthSession<User, i64, SessionSqlitePool, sqlx::SqlitePool>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for Session {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Debug)]
-pub struct AuthSessionLayerNotFound;
-
-impl std::fmt::Display for AuthSessionLayerNotFound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AuthSessionLayer was not found")
-    }
-}
-
-impl std::error::Error for AuthSessionLayerNotFound {}
-
-impl IntoResponse for AuthSessionLayerNotFound {
-    fn into_response(self) -> Response {
-        (
-            http::status::StatusCode::INTERNAL_SERVER_ERROR,
-            "AuthSessionLayer was not found",
-        )
-            .into_response()
-    }
-}
-
-#[async_trait]
-impl<S: std::marker::Sync + std::marker::Send> axum::extract::FromRequestParts<S> for Session {
-    type Rejection = AuthSessionLayerNotFound;
-
-    async fn from_request_parts(
-        parts: &mut http::request::Parts,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        axum_session_auth::AuthSession::<
-            User,
-            i64,
-            SessionSqlitePool,
-            sqlx::SqlitePool,
-        >::from_request_parts(parts, state)
-        .await
-        .map(Session)
-        .map_err(|_| AuthSessionLayerNotFound)
-    }
+    Ok(false)
 }

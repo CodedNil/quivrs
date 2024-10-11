@@ -6,64 +6,40 @@
     clippy::ref_option_ref
 )]
 
-use dioxus::prelude::*;
-use dioxus_logger::tracing;
+mod common;
 
 #[cfg(feature = "server")]
 mod server;
 
+use arrayvec::ArrayString;
+use common::TOKEN_LENGTH;
+use dioxus::prelude::*;
+use dioxus_logger::tracing;
+use dioxus_sdk::storage::{use_synced_storage, LocalStorage};
+
 fn main() {
     dioxus_logger::init(tracing::Level::INFO).expect("failed to init logger");
+    dioxus_sdk::storage::set_dir!();
 
     #[cfg(feature = "web")]
     dioxus_web::launch::launch_cfg(app, dioxus_web::Config::new().hydrate(true));
 
     #[cfg(feature = "server")]
     {
-        use axum::routing::Router;
-        use axum_session::SessionConfig;
-        use axum_session::SessionStore;
-        use axum_session_auth::AuthConfig;
-        use axum_session_sqlx::SessionSqlitePool;
-
         tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(async move {
-                let pool = server::auth::connect_to_database().await;
-
-                // Configure the authentication layer
-                let session_config = SessionConfig::default().with_table_name("test_table");
-                let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
-                let session_store = SessionStore::<SessionSqlitePool>::new(
-                    Some(pool.clone().into()),
-                    session_config,
-                )
-                .await
-                .unwrap();
-
-                server::auth::User::create_user_tables(&pool).await;
-
                 // Spawn server::init to run in parallel
                 let init_handle = tokio::spawn(async {
                     server::init().await;
                 });
 
                 // Build our application with some routes
-                let app = Router::new()
+                let app = axum::routing::Router::new()
                     .serve_dioxus_application(ServeConfig::builder().build(), || {
                         VirtualDom::new(app)
                     })
-                    .await
-                    .layer(
-                        axum_session_auth::AuthSessionLayer::<
-                            server::auth::User,
-                            i64,
-                            SessionSqlitePool,
-                            sqlx::SqlitePool,
-                        >::new(Some(pool))
-                        .with_config(auth_config),
-                    )
-                    .layer(axum_session::SessionLayer::new(session_store));
+                    .await;
 
                 let listener = tokio::net::TcpListener::bind(&std::net::SocketAddr::from((
                     [127, 0, 0, 1],
@@ -82,83 +58,54 @@ fn main() {
 }
 
 fn app() -> Element {
-    let mut user_name = use_signal(|| "?".to_string());
-    let mut permissions = use_signal(|| "?".to_string());
+    let mut token = use_synced_storage::<LocalStorage, ArrayString<TOKEN_LENGTH>>(
+        "auth_token".to_string(),
+        ArrayString::<TOKEN_LENGTH>::new,
+    );
 
     rsx! {
         div {
-            button { onclick: move |_| {
-                    async move {
-                        login().await.unwrap();
+            if !token.peek().is_empty() {
+                "Logged in!"
+            } else {
+                form {
+                    onsubmit: move |form_data| async move {
+                        if let (Some(user), Some(pass)) = (
+                            form_data.values().get("username").and_then(|m| m.first()),
+                            form_data.values().get("password").and_then(|m| m.first()),
+                        ) {
+                            if let Ok(data) = login(user.to_string(), pass.to_string()).await {
+                                token.set(data);
+                            }
+                        }
+                    },
+                    input {
+                        r#type: "text",
+                        placeholder: "Username",
+                        name: "username",
+                        maxlength: 20,
+                        pattern: "^[a-zA-Z0-9 ]+$"
                     }
-                },
-                "Login Test User"
-            }
-        }
-        div {
-            button {
-                onclick: move |_| async move {
-                    if let Ok(data) = get_user_name().await {
-                        user_name.set(data);
+                    input {
+                        r#type: "text",
+                        placeholder: "Password",
+                        name: "password",
+                        maxlength: 30
                     }
-                },
-                "Get User Name"
+                    button { r#type: "submit", "Login" }
+                }
             }
-            "User name: {user_name}"
-        }
-        div {
-            button {
-                onclick: move |_| async move {
-                    if let Ok(data) = get_permissions().await {
-                        permissions.set(data);
-                    }
-                },
-                "Get Permissions"
-            }
-            "Permissions: {permissions}"
         }
     }
-}
-
-#[server(GetUserName)]
-pub async fn get_user_name() -> Result<String, ServerFnError> {
-    let session: server::auth::Session = extract().await?;
-    Ok(session.0.current_user.unwrap().username)
 }
 
 #[server(Login)]
-pub async fn login() -> Result<(), ServerFnError> {
-    let auth: server::auth::Session = extract().await?;
-    auth.login_user(2);
-    Ok(())
-}
-
-#[server(Permissions)]
-pub async fn get_permissions() -> Result<String, ServerFnError> {
-    let method: axum::http::Method = extract().await?;
-    let auth: server::auth::Session = extract().await?;
-    let current_user = auth.current_user.clone().unwrap_or_default();
-
-    // lets check permissions only and not worry about if they are anon or not
-    if !axum_session_auth::Auth::<server::auth::User, i64, sqlx::SqlitePool>::build(
-        [axum::http::Method::POST],
-        false,
-    )
-    .requires(axum_session_auth::Rights::any([
-        axum_session_auth::Rights::permission("Category::View"),
-        axum_session_auth::Rights::permission("Admin::View"),
-    ]))
-    .validate(&current_user, &method, None)
-    .await
-    {
-        return Ok(format!(
-            "User {}, Does not have permissions needed to view this page please login",
-            current_user.username
-        ));
+pub async fn login(
+    username: String,
+    password: String,
+) -> Result<ArrayString<TOKEN_LENGTH>, ServerFnError> {
+    if let Ok((_, token)) = server::auth::login(username, password).await {
+        return Ok(token);
     }
-
-    Ok(format!(
-        "User has Permissions needed. Here are the Users permissions: {:?}",
-        current_user.permissions
-    ))
+    Err(ServerFnError::new("Invalid credentials"))
 }

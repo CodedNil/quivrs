@@ -1,4 +1,4 @@
 dist
 target
-static
 .dioxus
+auth.ron
