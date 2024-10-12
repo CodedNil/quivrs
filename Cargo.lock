@@ -72,6 +72,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33954243bd79057c2de7338850b85983a44588021f8a5fee574a8888c6de4344"
 
 [[package]]
+name = "anymap2"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d301b3b94cb4b2f23d7917810addbbaff90738e0ca2be692bd027e70d7e0330c"
+
+[[package]]
 name = "arbitrary"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -90,15 +96,6 @@ dependencies = [
  "blake2",
  "cpufeatures",
  "password-hash",
-]
-
-[[package]]
-name = "arrayvec"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -169,7 +166,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "http-body-util",
  "hyper",
@@ -205,7 +202,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "http-body-util",
  "mime",
@@ -464,9 +461,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.28"
+version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e80e3b6a3ab07840e1cae9b0666a63970dc28e8ed5ffbcdacbfc760c281bfc1"
+checksum = "b16803a61b81d9eabb7eae2588776c4c1e584b738ede45fdbb4c972cec1e9945"
 dependencies = [
  "shlex",
 ]
@@ -806,6 +803,7 @@ dependencies = [
  "dioxus-router",
  "dioxus-signals",
  "dioxus-ssr",
+ "dioxus-web",
  "serde",
 ]
 
@@ -886,9 +884,10 @@ dependencies = [
  "dioxus-hot-reload",
  "dioxus-lib",
  "dioxus-ssr",
+ "dioxus-web",
  "dioxus_server_macro",
  "futures-util",
- "http",
+ "http 1.1.0",
  "hyper",
  "once_cell",
  "pin-project",
@@ -904,6 +903,7 @@ dependencies = [
  "tower-layer",
  "tracing",
  "tracing-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -1052,10 +1052,15 @@ dependencies = [
  "dioxus-lib",
  "dioxus-router-macro",
  "dioxus-ssr",
+ "gloo",
+ "gloo-utils 0.1.7",
+ "js-sys",
  "tokio",
  "tracing",
  "url",
  "urlencoding",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -1138,7 +1143,7 @@ dependencies = [
  "dioxus-core",
  "dioxus-html",
  "generational-box",
- "http",
+ "http 1.1.0",
  "lru",
  "rustc-hash",
  "serde_json",
@@ -1694,6 +1699,107 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
+name = "gloo"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28999cda5ef6916ffd33fb4a7b87e1de633c47c0dc6d97905fee1cdaa142b94d"
+dependencies = [
+ "gloo-console",
+ "gloo-dialogs",
+ "gloo-events",
+ "gloo-file",
+ "gloo-history",
+ "gloo-net 0.3.1",
+ "gloo-render",
+ "gloo-storage",
+ "gloo-timers",
+ "gloo-utils 0.1.7",
+ "gloo-worker",
+]
+
+[[package]]
+name = "gloo-console"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b7ce3c05debe147233596904981848862b068862e9ec3e34be446077190d3f"
+dependencies = [
+ "gloo-utils 0.1.7",
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-dialogs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67062364ac72d27f08445a46cab428188e2e224ec9e37efdba48ae8c289002e6"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-events"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68b107f8abed8105e4182de63845afcc7b69c098b7852a813ea7462a320992fc"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-file"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8d5564e570a38b43d78bdc063374a0c3098c4f0d64005b12f9bbe87e869b6d7"
+dependencies = [
+ "gloo-events",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-history"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85725d90bf0ed47063b3930ef28e863658a7905989e9929a8708aab74a1d5e7f"
+dependencies = [
+ "gloo-events",
+ "gloo-utils 0.1.7",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_urlencoded",
+ "thiserror",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-net"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a66b4e3c7d9ed8d315fd6b97c8b1f74a7c6ecbbc2320e65ae7ed38b7068cc620"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "gloo-utils 0.1.7",
+ "http 0.2.12",
+ "js-sys",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "gloo-net"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1702,8 +1808,8 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-sink",
- "gloo-utils",
- "http",
+ "gloo-utils 0.2.0",
+ "http 1.1.0",
  "js-sys",
  "pin-project",
  "serde",
@@ -1711,6 +1817,54 @@ dependencies = [
  "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-render"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fd9306aef67cfd4449823aadcd14e3958e0800aa2183955a309112a84ec7764"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-storage"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6ab60bf5dbfd6f0ed1f7843da31b41010515c745735c970e821945ca91e480"
+dependencies = [
+ "gloo-utils 0.1.7",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-utils"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "037fcb07216cb3a30f7292bd0176b050b7b9a052ba830ef7d5d65f6dc64ba58e"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
  "web-sys",
 ]
 
@@ -1724,6 +1878,23 @@ dependencies = [
  "serde",
  "serde_json",
  "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-worker"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13471584da78061a28306d1359dd0178d8d6fc1c7c80e5e35d27260346e0516a"
+dependencies = [
+ "anymap2",
+ "bincode",
+ "gloo-console",
+ "gloo-utils 0.1.7",
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -1816,6 +1987,17 @@ dependencies = [
 
 [[package]]
 name = "http"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
+dependencies = [
+ "bytes",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
+name = "http"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21b9ddb458710bc376481b842f5da65cdf31522de232c1ca8146abce2a358258"
@@ -1832,7 +2014,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1efedce1fb8e6913f23e0c92de8e62cd5b772a67e7b3946df930a62566c93184"
 dependencies = [
  "bytes",
- "http",
+ "http 1.1.0",
 ]
 
 [[package]]
@@ -1843,7 +2025,7 @@ checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
 dependencies = [
  "bytes",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "pin-project-lite",
 ]
@@ -1875,7 +2057,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "httparse",
  "httpdate",
@@ -1893,7 +2075,7 @@ checksum = "41296eb09f183ac68eec06e03cdbea2e759633d4067b2f6552fc2e009bcad08b"
 dependencies = [
  "bytes",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "hyper",
  "pin-project-lite",
@@ -2253,7 +2435,7 @@ dependencies = [
  "bytes",
  "encoding_rs",
  "futures-util",
- "http",
+ "http 1.1.0",
  "httparse",
  "memchr",
  "mime",
@@ -2642,7 +2824,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
- "arrayvec",
  "axum",
  "bincode",
  "candle-core",
@@ -3110,8 +3291,8 @@ dependencies = [
  "const_format",
  "dashmap",
  "futures",
- "gloo-net",
- "http",
+ "gloo-net 0.6.0",
+ "http 1.1.0",
  "http-body-util",
  "hyper",
  "inventory",
@@ -3575,7 +3756,7 @@ dependencies = [
  "bitflags 2.6.0",
  "bytes",
  "futures-util",
- "http",
+ "http 1.1.0",
  "http-body",
  "http-body-util",
  "http-range-header",
@@ -3691,7 +3872,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "data-encoding",
- "http",
+ "http 1.1.0",
  "httparse",
  "log",
  "rand",
@@ -3865,9 +4046,9 @@ checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef073ced962d62984fb38a36e5fdc1a2b23c9e0e1fa0689bb97afa4202ef6887"
+checksum = "128d1e363af62632b8eb57219c8fd7877144af57558fb2ef0368d0087bddeb2e"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -3876,9 +4057,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4bfab14ef75323f4eb75fa52ee0a3fb59611977fd3240da19b2cf36ff85030e"
+checksum = "cb6dd4d3ca0ddffd1dd1c9c04f94b868c37ff5fac97c30b97cff2d74fce3a358"
 dependencies = [
  "bumpalo",
  "log",
@@ -3903,9 +4084,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7bec9830f60924d9ceb3ef99d55c155be8afa76954edffbb5936ff4509474e7"
+checksum = "e79384be7f8f5a9dd5d7167216f022090cf1f9ec128e6e6a482a2cb5c5422c56"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -3913,9 +4094,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c74f6e152a76a2ad448e223b0fc0b6b5747649c3d769cc6bf45737bf97d0ed6"
+checksum = "26c6ab57572f7a24a4985830b120de1594465e5d500f24afe89e16b4e833ef68"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3926,9 +4107,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a42f6c679374623f295a8623adfe63d9284091245c3504bde47c17a3ce2777d9"
+checksum = "65fc09f10666a9f147042251e0dda9c18f166ff7de300607007e96bdebc1068d"
 
 [[package]]
 name = "wasm-streams"

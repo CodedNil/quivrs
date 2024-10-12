@@ -11,11 +11,12 @@ mod common;
 #[cfg(feature = "server")]
 mod server;
 
-use arrayvec::ArrayString;
-use common::TOKEN_LENGTH;
 use dioxus::prelude::*;
 use dioxus_logger::tracing;
 use dioxus_sdk::storage::{use_synced_storage, LocalStorage};
+
+#[cfg(feature = "server")]
+const PORT: u16 = 4895;
 
 fn main() {
     dioxus_logger::init(tracing::Level::INFO).expect("failed to init logger");
@@ -43,7 +44,7 @@ fn main() {
 
                 let listener = tokio::net::TcpListener::bind(&std::net::SocketAddr::from((
                     [127, 0, 0, 1],
-                    3000,
+                    PORT,
                 )))
                 .await
                 .unwrap();
@@ -58,54 +59,71 @@ fn main() {
 }
 
 fn app() -> Element {
-    let mut token = use_synced_storage::<LocalStorage, ArrayString<TOKEN_LENGTH>>(
-        "auth_token".to_string(),
-        ArrayString::<TOKEN_LENGTH>::new,
-    );
+    let mut token =
+        use_synced_storage::<LocalStorage, String>("auth_token".to_string(), String::new);
 
+    tracing::info!(
+        "Starting app with token: {} {}",
+        token.peek(),
+        !token.peek().is_empty()
+    );
     rsx! {
-        div {
-            if !token.peek().is_empty() {
-                "Logged in!"
+        div { class: "container",
+            if token.peek().is_empty() {
+                LoginForm { on_login: move |data| {
+                    token.set(data);
+                } }
             } else {
-                form {
-                    onsubmit: move |form_data| async move {
-                        if let (Some(user), Some(pass)) = (
-                            form_data.values().get("username").and_then(|m| m.first()),
-                            form_data.values().get("password").and_then(|m| m.first()),
-                        ) {
-                            if let Ok(data) = login(user.to_string(), pass.to_string()).await {
-                                token.set(data);
-                            }
+                div { "Logged in!" }
+            }
+        }
+    }
+}
+
+#[component]
+fn LoginForm(on_login: EventHandler<String>) -> Element {
+    rsx! {
+        div { class: "login-form-container",
+            form {
+                style: "display: flex; flex-direction: column;",
+                onsubmit: move |form_data| async move {
+                    if let (Some(user), Some(pass)) = (
+                        form_data.values().get("username").and_then(|m| m.first()),
+                        form_data.values().get("password").and_then(|m| m.first()),
+                    ) {
+                        if let Ok(data) = login(user.to_string(), pass.to_string()).await {
+                            on_login.call(data);
                         }
-                    },
-                    input {
-                        r#type: "text",
-                        placeholder: "Username",
-                        name: "username",
-                        maxlength: 20,
-                        pattern: "^[a-zA-Z0-9 ]+$"
                     }
-                    input {
-                        r#type: "text",
-                        placeholder: "Password",
-                        name: "password",
-                        maxlength: 30
-                    }
-                    button { r#type: "submit", "Login" }
+                },
+                input {
+                    class: "input-field",
+                    r#type: "text",
+                    placeholder: "Username",
+                    name: "username",
+                    maxlength: 20,
+                    pattern: "^[a-zA-Z0-9 ]+$"
                 }
+                input {
+                    class: "input-field",
+                    r#type: "password",
+                    placeholder: "Password",
+                    name: "password",
+                    maxlength: 30
+                }
+                button { class: "submit-button", r#type: "submit", "Login" }
             }
         }
     }
 }
 
 #[server(Login)]
-pub async fn login(
-    username: String,
-    password: String,
-) -> Result<ArrayString<TOKEN_LENGTH>, ServerFnError> {
-    if let Ok((_, token)) = server::auth::login(username, password).await {
-        return Ok(token);
+pub async fn login(username: String, password: String) -> Result<String, ServerFnError> {
+    match server::auth::login(username, password).await {
+        Ok((_, token)) => Ok(token),
+        Err(e) => {
+            tracing::error!("Failed to login {}", e);
+            Err(ServerFnError::new("Invalid credentials"))
+        }
     }
-    Err(ServerFnError::new("Invalid credentials"))
 }

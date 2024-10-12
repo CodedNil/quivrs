@@ -1,21 +1,21 @@
-use crate::common::TOKEN_LENGTH;
 use anyhow::{anyhow, Result};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use arrayvec::ArrayString;
 use chrono::{DateTime, Utc};
-use rand::{distributions, thread_rng, Rng};
+use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::{
     fs::{self, OpenOptions},
     io::AsyncReadExt,
 };
+use tracing::info;
 use uuid::Uuid;
 
 const MIN_PASSWORD_LENGTH: usize = 6;
+const TOKEN_LENGTH: usize = 20;
 const AUTH_FILE: &str = "auth.ron";
 
 #[derive(Serialize, Deserialize)]
@@ -29,7 +29,7 @@ struct Account {
 
 #[derive(Serialize, Deserialize)]
 struct Token {
-    token: ArrayString<TOKEN_LENGTH>,
+    token: String,
     last_used: DateTime<Utc>,
 }
 
@@ -57,10 +57,7 @@ async fn write_accounts(accounts: &Accounts) -> Result<()> {
 /// Login to account, returning a token
 /// If no password is set, it will set the password
 /// If no accounts exist, it will create an admin account
-pub async fn login(
-    username: String,
-    password: String,
-) -> Result<(String, ArrayString<TOKEN_LENGTH>)> {
+pub async fn login(username: String, password: String) -> Result<(String, String)> {
     let mut accounts = read_accounts().await.unwrap_or_default();
 
     // Create initial admin account if no accounts exist
@@ -71,6 +68,7 @@ pub async fn login(
                 MIN_PASSWORD_LENGTH
             ));
         }
+        info!("Creating admin account with username: {username}");
 
         // Hash the password
         let password_hash = Argon2::default()
@@ -138,16 +136,15 @@ pub async fn login(
 }
 
 /// Helper function to generate a random token
-fn generate_token() -> (Token, ArrayString<TOKEN_LENGTH>) {
-    let mut new_token = ArrayString::<TOKEN_LENGTH>::new();
-    let mut rng = thread_rng();
-    for _ in 0..TOKEN_LENGTH {
-        new_token.push(rng.sample(distributions::Alphanumeric) as char);
-    }
-
+fn generate_token() -> (Token, String) {
+    let new_token: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(TOKEN_LENGTH)
+        .map(char::from)
+        .collect();
     (
         Token {
-            token: new_token,
+            token: new_token.clone(),
             last_used: Utc::now(),
         },
         new_token,
@@ -155,7 +152,7 @@ fn generate_token() -> (Token, ArrayString<TOKEN_LENGTH>) {
 }
 
 /// Verify tokens, updating the `last_used`
-pub async fn verify_token(input_token: ArrayString<TOKEN_LENGTH>) -> Result<bool> {
+pub async fn verify_token(input_token: String) -> Result<bool> {
     let mut accounts = read_accounts().await?;
 
     for account in accounts.values_mut() {
