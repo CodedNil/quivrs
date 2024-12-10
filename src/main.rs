@@ -36,11 +36,9 @@ fn main() {
                 });
 
                 // Build our application with some routes
-                let app = axum::routing::Router::new()
-                    .serve_dioxus_application(ServeConfig::builder().build(), || {
-                        VirtualDom::new(app)
-                    })
-                    .await;
+                let router = axum::routing::Router::new()
+                    .serve_dioxus_application(ServeConfig::new().unwrap(), app)
+                    .into_make_service();
 
                 let listener = tokio::net::TcpListener::bind(&std::net::SocketAddr::from((
                     [127, 0, 0, 1],
@@ -49,9 +47,7 @@ fn main() {
                 .await
                 .unwrap();
 
-                axum::serve(listener, app.into_make_service())
-                    .await
-                    .unwrap();
+                axum::serve(listener, router).await.unwrap();
 
                 let _ = init_handle.await;
             });
