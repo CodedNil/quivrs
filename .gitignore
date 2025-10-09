@@ -1,4 +1,1 @@
-dist
-target
-.dioxus
-auth.ron
+/target
