@@ -1,24 +1,30 @@
+use crate::{db, llm_functions};
 use anyhow::Result;
 use axum::{
     extract::Path,
-    http::{StatusCode, header},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use chrono::Utc;
 use dashmap::DashMap;
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
-use reqwest::Client;
+use reqwest::{Client, header::CONTENT_TYPE};
 use rss::{Channel, ChannelBuilder, Guid, ItemBuilder};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use tracing::{info, warn};
 
-use crate::llm_functions;
-
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 static FEEDS_OUTPUT: LazyLock<DashMap<String, Channel>> = LazyLock::new(DashMap::new);
-static FEEDS_INPUT: LazyLock<Vec<WebsiteFeed>> = LazyLock::new(default_feeds);
+static FEEDS_INPUT: LazyLock<Vec<WebsiteFeed>> = LazyLock::new(|| {
+    vec![WebsiteFeed {
+        id: "verge".to_string(),
+        url: "https://www.theverge.com/rss/index.xml".to_string(),
+        clean_title: true,
+        summarise_articles: true,
+    }]
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebsiteFeed {
@@ -28,10 +34,22 @@ pub struct WebsiteFeed {
     pub summarise_articles: bool,
 }
 
+/// Ensures the `SQLite` database is initialised and cached feeds are hydrated.
+pub async fn init_storage() -> Result<()> {
+    db::init().await?;
+
+    let rows = db::load_all_channels().await?;
+    FEEDS_OUTPUT.clear();
+    for (id, channel) in rows {
+        FEEDS_OUTPUT.insert(id, channel);
+    }
+
+    Ok(())
+}
+
 /// Refreshes all feeds concurrently
 pub async fn refresh_all_feeds() -> Result<()> {
-    info!("Starting to refresh all feeds concurrently.");
-    let refresh_tasks = FEEDS_INPUT.iter().map(|feed| async move {
+    let refresh_tasks = FEEDS_INPUT.iter().map(|feed| async {
         if let Err(err) = refresh_feed(feed).await {
             warn!(feed_id = %feed.id, "Failed to refresh feed: {err:#}");
         }
@@ -40,13 +58,12 @@ pub async fn refresh_all_feeds() -> Result<()> {
     // Await all refresh tasks to complete.
     join_all(refresh_tasks).await;
 
-    info!("Finished refreshing all feeds.");
     Ok(())
 }
 
 /// Refreshes a single feed and updates the cache.
 async fn refresh_feed(feed: &WebsiteFeed) -> Result<()> {
-    info!(feed_id = %feed.id, url = %feed.url, "Refreshing feed.");
+    info!(feed_id = %feed.id, url = %feed.url, "Refreshing feed");
 
     // Fetch and parse the remote feed
     let content = HTTP_CLIENT.get(&feed.url).send().await?.bytes().await?;
@@ -85,6 +102,7 @@ async fn refresh_feed(feed: &WebsiteFeed) -> Result<()> {
         .items(items)
         .build();
 
+    db::save_channel(&feed.id, &channel).await?;
     FEEDS_OUTPUT.insert(feed.id.clone(), channel);
     Ok(())
 }
@@ -105,6 +123,7 @@ async fn build_item(feed: &WebsiteFeed, entry: Entry) -> rss::Item {
         .links
         .first()
         .map_or_else(|| feed.url.clone(), |l| l.href.clone());
+    info!(link = %link, "Loading webpage");
 
     // Try to fetch the full article content; fall back to the feed's summary.
     let description_html = async { HTTP_CLIENT.get(&link).send().await?.text().await }
@@ -152,22 +171,11 @@ pub async fn summarised_feed_handler(Path(id): Path<String>) -> Response {
     FEEDS_OUTPUT.get(&id).map_or_else(
         || StatusCode::NOT_FOUND.into_response(),
         |channel| {
-            let body = channel.to_string();
             (
-                [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
-                body,
+                [(CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
+                channel.to_string(),
             )
                 .into_response()
         },
     )
-}
-
-/// Default feed configuration.
-pub fn default_feeds() -> Vec<WebsiteFeed> {
-    vec![WebsiteFeed {
-        id: "verge".to_string(),
-        url: "https://www.theverge.com/rss/index.xml".to_string(),
-        clean_title: true,
-        summarise_articles: true,
-    }]
 }

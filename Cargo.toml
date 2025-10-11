@@ -22,8 +22,10 @@ chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 feed-rs = "2.3.1"
 dotenvy = "0.15.7"
-dashmap = "5.5"
+dashmap = "6.1.0"
 futures = "0.3.31"
+redb = "3.1.0"
+bincode = "2.0.1"
 
 [lints.rust]
 unsafe_code = "forbid"

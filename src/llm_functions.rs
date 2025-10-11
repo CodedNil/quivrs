@@ -1,10 +1,10 @@
 use reqwest::{
-    header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     Client,
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue},
 };
-use schemars::{generate::SchemaSettings, JsonSchema, SchemaGenerator};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{json, Value};
+use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
 use std::{env, error::Error, sync::LazyLock};
 
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
