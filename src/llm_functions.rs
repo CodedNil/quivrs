@@ -1,6 +1,6 @@
 use reqwest::{
     Client,
-    header::{CONTENT_TYPE, HeaderMap, HeaderValue},
+    header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue},
 };
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde::de::DeserializeOwned;
@@ -16,16 +16,16 @@ pub async fn run<T>(
 where
     T: JsonSchema + DeserializeOwned,
 {
-    // Construct the URL with proper variable substitution
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
-        model = "gemini-2.0-flash",
-        api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set")
-    );
-
     // Set up request headers.
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!(
+            "Bearer {}",
+            env::var("OPENROUTER").expect("OPENROUTER not set")
+        ))?,
+    );
 
     // Generate the JSON schema dynamically using `schemars`.
     let mut schema_object = SchemaGenerator::new(SchemaSettings::openapi3().with(|s| {
@@ -35,24 +35,32 @@ where
     schema_object.remove("$schema");
 
     // Create the inputs
-    let mut payload = json!({
-        "contents": [{"parts": [{"text": message}]}],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": schema_object
+    let payload = json!({
+        "model": "google/gemini-2.5-flash-lite-preview-09-2025",
+        "structured_outputs": true,
+        "messages": [
+            {
+                "role": "system",
+                "content": context.join("\n")
+            },
+            {
+                "role": "user",
+                "content": message
+            }
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "weather",
+                "strict": true,
+                "schema": schema_object
+            }
         }
     });
-    if !context.is_empty() {
-        let system_parts = context
-            .into_iter()
-            .map(|msg| json!({"text": msg}))
-            .collect::<Vec<_>>();
-        payload["system_instruction"] = json!({"parts": system_parts});
-    }
 
     // Send the request and check for errors
     let response = HTTP_CLIENT
-        .post(url)
+        .post("https://openrouter.ai/api/v1/chat/completions".to_string())
         .headers(headers)
         .json(&payload)
         .send()
@@ -69,7 +77,7 @@ where
     // Parse response JSON and extract inner text.
     let response_json: Value = response.json().await?;
     let inner_text = response_json
-        .pointer("/candidates/0/content/parts/0/text")
+        .pointer("/choices/0/message/content")
         .and_then(|v| v.as_str())
         .ok_or("Unexpected response structure")?;
 
