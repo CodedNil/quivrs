@@ -3,7 +3,7 @@ use reqwest::{
     header::{CONTENT_TYPE, HeaderMap, HeaderValue},
 };
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::{env, error::Error, sync::LazyLock};
 
@@ -74,24 +74,4 @@ where
         .ok_or("Unexpected response structure")?;
 
     Ok(serde_json::from_str(inner_text)?)
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SummariseOutput {
-    /// The rewritten title, kept concise and descriptive.
-    pub title: String,
-    /// Summarised content of the article, well written and engaging.
-    pub content: String,
-}
-
-pub async fn summarise_article(
-    title: &str,
-    content: &str,
-) -> Result<SummariseOutput, Box<dyn Error + Send + Sync + 'static>> {
-    let system_context = vec![
-        format!("Original title: {title}"),
-        format!("Original content: {content}"),
-    ];
-
-    run::<SummariseOutput>(system_context, "Rewrite this rss feed entry.".to_string()).await
 }

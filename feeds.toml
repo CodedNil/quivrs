@@ -3,8 +3,16 @@ id = "verge"
 title = "The Verge"
 url = "https://www.theverge.com"
 url_rss = "https://www.theverge.com/rss/index.xml"
-
 [feeds.config]
 type = "Website"
 clean_title = true
 summarise_articles = true
+
+[[feeds]]
+id = "veritasium"
+title = "Veritasium"
+url = "https://www.youtube.com/@veritasium"
+[feeds.config]
+type = "Youtube"
+clean_title = true
+summarise_videos = true
