@@ -70,6 +70,7 @@ pub struct FeedEntry {
     pub link: String,
     pub description: String,
     pub published: String,
+    pub author: String,
     // pub media: Option<MediaObject>,
 }
 
@@ -156,7 +157,7 @@ async fn resolve_youtube_channel_id(configured_url: &str) -> Result<String> {
 
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
-    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.toml".to_string());
     let config: Value = toml::from_str(&fs::read_to_string(&config_path).await?)
         .context(format!("Failed to read {config_path}"))?;
     let feeds_value = config
@@ -186,6 +187,7 @@ pub async fn init_storage() -> Result<()> {
                 if feed.url_rss.is_none() {
                     feed.url_rss = stored.url_rss;
                 }
+                feed.title = stored.title;
                 feed.entries = stored.entries;
                 feed.description = stored.description;
                 feed.last_updated = stored.last_updated;
@@ -193,6 +195,9 @@ pub async fn init_storage() -> Result<()> {
             if let FeedConfig::Youtube(_) = &feed.config
                 && feed.url_rss.is_none()
             {
+                if feed.url.is_empty() {
+                    feed.url = format!("https://www.youtube.com/@{}", feed.id);
+                }
                 let channel_id = resolve_youtube_channel_id(&feed.url).await?;
                 feed.url_rss = Some(format!(
                     "https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
@@ -331,6 +336,12 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Option<FeedEntry> {
         published: entry
             .published
             .map_or_else(|| Utc::now().to_rfc3339(), |date| date.to_rfc2822()),
+        author: entry
+            .authors
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<String>>()
+            .join(", "),
         // media: entry.media.first().cloned(),
     })
 }
@@ -339,7 +350,7 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Option<FeedEntry> {
 pub struct SummariseOutput {
     /// The rewritten title, kept concise and descriptive.
     pub title: String,
-    /// Summarised content of the article, well written and engaging.
+    /// Summarised content of the article, well written and engaging. Outputted as correct HTML, including images (in a figure with caption where possible) and links.
     pub content: String,
 }
 
@@ -372,7 +383,12 @@ async fn summarise_website(
         format!("Original title: {title}"),
         format!("Original content: {page_content}"),
     ];
-    match run::<SummariseOutput>(system_context, "Rewrite this rss feed entry.".to_string()).await {
+    match run::<SummariseOutput>(
+        system_context,
+        "Rewrite this rss feed entry. Content well formatted in paragraphs.".to_string(),
+    )
+    .await
+    {
         Ok(output) => {
             if website_feed.clean_title {
                 *title = output.title;
@@ -432,7 +448,7 @@ async fn summarise_youtube(
         format!("Original description: {description}"),
         format!("Videos captions: {cleaned_captions}"),
     ];
-    match run::<SummariseOutput>(system_context, "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarize the video based on its captions.".to_string()).await {
+    match run::<SummariseOutput>(system_context, "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarize the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.".to_string()).await {
         Ok(output) => {
             if youtube_feed.clean_title {
                 *title = output.title;
