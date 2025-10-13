@@ -11,7 +11,7 @@ use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use reqwest::{Client, header::CONTENT_TYPE};
-use rss::{Guid, ItemBuilder};
+use rss::{ChannelBuilder, Guid, ItemBuilder};
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -48,8 +48,7 @@ pub struct FeedData {
 
 impl FeedData {
     pub fn to_rss_channel(&self) -> rss::Channel {
-        let mut channel_builder = rss::ChannelBuilder::default();
-        channel_builder
+        ChannelBuilder::default()
             .title(self.title.clone())
             .link(self.url.clone())
             .description(self.description.clone().unwrap_or_default())
@@ -58,13 +57,9 @@ impl FeedData {
                     .values()
                     .map(FeedEntry::to_rss_item)
                     .collect::<Vec<rss::Item>>(),
-            );
-
-        if let Some(last_updated) = &self.last_updated {
-            channel_builder.last_build_date(Some(last_updated.clone()));
-        }
-
-        channel_builder.build()
+            )
+            .last_build_date(Some(self.last_updated.clone().unwrap_or_default()))
+            .build()
     }
 }
 
@@ -80,17 +75,16 @@ pub struct FeedEntry {
 
 impl FeedEntry {
     pub fn to_rss_item(&self) -> rss::Item {
-        let mut builder = ItemBuilder::default();
-        builder
+        ItemBuilder::default()
             .title(Some(self.title.clone()))
             .link(Some(self.link.clone()))
             .description(Some(self.description.clone()))
             .guid(Guid {
                 value: self.id.clone(),
                 permalink: true,
-            });
-        builder.pub_date(Some(self.published.clone()));
-        builder.build()
+            })
+            .pub_date(Some(self.published.clone()))
+            .build()
     }
 }
 
@@ -134,14 +128,11 @@ fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
 }
 
 /// Resolves a `YouTube` channel ID from a given URL or by fetching the page content.
-async fn resolve_youtube_channel_id(
-    channel_identifier: &str,
-    configured_url: &str,
-) -> Result<String> {
+async fn resolve_youtube_channel_id(configured_url: &str) -> Result<String> {
     let response = HTTP_CLIENT.get(configured_url).send().await?;
 
     if !response.status().is_success() {
-        return Err(anyhow!(
+        return Err(anyhow::format_err!(
             "Non-success status for {configured_url}: {}",
             response.status()
         ));
@@ -154,12 +145,12 @@ async fn resolve_youtube_channel_id(
         && let Some(href) = element.value().attr("href")
         && let Some(channel_id) = href.split('/').next_back()
     {
-        info!("Found channel ID for {channel_identifier}: {channel_id}",);
+        info!("Found channel ID for {configured_url}: {channel_id}",);
         return Ok(channel_id.to_string());
     }
 
-    Err(anyhow!(
-        "No channel ID found for `{channel_identifier}` ({configured_url})"
+    Err(anyhow::format_err!(
+        "No channel ID found for `{configured_url}`"
     ))
 }
 
@@ -200,7 +191,7 @@ pub async fn init_storage() -> Result<()> {
             if let FeedConfig::Youtube(_) = &feed.config
                 && feed.url_rss.is_none()
             {
-                let channel_id = resolve_youtube_channel_id(&feed.id, &feed.url).await?;
+                let channel_id = resolve_youtube_channel_id(&feed.url).await?;
                 feed.url_rss = Some(format!(
                     "https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
                 ));
@@ -301,21 +292,23 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Option<FeedEntry> {
     let link = entry.links.first()?.href.clone();
     info!(link = %link, "Loading webpage");
 
-    // Try to fetch the full article content; fall back to the feeds summary.
-    let description_html = async { HTTP_CLIENT.get(&link).send().await?.text().await }
-        .await
-        .ok()
-        .unwrap_or_else(|| entry.content.and_then(|c| c.body).unwrap_or_default());
-
     let mut title = entry
         .title
         .as_ref()
         .map_or_else(|| feed.url.to_string(), |t| t.content.to_string());
-    let mut description =
-        html2text::from_read(description_html.as_bytes(), 120).unwrap_or_default();
+    let mut description = entry.content.and_then(|c| c.body).unwrap_or_default();
 
     match &feed.config {
         FeedConfig::Website(website_feed) => {
+            // Try to fetch the full article content.
+            if let Ok(response) = HTTP_CLIENT.get(&link).send().await
+                && response.status().is_success()
+                && let Ok(description_html) = response.text().await
+            {
+                description =
+                    html2text::from_read(description_html.as_bytes(), 120).unwrap_or_default();
+            }
+
             summarise_website(&link, website_feed, &mut title, &mut description).await;
         }
         FeedConfig::Youtube(youtube_feed) => {
@@ -407,16 +400,11 @@ async fn summarise_youtube(
     }
 
     // Get the video ID from the link
-    let Some(video_id) = link.find("v=").map(|pos| {
-        let start_index = pos + 2;
-        let end_index = link[start_index..]
-            .find('&')
-            .map_or(link.len(), |amp_pos| start_index + amp_pos);
-        &link[start_index..end_index]
-    }) else {
-        // If the video is invalid or a short
+    let Some(video_id_part) = link.split("v=").nth(1) else {
+        // Invalid youtube link, probably a youtube short
         return;
     };
+    let video_id = video_id_part.split('&').next().unwrap_or(video_id_part);
 
     // Load youtube captions
     let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
@@ -461,19 +449,18 @@ async fn summarise_youtube(
 }
 
 /// Helper function to retrieve and decode `FeedData` from the database.
-fn get_feed_data_from_db(id: &str) -> Result<FeedData, StatusCode> {
+fn get_feed_data_from_db(id: &str) -> Result<FeedData> {
     let read_txn = DB
         .begin_read()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .context("Failed to begin read transaction")?;
     let read_table = read_txn
         .open_table(FEEDS_TABLE)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .context("Failed to open feeds table")?;
     let channel_bytes_guard = read_table
-        .get(id)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let feed_data = decode_feed_data(channel_bytes_guard.value())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .get(id)?
+        .ok_or_else(|| anyhow!("Feed with ID '{id}' not found"))?;
+    let feed_data =
+        decode_feed_data(channel_bytes_guard.value()).context("Failed to decode feed data")?;
     Ok(feed_data)
 }
 
@@ -481,7 +468,10 @@ fn get_feed_data_from_db(id: &str) -> Result<FeedData, StatusCode> {
 pub async fn summarised_feed_handler(Path(id): Path<String>) -> Response {
     let feed_data = match get_feed_data_from_db(&id) {
         Ok(data) => data,
-        Err(status_code) => return status_code.into_response(),
+        Err(e) => {
+            warn!(feed_id = %id, "Failed to retrieve feed data: {e:#}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let rss_channel = feed_data.to_rss_channel();
@@ -489,5 +479,8 @@ pub async fn summarised_feed_handler(Path(id): Path<String>) -> Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/rss+xml; charset=utf-8")
         .body(rss_channel.to_string().into())
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        .unwrap_or_else(|_| {
+            warn!(feed_id = %id, "Failed to build RSS response body");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })
 }
