@@ -36,12 +36,16 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
 #[derive(Encode, Decode, Deserialize)]
 pub struct FeedData {
     pub id: String,
+    pub config: FeedConfig,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub url: String,
     pub url_rss: Option<String>,
-    pub description: Option<String>,
-    pub last_updated: Option<String>,
-    pub config: FeedConfig,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub last_updated: String,
     #[serde(default)]
     pub entries: HashMap<String, FeedEntry>,
 }
@@ -51,14 +55,14 @@ impl FeedData {
         ChannelBuilder::default()
             .title(self.title.clone())
             .link(self.url.clone())
-            .description(self.description.clone().unwrap_or_default())
+            .description(self.description.clone())
             .items(
                 self.entries
                     .values()
                     .map(FeedEntry::to_rss_item)
                     .collect::<Vec<rss::Item>>(),
             )
-            .last_build_date(Some(self.last_updated.clone().unwrap_or_default()))
+            .last_build_date(Some(self.last_updated.clone()))
             .build()
     }
 }
@@ -90,7 +94,7 @@ impl FeedEntry {
 }
 
 #[derive(Encode, Decode, Deserialize)]
-#[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum FeedConfig {
     Website(WebsiteFeed),
     Youtube(YoutubeFeed),
@@ -182,8 +186,9 @@ pub async fn init_storage() -> Result<()> {
         let configured_ids: HashSet<String> = feeds.iter().map(|feed| feed.id.clone()).collect();
 
         for mut feed in feeds {
-            if let Some(existing_guard) = table.get(feed.id.as_str())? {
-                let stored = decode_feed_data(existing_guard.value())?;
+            if let Some(existing_guard) = table.get(feed.id.as_str())?
+                && let Ok(stored) = decode_feed_data(existing_guard.value())
+            {
                 if feed.url_rss.is_none() {
                     feed.url_rss = stored.url_rss;
                 }
@@ -193,7 +198,7 @@ pub async fn init_storage() -> Result<()> {
                 feed.last_updated = stored.last_updated;
             }
             if let FeedConfig::Youtube(_) = &feed.config
-                && feed.url_rss.is_none()
+                && (feed.url.is_empty() || feed.url_rss.is_none())
             {
                 if feed.url.is_empty() {
                     feed.url = format!("https://www.youtube.com/@{}", feed.id);
@@ -263,10 +268,10 @@ async fn refresh_feed(feed: &mut FeedData) -> Result<()> {
         feed.url.clone_from(&url.href);
     }
     if let Some(description) = fetched.description {
-        feed.description = Some(description.content);
+        feed.description = description.content;
     }
     if let Some(last_updated) = fetched.updated {
-        feed.last_updated = Some(last_updated.to_rfc2822());
+        feed.last_updated = last_updated.to_rfc2822();
     }
 
     // Process all entries concurrently
