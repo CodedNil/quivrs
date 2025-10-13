@@ -25,6 +25,7 @@ dotenvy = "0.15.7"
 futures = "0.3.31"
 redb = "3.1.0"
 bincode = { version = "2.0.1", features = ["serde"] }
+toml = "0.8.19"
 
 [lints.rust]
 unsafe_code = "forbid"

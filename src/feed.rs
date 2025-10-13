@@ -1,5 +1,5 @@
 use crate::llm_functions;
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use axum::{
     extract::Path,
     http::StatusCode,
@@ -12,7 +12,14 @@ use futures::future::join_all;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use reqwest::{Client, header::CONTENT_TYPE};
 use rss::{Guid, ItemBuilder};
-use std::{collections::HashMap, env, sync::LazyLock};
+use serde::Deserialize;
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    sync::LazyLock,
+};
+use tokio::fs;
+use toml::Value;
 use tracing::{info, warn};
 
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
@@ -23,7 +30,7 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
     Database::create(database_url).unwrap()
 });
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
 pub struct FeedData {
     pub id: String,
     pub title: String,
@@ -32,6 +39,7 @@ pub struct FeedData {
     pub description: Option<String>,
     pub last_updated: Option<String>,
     pub config: FeedConfig,
+    #[serde(default)]
     pub entries: HashMap<String, FeedEntry>,
 }
 
@@ -57,7 +65,7 @@ impl FeedData {
     }
 }
 
-#[derive(Encode, Decode, Clone)]
+#[derive(Encode, Decode, Clone, Deserialize)]
 pub struct FeedEntry {
     pub id: String,
     pub title: String,
@@ -82,7 +90,8 @@ impl FeedEntry {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
+#[serde(tag = "type")]
 pub enum FeedConfig {
     Website(WebsiteFeed),
     Youtube(YoutubeFeed),
@@ -90,24 +99,24 @@ pub enum FeedConfig {
     Reddit(RedditFeed),
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
 pub struct WebsiteFeed {
     pub clean_title: bool,
     pub summarise_articles: bool,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
 pub struct YoutubeFeed {
     pub clean_title: bool,
     pub summarise_videos: bool,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
 pub struct TwitterFeed {
     pub summarise_threads: bool,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Deserialize)]
 pub struct RedditFeed {}
 
 // Helper function to encode FeedData
@@ -122,26 +131,42 @@ fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
 
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
+    let config: Value = toml::from_str(&fs::read_to_string("feeds.toml").await?)?;
+    let feeds_value = config
+        .get("feeds")
+        .cloned()
+        .context("feeds.toml missing `feeds` array")?;
+    let feeds: Vec<FeedData> = feeds_value
+        .try_into()
+        .map_err(|_| anyhow!("feeds array has invalid structure"))?;
+
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        table.insert(
-            "verge",
-            encode_feed_data(&FeedData {
-                id: "verge".to_string(),
-                title: "The Verge".to_string(),
-                url: "https://www.theverge.com".to_string(),
-                url_rss: Some("https://www.theverge.com/rss/index.xml".to_string()),
-                description: None,
-                last_updated: None,
-                config: FeedConfig::Website(WebsiteFeed {
-                    clean_title: true,
-                    summarise_articles: true,
-                }),
-                entries: HashMap::new(),
-            })?
-            .as_slice(),
-        )?;
+        let existing_ids: HashSet<String> = table
+            .iter()?
+            .map(|entry_result| {
+                let (id_ref, _) = entry_result?;
+                Ok(id_ref.value().to_owned())
+            })
+            .collect::<Result<_, redb::Error>>()?;
+
+        let configured_ids: HashSet<String> = feeds.iter().map(|feed| feed.id.clone()).collect();
+
+        for mut feed in feeds {
+            if let Some(existing_guard) = table.get(feed.id.as_str())? {
+                let stored = decode_feed_data(existing_guard.value())?;
+                feed.url_rss = stored.url_rss;
+                feed.entries = stored.entries;
+                feed.description = stored.description;
+                feed.last_updated = stored.last_updated;
+            }
+            table.insert(feed.id.as_str(), encode_feed_data(&feed)?.as_slice())?;
+        }
+
+        for stale_id in existing_ids.difference(&configured_ids) {
+            table.remove(stale_id.as_str())?;
+        }
     }
     write_txn.commit()?;
     Ok(())
