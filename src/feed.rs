@@ -156,7 +156,9 @@ async fn resolve_youtube_channel_id(configured_url: &str) -> Result<String> {
 
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
-    let config: Value = toml::from_str(&fs::read_to_string("feeds.toml").await?)?;
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
+    let config: Value = toml::from_str(&fs::read_to_string(&config_path).await?)
+        .context(format!("Failed to read {config_path}"))?;
     let feeds_value = config
         .get("feeds")
         .cloned()
