@@ -33,10 +33,10 @@ async fn main() -> Result<()> {
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         info!("Starting feed refresh scheduler (interval: {DEFAULT_REFRESH_INTERVAL:?})",);
         loop {
+            ticker.tick().await;
             if let Err(err) = refresh_all_feeds().await {
                 error!("Scheduled feed refresh failed: {err}");
             }
-            ticker.tick().await;
         }
     });
 

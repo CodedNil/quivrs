@@ -23,8 +23,7 @@ pub async fn init() -> Result<()> {
 /// Save or update a feed's channel snapshot.
 pub async fn save_channel(feed_id: &str, channel: &Channel) -> Result<()> {
     let db = database().await?;
-    let channel_json = serde_json::to_string(channel)?;
-    let channel_bytes = bincode::encode_to_vec(channel_json, config::standard())?;
+    let channel_bytes = bincode::serde::encode_to_vec(channel, config::standard())?;
 
     let write_txn = db.begin_write()?;
     {
@@ -46,8 +45,8 @@ pub async fn load_all_channels() -> Result<Vec<(String, Channel)>> {
         let (id_ref, channel_bytes_ref) = entry?;
         let id = id_ref.value().to_string();
         let channel_bytes = channel_bytes_ref.value();
-        let channel_json: String = bincode::decode_from_slice(channel_bytes, config::standard())?.0;
-        let channel: Channel = serde_json::from_str(&channel_json)?;
+        let channel: Channel =
+            bincode::serde::decode_from_slice(channel_bytes, config::standard())?.0;
         channels.push((id, channel));
     }
     Ok(channels)

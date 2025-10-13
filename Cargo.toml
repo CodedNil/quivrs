@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 anyhow = "1.0.100"
 tokio = { version = "1.47.1", features = ["full"] }
 axum = "0.8.6"
@@ -19,13 +20,12 @@ serde_json = "1.0.145"
 rss = { version = "2.0.12", features = ["serde"] }
 html2text = "0.15.5"
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
-tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 feed-rs = "2.3.1"
 dotenvy = "0.15.7"
 dashmap = "6.1.0"
 futures = "0.3.31"
 redb = "3.1.0"
-bincode = "2.0.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 
 [lints.rust]
 unsafe_code = "forbid"
