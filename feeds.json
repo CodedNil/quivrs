@@ -1,0 +1,18 @@
+{
+  "verge": {
+    "url": "https://www.theverge.com",
+    "url_rss": "https://www.theverge.com/rss/index.xml",
+    "source": "Website",
+    "clean_title": true,
+    "summarise_content": true,
+    "filters": [
+      "Posts that are not related to technology, especially political articles",
+      "Posts that are primarily marketing, examples being 'These headphones are 20% off today' and the site has a referral link to purchase (unless this is a new product announcement)"
+    ]
+  },
+  "veritasium": {
+    "source": "Youtube",
+    "clean_title": true,
+    "summarise_content": true
+  }
+}

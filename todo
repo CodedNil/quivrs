@@ -8,8 +8,8 @@ Embeds images
 
 Normal website rss feed:
 Option to filter out clear marketing posts
-Keep links in the description text
 Option to summarise all recent articles, combining many into a daily bulletin feed
+If feed was rejected due to filters, push it to a rejected feed
 
 Reddit
 Summarise all the posts into a daily bulletin feed

@@ -9,9 +9,9 @@ use bincode::{Decode, Encode, config};
 use chrono::{DateTime, Utc};
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
+use json_feed_model::{Author, Feed, Item, Version};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use reqwest::{Client, header::CONTENT_TYPE};
-use rss::{ChannelBuilder, Guid, ItemBuilder};
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -28,34 +28,13 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 const INVIDIOUS_API_URL: &str = "https://inv.nadeko.net/api/v1";
 
 const SUMMARISE_WEBSITE: &str = "Rewrite this rss feed entry outputted as embedded HTML. Content well formatted in paragraphs, written in same the article style as the original just trimmed and concise. Include at least one image (in a figure with caption where possible, no alt text) using the original image url. The first image is used as the thumbnail and should be placed after at least the first paragraph of text. Include extra images if available at the end. Also include inline links where appropriate.";
-const SUMMARISE_YOUTUBE: &str = "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarize the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.";
+const SUMMARISE_YOUTUBE: &str = "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarise the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.";
 
 const FEEDS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("feeds");
 static DB: LazyLock<Database> = LazyLock::new(|| {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "quivrs.redb".to_string());
     Database::create(database_url).unwrap()
 });
-
-#[derive(Encode, Decode, Default)]
-struct FeedData {
-    source: FeedSource,
-    title: String,
-    url: String,
-    url_rss: String,
-
-    filters: Vec<String>,
-    clean_title: bool,
-    summarise_content: bool,
-
-    description: String,
-    last_updated: String,
-    entries: HashMap<String, FeedEntry>,
-}
-
-#[derive(Deserialize)]
-struct Config {
-    feeds: HashMap<String, FeedConfig>,
-}
 
 #[derive(Deserialize)]
 struct FeedConfig {
@@ -70,67 +49,97 @@ struct FeedConfig {
     summarise_content: bool,
 }
 
+#[derive(Encode, Decode, Default)]
+struct FeedData {
+    source: FeedSource,
+    title: String,
+    url: String,
+    url_rss: String,
+
+    filters: Vec<String>,
+    clean_title: bool,
+    summarise_content: bool,
+
+    description: String,
+    last_updated: String,
+    favicon: Option<String>,
+    icon: Option<String>,
+    authors: Vec<String>,
+    tags: Vec<String>,
+    entries: HashMap<String, FeedEntry>,
+}
+
 impl FeedData {
-    fn to_rss_channel(&self) -> rss::Channel {
-        let mut entries = self
+    fn to_json_feed(&self) -> Feed {
+        // Sort by date_published, recent first
+        let mut items = self
             .entries
             .iter()
             .filter(|(_, entry)| entry.title != "INVALID")
-            .map(|(id, entry)| entry.to_rss_item(id))
             .collect::<Vec<_>>();
-
-        // Sort by date published, recent first
-        entries.sort_by(|a, b| {
-            let key_a = a
-                .pub_date()
-                .and_then(|s| DateTime::parse_from_rfc2822(s).ok());
-            let key_b = b
-                .pub_date()
-                .and_then(|s| DateTime::parse_from_rfc2822(s).ok());
+        items.sort_by(|(_, a), (_, b)| {
+            let key_a = DateTime::parse_from_rfc3339(&a.published).ok();
+            let key_b = DateTime::parse_from_rfc3339(&b.published).ok();
             key_b.cmp(&key_a)
         });
+        let items = items
+            .iter()
+            .map(|(i, e)| e.to_json_item(i))
+            .collect::<Vec<_>>();
 
-        ChannelBuilder::default()
-            .title(self.title.clone())
-            .link(self.url.clone())
-            .description(self.description.clone())
-            .items(entries)
-            .last_build_date(Some(self.last_updated.clone()))
-            .build()
+        let mut feed = Feed::new();
+        feed.set_version(Version::Version1_1);
+        feed.set_title(&self.title);
+        feed.set_home_page_url(&self.url);
+        feed.set_feed_url(&self.url_rss);
+        feed.set_description(&self.description);
+        feed.set_items(items);
+        if let Some(icon) = &self.icon {
+            feed.set_icon(icon);
+        }
+        if let Some(favicon) = &self.favicon {
+            feed.set_favicon(favicon);
+        }
+
+        assert!(feed.is_valid(&Version::Version1_1));
+
+        feed
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Default)]
 struct FeedEntry {
     title: String,
     link: String,
     description: String,
     published: String,
-    author: String,
+    image: String,
+    authors: Vec<String>,
+    tags: Vec<String>,
 }
 
 impl FeedEntry {
-    fn to_rss_item(&self, id: &str) -> rss::Item {
-        ItemBuilder::default()
-            .guid(Guid {
-                value: id.to_string(),
-                permalink: true,
-            })
-            .title(Some(self.title.clone()))
-            .link(Some(self.link.clone()))
-            .description(Some(self.description.clone()))
-            .pub_date(Some(self.published.clone()))
-            .author(Some(self.author.clone()))
-            .build()
+    fn to_json_item(&self, id: &str) -> Item {
+        let mut item = Item::new();
+        item.set_id(id);
+        item.set_title(&self.title);
+        item.set_url(&self.link);
+        item.set_content_html(&self.description);
+        item.set_date_published(&self.published);
+        item.set_authors(self.authors.iter().map(|a| {
+            let mut author = Author::new();
+            author.set_name(a);
+            author
+        }));
+        item.set_banner_image(&self.image);
+        item.set_tags(self.tags.clone());
+        item
     }
 
     fn invalid() -> Self {
         Self {
             title: "INVALID".to_string(),
-            link: String::new(),
-            description: String::new(),
-            published: String::new(),
-            author: String::new(),
+            ..Default::default()
         }
     }
 }
@@ -167,9 +176,10 @@ fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
 
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
-    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.toml".to_string());
-    let config: Config = toml::from_str(&fs::read_to_string(&config_path).await?)
-        .context(format!("Failed to read {config_path}"))?;
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
+    let config: HashMap<String, FeedConfig> =
+        serde_json::from_str(&fs::read_to_string(&config_path).await?)
+            .context(format!("Failed to read {config_path}"))?;
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
@@ -178,9 +188,9 @@ pub async fn init_storage() -> Result<()> {
             .map(|e| Ok(e?.0.value().to_string()))
             .collect::<Result<_>>()?;
 
-        let configured_ids: HashSet<String> = config.feeds.keys().cloned().collect();
+        let configured_ids: HashSet<String> = config.keys().cloned().collect();
 
-        for (feed_id, config_feed) in config.feeds {
+        for (feed_id, config_feed) in config {
             // Get stored feed data
             let mut feed = if let Some(existing_guard) = table.get(feed_id.as_str())?
                 && let Ok(stored) = decode_feed_data(existing_guard.value())
@@ -271,8 +281,12 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
         feed.description = description.content;
     }
     if let Some(last_updated) = fetched.updated {
-        feed.last_updated = last_updated.to_rfc2822();
+        feed.last_updated = last_updated.to_rfc3339();
     }
+    feed.icon = fetched.logo.map(|icon| icon.uri);
+    feed.favicon = fetched.icon.map(|icon| icon.uri);
+    feed.authors = fetched.authors.iter().map(|a| a.name.clone()).collect();
+    feed.tags = fetched.categories.iter().map(|c| c.term.clone()).collect();
 
     // Process all entries concurrently
     let entries = join_all(fetched.entries.into_iter().map(|e| build_item(feed, e))).await;
@@ -289,7 +303,7 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
     Ok(())
 }
 
-/// Builds a single RSS item, checking for existing items and optionally summarizing content.
+/// Builds a single RSS item, checking for existing items and optionally summarising content.
 async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)> {
     // If the item already exists in our database, return None to avoid reprocessing.
     if feed.entries.contains_key(&entry.id) {
@@ -307,28 +321,7 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
     let mut title = entry.title.map_or_else(|| feed.url.clone(), |t| t.content);
     let mut description = entry.content.and_then(|c| c.body).unwrap_or_default();
 
-    match &feed.source {
-        FeedSource::Website => {
-            let page_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
-            summarise_content(
-                &link,
-                feed,
-                &mut title,
-                &mut description,
-                SUMMARISE_WEBSITE,
-                "Original content:",
-                &page_content,
-            )
-            .await?;
-
-            // Save the description as a html file in outputs
-            #[cfg(debug_assertions)]
-            fs::write(
-                format!("outputs/{}.html", title.to_lowercase().replace(' ', "_")),
-                description.clone(),
-            )
-            .await?;
-        }
+    let summarised = match &feed.source {
         FeedSource::Youtube => {
             if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
             {
@@ -361,18 +354,47 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
             summarise_content(
                 &link,
                 feed,
-                &mut title,
-                &mut description,
+                &title,
+                &description,
                 SUMMARISE_YOUTUBE,
                 "Videos captions:",
                 &cleaned_captions,
             )
-            .await?;
+            .await?
         }
-        _ => {}
+        _ => {
+            let page_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
+            let summarised = summarise_content(
+                &link,
+                feed,
+                &title,
+                &description,
+                SUMMARISE_WEBSITE,
+                "Original content:",
+                &page_content,
+            )
+            .await?;
+
+            // Save the description as a html file in outputs
+            #[cfg(debug_assertions)]
+            fs::write(
+                format!("outputs/{}.html", title.to_lowercase().replace(' ', "_")),
+                description.clone(),
+            )
+            .await?;
+
+            summarised
+        }
+    };
+
+    if feed.clean_title {
+        title = summarised.title;
+    }
+    if feed.summarise_content {
+        description = summarised.content;
     }
 
-    if title == "INVALID" {
+    if !feed.filters.is_empty() && !summarised.included {
         info!("FILTERED: {link}");
         return Ok((entry.id, FeedEntry::invalid()));
     }
@@ -383,15 +405,10 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
             title,
             link,
             description,
-            published: entry
-                .published
-                .map_or_else(|| Utc::now().to_rfc3339(), |date| date.to_rfc2822()),
-            author: entry
-                .authors
-                .iter()
-                .map(|p| p.name.clone())
-                .collect::<Vec<String>>()
-                .join(", "),
+            published: entry.published.unwrap_or_else(Utc::now).to_rfc3339(),
+            authors: entry.authors.iter().map(|p| p.name.clone()).collect(),
+            tags: entry.categories.iter().map(|c| c.term.clone()).collect(),
+            image: summarised.image,
         },
     ))
 }
@@ -402,6 +419,8 @@ struct SummariseOutput {
     title: String,
     /// Summarised content, well written and engaging.
     content: String,
+    /// Key image url, to represent the feed as a thumbnail
+    image: String,
     /// Whether this entry should be included, false for filtered out.
     included: bool,
 }
@@ -410,17 +429,12 @@ struct SummariseOutput {
 async fn summarise_content(
     link: &str,
     feed: &FeedData,
-    title: &mut String,
-    description: &mut String,
+    title: &str,
+    description: &str,
     prompt: &str,
     content_key: &str,
     original_content: &str,
-) -> Result<()> {
-    if !feed.clean_title && !feed.summarise_content {
-        return Ok(());
-    }
-
-    // Summarize the content
+) -> Result<SummariseOutput> {
     match run::<SummariseOutput>(
         {
             let mut context = vec![
@@ -440,23 +454,11 @@ async fn summarise_content(
     )
     .await
     {
-        Ok(output) => {
-            if !feed.filters.is_empty() && !output.included {
-                *title = "INVALID".to_string();
-                return Ok(());
-            }
-            if feed.clean_title {
-                *title = output.title;
-            }
-            if feed.summarise_content {
-                *description = output.content;
-            }
-            Ok(())
-        }
+        Ok(output) => Ok(output),
         Err(err) => {
             warn!(
                 link = %link,
-                "Summarization failed: {err:#}"
+                "Summarisation failed: {err:#}"
             );
             bail!(err);
         }
@@ -504,12 +506,18 @@ pub async fn summarised_feed_handler(Path(id): Path<String>) -> Response {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+    let feed_string = match serde_json::to_string(&feed_data.to_json_feed()) {
+        Ok(data) => data,
+        Err(e) => {
+            warn!(feed_id = %id, "Failed to serialize feed data: {e:#}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
-    let rss_channel = feed_data.to_rss_channel();
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/rss+xml; charset=utf-8")
-        .body(rss_channel.to_string().into())
+        .body(feed_string.into())
         .unwrap_or_else(|_| {
             warn!(feed_id = %id, "Failed to build RSS response body");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
