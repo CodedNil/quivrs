@@ -7,24 +7,20 @@ edition = "2024"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 anyhow = "1.0.100"
-tokio = { version = "1.47.1", features = ["full"] }
-axum = "0.8.6"
-reqwest = { version = "0.12.24", default-features = false, features = [
-    "rustls-tls",
-    "json",
-    "brotli",
-] }
+tokio = { version = "1.47.1", features = ["fs", "rt-multi-thread"] }
+axum = { version = "0.8.6", default-features = false, features = ["tokio", "tracing", "http1"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls", "json", "brotli"] }
 schemars = "1.0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-rss = { version = "2.0.12", features = ["serde"] }
+rss = "2.0.12"
 html2text = "0.15.5"
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
 feed-rs = "2.3.1"
 dotenvy = "0.15.7"
 futures = "0.3.31"
 redb = "3.1.0"
-bincode = { version = "2.0.1", features = ["serde"] }
+bincode = "2.0.1"
 toml = "0.9.8"
 scraper = "0.24.0"
 

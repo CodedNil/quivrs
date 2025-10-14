@@ -1,5 +1,5 @@
 use crate::llm_functions::run;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use axum::{
     extract::Path,
     http::StatusCode,
@@ -21,7 +21,6 @@ use std::{
     sync::LazyLock,
 };
 use tokio::fs;
-use toml::Value;
 use tracing::{info, warn};
 
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
@@ -35,12 +34,17 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
 
 #[derive(Encode, Decode, Deserialize)]
 pub struct FeedData {
-    pub id: String,
-    pub config: FeedConfig,
+    pub source: FeedSource,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub url: String,
+
+    #[serde(default)]
+    pub clean_title: bool,
+    #[serde(default)]
+    pub summarise_content: bool,
+
     pub url_rss: Option<String>,
     #[serde(default)]
     pub description: String,
@@ -75,7 +79,6 @@ pub struct FeedEntry {
     pub description: String,
     pub published: String,
     pub author: String,
-    // pub media: Option<MediaObject>,
 }
 
 impl FeedEntry {
@@ -94,33 +97,17 @@ impl FeedEntry {
 }
 
 #[derive(Encode, Decode, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FeedConfig {
-    Website(WebsiteFeed),
-    Youtube(YoutubeFeed),
-    Twitter(TwitterFeed),
-    Reddit(RedditFeed),
+pub enum FeedSource {
+    Website,
+    Youtube,
+    Twitter,
+    Reddit,
 }
 
-#[derive(Encode, Decode, Deserialize)]
-pub struct WebsiteFeed {
-    pub clean_title: bool,
-    pub summarise_articles: bool,
+#[derive(Deserialize)]
+pub struct Config {
+    feeds: HashMap<String, FeedData>,
 }
-
-#[derive(Encode, Decode, Deserialize)]
-pub struct YoutubeFeed {
-    pub clean_title: bool,
-    pub summarise_videos: bool,
-}
-
-#[derive(Encode, Decode, Deserialize)]
-pub struct TwitterFeed {
-    pub summarise_threads: bool,
-}
-
-#[derive(Encode, Decode, Deserialize)]
-pub struct RedditFeed {}
 
 /// Helper function to encode `FeedData`
 fn encode_feed_data(feed_data: &FeedData) -> Result<Vec<u8>> {
@@ -133,62 +120,45 @@ fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
 }
 
 /// Resolves a `YouTube` channel ID from a given URL or by fetching the page content.
-async fn resolve_youtube_channel_id(configured_url: &str) -> Result<String> {
-    let response = HTTP_CLIENT.get(configured_url).send().await?;
-
-    if !response.status().is_success() {
-        return Err(anyhow::format_err!(
-            "Non-success status for {configured_url}: {}",
-            response.status()
-        ));
-    }
-
-    let body = response.text().await?;
+async fn resolve_youtube_channel_id(url: &str) -> Result<String> {
+    let body = HTTP_CLIENT.get(url).send().await?.text().await?;
     let document = Html::parse_document(&body);
-    let link_selector = Selector::parse("link[rel=\"canonical\"]").unwrap();
-    if let Some(element) = document.select(&link_selector).next()
+    let selector = Selector::parse("link[rel=\"canonical\"]").unwrap();
+    if let Some(element) = document.select(&selector).next()
         && let Some(href) = element.value().attr("href")
         && let Some(channel_id) = href.split('/').next_back()
     {
-        info!("Found channel ID for {configured_url}: {channel_id}",);
+        info!("Found channel ID for {url}: {channel_id}",);
         return Ok(channel_id.to_string());
     }
 
-    Err(anyhow::format_err!(
-        "No channel ID found for `{configured_url}`"
-    ))
+    bail!("No channel ID found for `{url}`")
 }
 
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.toml".to_string());
-    let config: Value = toml::from_str(&fs::read_to_string(&config_path).await?)
+    let config: Config = toml::from_str(&fs::read_to_string(&config_path).await?)
         .context(format!("Failed to read {config_path}"))?;
-    let feeds_value = config
-        .get("feeds")
-        .cloned()
-        .context("feeds.toml missing `feeds` array")?;
-    let feeds: Vec<FeedData> = feeds_value
-        .try_into()
-        .map_err(|_| anyhow!("feeds array has invalid structure"))?;
+    let feeds = config.feeds;
 
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
         let existing_ids: HashSet<String> = table
             .iter()?
-            .map(|entry_result| {
-                let (id_ref, _) = entry_result?;
-                Ok(id_ref.value().to_owned())
-            })
-            .collect::<Result<_, redb::Error>>()?;
+            .map(|e| Ok(e?.0.value().to_string()))
+            .collect::<Result<_>>()?;
 
-        let configured_ids: HashSet<String> = feeds.iter().map(|feed| feed.id.clone()).collect();
+        let configured_ids: HashSet<String> = feeds.keys().cloned().collect();
 
-        for mut feed in feeds {
-            if let Some(existing_guard) = table.get(feed.id.as_str())?
+        for (feed_id, mut feed) in feeds {
+            if let Some(existing_guard) = table.get(feed_id.as_str())?
                 && let Ok(stored) = decode_feed_data(existing_guard.value())
             {
+                if feed.url.is_empty() {
+                    feed.url = stored.url;
+                }
                 if feed.url_rss.is_none() {
                     feed.url_rss = stored.url_rss;
                 }
@@ -197,18 +167,18 @@ pub async fn init_storage() -> Result<()> {
                 feed.description = stored.description;
                 feed.last_updated = stored.last_updated;
             }
-            if let FeedConfig::Youtube(_) = &feed.config
+            if matches!(&feed.source, FeedSource::Youtube)
                 && (feed.url.is_empty() || feed.url_rss.is_none())
             {
                 if feed.url.is_empty() {
-                    feed.url = format!("https://www.youtube.com/@{}", feed.id);
+                    feed.url = format!("https://www.youtube.com/@{feed_id}");
                 }
                 let channel_id = resolve_youtube_channel_id(&feed.url).await?;
                 feed.url_rss = Some(format!(
                     "https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
                 ));
             }
-            table.insert(feed.id.as_str(), encode_feed_data(&feed)?.as_slice())?;
+            table.insert(feed_id.as_str(), encode_feed_data(&feed)?.as_slice())?;
         }
 
         for stale_id in existing_ids.difference(&configured_ids) {
@@ -223,28 +193,19 @@ pub async fn init_storage() -> Result<()> {
 pub async fn refresh_all_feeds() -> Result<()> {
     let read_txn = DB.begin_read()?;
     let read_table = read_txn.open_table(FEEDS_TABLE)?;
+    let feeds = read_table.iter()?.flatten();
 
-    // Collect feed data into owned types for concurrency
-    let feeds: Vec<(String, Vec<u8>)> = read_table
-        .iter()?
-        .filter_map(|result| {
-            result
-                .ok()
-                .map(|(id, bytes)| (id.value().to_string(), bytes.value().to_vec()))
-        })
-        .collect();
-
-    // Refresh feeds concurrently
-    join_all(feeds.into_iter().map(|(id, bytes)| async move {
-        let mut feed = match decode_feed_data(&bytes) {
+    join_all(feeds.map(|(feed_id, bytes)| async move {
+        let feed_id = feed_id.value();
+        let mut feed = match decode_feed_data(bytes.value()) {
             Ok(feed) => feed,
             Err(e) => {
-                warn!(feed_id = %id, "Failed to decode feed: {e:#}");
+                warn!(feed_id = %feed_id, "Failed to decode feed: {e:#}");
                 return;
             }
         };
-        if let Err(e) = refresh_feed(&mut feed).await {
-            warn!(feed_id = %feed.id, "Failed to refresh feed: {e:#}");
+        if let Err(e) = refresh_feed(feed_id, &mut feed).await {
+            warn!(feed_id = %feed_id, "Failed to refresh feed: {e:#}");
         }
     }))
     .await;
@@ -253,8 +214,8 @@ pub async fn refresh_all_feeds() -> Result<()> {
 }
 
 /// Refreshes a single feed and updates the cache.
-async fn refresh_feed(feed: &mut FeedData) -> Result<()> {
-    info!(feed_id = %feed.id, url = %feed.url, "Refreshing feed");
+async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
+    info!(feed_id = %feed_id, url = %feed.url, "Refreshing feed");
 
     // Fetch and parse the remote feed
     let fetch_url = feed.url_rss.as_ref().unwrap_or(&feed.url);
@@ -275,65 +236,61 @@ async fn refresh_feed(feed: &mut FeedData) -> Result<()> {
     }
 
     // Process all entries concurrently
-    let entries = join_all(
-        fetched
-            .entries
-            .into_iter()
-            .map(|entry| build_item(feed, entry)),
-    );
-    for entry in entries.await.into_iter().flatten() {
+    let entries = join_all(fetched.entries.into_iter().map(|e| build_item(feed, e))).await;
+    for entry in entries.into_iter().flatten() {
         feed.entries.insert(entry.id.clone(), entry);
     }
 
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        table.insert(feed.id.as_str(), encode_feed_data(&*feed)?.as_slice())?;
+        table.insert(feed_id, encode_feed_data(&*feed)?.as_slice())?;
     }
     write_txn.commit()?;
     Ok(())
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarizing content.
-async fn build_item(feed: &FeedData, entry: Entry) -> Option<FeedEntry> {
+async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
     // If the item already exists in our database, return None to avoid reprocessing.
     if feed.entries.contains_key(&entry.id) {
-        return None;
+        bail!("Item already exists");
     }
 
-    let link = entry.links.first()?.href.clone();
+    let link = entry
+        .links
+        .first()
+        .ok_or_else(|| anyhow!("Entry has no link."))?
+        .href
+        .clone();
     info!(link = %link, "Loading webpage");
 
-    let mut title = entry
-        .title
-        .as_ref()
-        .map_or_else(|| feed.url.to_string(), |t| t.content.to_string());
+    let mut title = entry.title.map_or_else(|| feed.url.clone(), |t| t.content);
     let mut description = entry.content.and_then(|c| c.body).unwrap_or_default();
 
-    match &feed.config {
-        FeedConfig::Website(website_feed) => {
+    match &feed.source {
+        FeedSource::Website => {
             // Try to fetch the full article content.
             if let Ok(response) = HTTP_CLIENT.get(&link).send().await
-                && response.status().is_success()
                 && let Ok(description_html) = response.text().await
             {
                 description =
                     html2text::from_read(description_html.as_bytes(), 120).unwrap_or_default();
             }
 
-            summarise_website(&link, website_feed, &mut title, &mut description).await;
+            summarise_website(&link, feed, &mut title, &mut description).await?;
         }
-        FeedConfig::Youtube(youtube_feed) => {
+        FeedSource::Youtube => {
             if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
             {
                 description.clone_from(&media_description.content);
             }
-            summarise_youtube(&link, youtube_feed, &mut title, &mut description).await;
+            summarise_youtube(&link, feed, &mut title, &mut description).await?;
         }
         _ => {}
     }
 
-    Some(FeedEntry {
+    Ok(FeedEntry {
         id: entry.id.clone(),
         title,
         link,
@@ -347,7 +304,6 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Option<FeedEntry> {
             .map(|p| p.name.clone())
             .collect::<Vec<String>>()
             .join(", "),
-        // media: entry.media.first().cloned(),
     })
 }
 
@@ -362,20 +318,15 @@ pub struct SummariseOutput {
 /// Summarises a website article.
 async fn summarise_website(
     link: &str,
-    website_feed: &WebsiteFeed,
+    feed: &FeedData,
     title: &mut String,
     description: &mut String,
-) {
-    if !website_feed.clean_title && !website_feed.summarise_articles {
-        return;
+) -> Result<()> {
+    if !feed.clean_title && !feed.summarise_content {
+        return Ok(());
     }
 
-    let response = HTTP_CLIENT.get(link).send().await;
-    let Ok(response) = response else {
-        return;
-    };
-    let body = response.text().await.unwrap_or_default();
-
+    let body = HTTP_CLIENT.get(link).send().await?.text().await?;
     let cleaned = html2text::from_read(body.as_bytes(), 120).unwrap_or_default();
     let page_content = if cleaned.trim().is_empty() {
         description.clone()
@@ -384,29 +335,30 @@ async fn summarise_website(
     };
 
     // Summarize the content
-    let system_context = vec![
-        format!("Original title: {title}"),
-        format!("Original content: {page_content}"),
-    ];
     match run::<SummariseOutput>(
-        system_context,
+        vec![
+            format!("Original title: {title}"),
+            format!("Original content: {page_content}"),
+        ],
         "Rewrite this rss feed entry. Content well formatted in paragraphs.".to_string(),
     )
     .await
     {
         Ok(output) => {
-            if website_feed.clean_title {
+            if feed.clean_title {
                 *title = output.title;
             }
-            if website_feed.summarise_articles {
+            if feed.summarise_content {
                 *description = output.content;
             }
+            Ok(())
         }
         Err(err) => {
             warn!(
                 link = %link,
                 "Summarization failed: {err:#}"
             );
+            bail!(err);
         }
     }
 }
@@ -414,28 +366,25 @@ async fn summarise_website(
 /// Summarises a youtube video from its captions.
 async fn summarise_youtube(
     link: &str,
-    youtube_feed: &YoutubeFeed,
+    feed: &FeedData,
     title: &mut String,
     description: &mut String,
-) {
-    if !youtube_feed.clean_title && !youtube_feed.summarise_videos {
-        return;
+) -> Result<()> {
+    if !feed.clean_title && !feed.summarise_content {
+        return Ok(());
     }
 
     // Get the video ID from the link
     let Some(video_id_part) = link.split("v=").nth(1) else {
         // Invalid youtube link, probably a youtube short
-        return;
+        return Ok(());
     };
     let video_id = video_id_part.split('&').next().unwrap_or(video_id_part);
 
     // Load youtube captions
     let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
     info!(link = %caption_link, "Loading youtube captions");
-    let response = HTTP_CLIENT.get(caption_link).send().await;
-    let Ok(response) = response else {
-        return;
-    };
+    let response = HTTP_CLIENT.get(caption_link).send().await?;
     let captions = response.text().await.unwrap_or_default();
 
     let cleaned_captions = captions
@@ -455,18 +404,20 @@ async fn summarise_youtube(
     ];
     match run::<SummariseOutput>(system_context, "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarize the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.".to_string()).await {
         Ok(output) => {
-            if youtube_feed.clean_title {
+            if feed.clean_title {
                 *title = output.title;
             }
-            if youtube_feed.summarise_videos {
+            if feed.summarise_content {
                 *description = output.content;
             }
+            Ok(())
         }
         Err(err) => {
             warn!(
                 link = %link,
                 "Summarization failed: {err:#}"
             );
+            bail!(err)
         }
     }
 }

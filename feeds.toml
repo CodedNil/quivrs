@@ -1,13 +1,11 @@
-[[feeds]]
-id = "verge"
+[feeds.verge]
 url = "https://www.theverge.com"
 url_rss = "https://www.theverge.com/rss/index.xml"
-[feeds.config.website]
+source = "Website"
 clean_title = true
-summarise_articles = true
+summarise_content = true
 
-[[feeds]]
-id = "veritasium"
-[feeds.config.youtube]
+[feeds.veritasium]
+source = "Youtube"
 clean_title = true
-summarise_videos = true
+summarise_content = true
