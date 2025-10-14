@@ -59,9 +59,9 @@ impl FeedData {
     pub fn to_rss_channel(&self) -> rss::Channel {
         let mut entries = self
             .entries
-            .values()
-            .map(FeedEntry::to_rss_item)
-            .collect::<Vec<rss::Item>>();
+            .iter()
+            .map(|(id, entry)| entry.to_rss_item(id))
+            .collect::<Vec<_>>();
 
         // Sort by date published, recent first
         entries.sort_by(|a, b| {
@@ -86,7 +86,6 @@ impl FeedData {
 
 #[derive(Encode, Decode, Deserialize)]
 pub struct FeedEntry {
-    pub id: String,
     pub title: String,
     pub link: String,
     pub description: String,
@@ -95,16 +94,17 @@ pub struct FeedEntry {
 }
 
 impl FeedEntry {
-    pub fn to_rss_item(&self) -> rss::Item {
+    pub fn to_rss_item(&self, id: &str) -> rss::Item {
         ItemBuilder::default()
+            .guid(Guid {
+                value: id.to_string(),
+                permalink: true,
+            })
             .title(Some(self.title.clone()))
             .link(Some(self.link.clone()))
             .description(Some(self.description.clone()))
-            .guid(Guid {
-                value: self.id.clone(),
-                permalink: true,
-            })
             .pub_date(Some(self.published.clone()))
+            .author(Some(self.author.clone()))
             .build()
     }
 }
@@ -250,8 +250,8 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
 
     // Process all entries concurrently
     let entries = join_all(fetched.entries.into_iter().map(|e| build_item(feed, e))).await;
-    for entry in entries.into_iter().flatten() {
-        feed.entries.insert(entry.id.clone(), entry);
+    for (entry_id, entry) in entries.into_iter().flatten() {
+        feed.entries.insert(entry_id, entry);
     }
 
     let write_txn = DB.begin_write()?;
@@ -264,7 +264,7 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarizing content.
-async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
+async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)> {
     // If the item already exists in our database, return None to avoid reprocessing.
     if feed.entries.contains_key(&entry.id) {
         bail!("Item already exists");
@@ -303,21 +303,23 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
         _ => {}
     }
 
-    Ok(FeedEntry {
-        id: entry.id.clone(),
-        title,
-        link,
-        description,
-        published: entry
-            .published
-            .map_or_else(|| Utc::now().to_rfc3339(), |date| date.to_rfc2822()),
-        author: entry
-            .authors
-            .iter()
-            .map(|p| p.name.clone())
-            .collect::<Vec<String>>()
-            .join(", "),
-    })
+    Ok((
+        entry.id,
+        FeedEntry {
+            title,
+            link,
+            description,
+            published: entry
+                .published
+                .map_or_else(|| Utc::now().to_rfc3339(), |date| date.to_rfc2822()),
+            author: entry
+                .authors
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<String>>()
+                .join(", "),
+        },
+    ))
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -348,7 +350,7 @@ async fn summarise_website(
             format!("Original description: {description}"),
             format!("Original content: {page_content}"),
         ],
-        "Rewrite this rss feed entry outputted as embedded HTML. Content well formatted in paragraphs, written in same the article style as the original just trimmed and concise. Include at least one image (in a figure with caption where possible, no alt text) using the original image url, the first image is used as the thumbnail. Also include inline links where appropriate.".to_string(),
+        "Rewrite this rss feed entry outputted as embedded HTML. Content well formatted in paragraphs, written in same the article style as the original just trimmed and concise. Include at least one image (in a figure with caption where possible, no alt text) using the original image url. The first image is used as the thumbnail and should be placed after at least the first paragraph of text. Include extra images if available at the end. Also include inline links where appropriate.".to_string(),
     )
     .await
     {
