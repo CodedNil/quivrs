@@ -11,7 +11,7 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 pub async fn run<T>(
     context: Vec<String>,
-    message: String,
+    message: &str,
 ) -> Result<T, Box<dyn Error + Send + Sync + 'static>>
 where
     T: JsonSchema + DeserializeOwned,
