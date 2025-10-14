@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bincode::{Decode, Encode, config};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
@@ -57,16 +57,28 @@ pub struct FeedData {
 
 impl FeedData {
     pub fn to_rss_channel(&self) -> rss::Channel {
+        let mut entries = self
+            .entries
+            .values()
+            .map(FeedEntry::to_rss_item)
+            .collect::<Vec<rss::Item>>();
+
+        // Sort by date published, recent first
+        entries.sort_by(|a, b| {
+            let key_a = a
+                .pub_date()
+                .and_then(|s| DateTime::parse_from_rfc2822(s).ok());
+            let key_b = b
+                .pub_date()
+                .and_then(|s| DateTime::parse_from_rfc2822(s).ok());
+            key_b.cmp(&key_a)
+        });
+
         ChannelBuilder::default()
             .title(self.title.clone())
             .link(self.url.clone())
             .description(self.description.clone())
-            .items(
-                self.entries
-                    .values()
-                    .map(FeedEntry::to_rss_item)
-                    .collect::<Vec<rss::Item>>(),
-            )
+            .items(entries)
             .last_build_date(Some(self.last_updated.clone()))
             .build()
     }
