@@ -658,18 +658,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 
 [[package]]
-name = "html2text"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389acaa5a86952dcdc88a43bc18021009cb9885b0ff8c2fff1cc44e4f34c2fae"
-dependencies = [
- "html5ever",
- "tendril",
- "thiserror",
- "unicode-width",
-]
-
-[[package]]
 name = "html5ever"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1349,7 +1337,6 @@ dependencies = [
  "dotenvy",
  "feed-rs",
  "futures",
- "html2text",
  "redb",
  "reqwest",
  "rss",

@@ -15,7 +15,7 @@ use rss::{ChannelBuilder, Guid, ItemBuilder};
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -283,17 +283,15 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
 
     match &feed.source {
         FeedSource::Website => {
-            // Try to fetch the full article content.
-            if let Ok(response) = HTTP_CLIENT.get(&link).send().await
-                && let Ok(description_html) = response.text().await
-            {
-                write!(
-                    description,
-                    "\n\n\nOriginal article full html page:\n{description_html}",
-                )?;
-            }
-
             summarise_website(&link, feed, &mut title, &mut description).await?;
+
+            // Save the description as a html file in outputs
+            #[cfg(debug_assertions)]
+            {
+                let short_title = title.to_lowercase().replace(' ', "_");
+                let path = PathBuf::from("outputs").join(format!("{short_title}.html"));
+                fs::write(path, description.clone()).await?;
+            }
         }
         FeedSource::Youtube => {
             if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
@@ -326,7 +324,7 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
 pub struct SummariseOutput {
     /// The rewritten title, kept concise and descriptive.
     pub title: String,
-    /// Summarised content of the article, well written and engaging. Outputted as correct HTML, including images (in a figure with caption where possible) and links.
+    /// Summarised content, well written and engaging.
     pub content: String,
 }
 
@@ -341,21 +339,16 @@ async fn summarise_website(
         return Ok(());
     }
 
-    let body = HTTP_CLIENT.get(link).send().await?.text().await?;
-    let cleaned = html2text::from_read(body.as_bytes(), 120).unwrap_or_default();
-    let page_content = if cleaned.trim().is_empty() {
-        description.clone()
-    } else {
-        cleaned
-    };
+    let page_content = HTTP_CLIENT.get(link).send().await?.text().await?;
 
     // Summarize the content
     match run::<SummariseOutput>(
         vec![
             format!("Original title: {title}"),
+            format!("Original description: {description}"),
             format!("Original content: {page_content}"),
         ],
-        "Rewrite this rss feed entry. Content well formatted in paragraphs.".to_string(),
+        "Rewrite this rss feed entry outputted as embedded HTML. Content well formatted in paragraphs, written in same the article style as the original just trimmed and concise. Include at least one image (in a figure with caption where possible, no alt text) using the original image url, the first image is used as the thumbnail. Also include inline links where appropriate.".to_string(),
     )
     .await
     {
