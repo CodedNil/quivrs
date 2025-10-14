@@ -15,6 +15,7 @@ use rss::{ChannelBuilder, Guid, ItemBuilder};
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -274,8 +275,10 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<FeedEntry> {
             if let Ok(response) = HTTP_CLIENT.get(&link).send().await
                 && let Ok(description_html) = response.text().await
             {
-                description =
-                    html2text::from_read(description_html.as_bytes(), 120).unwrap_or_default();
+                write!(
+                    description,
+                    "\n\n\nOriginal article full html page:\n{description_html}",
+                )?;
             }
 
             summarise_website(&link, feed, &mut title, &mut description).await?;
