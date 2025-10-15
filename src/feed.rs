@@ -429,7 +429,24 @@ async fn build_item(
             .await?
         }
         FeedSource::Twitter => {
-            summarise_content(&link, feed, &title, &description, SUMMARISE_TWITTER, "", "").await?
+            let mut summarised =
+                summarise_content(&link, feed, &title, &description, SUMMARISE_TWITTER, "", "")
+                    .await?;
+
+            // Swap out the nitter images with original twitter ones
+            if let Some(image) = summarised.image {
+                summarised.image = Some(
+                    image
+                        .replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
+                        .replace("%2F", "/"),
+                );
+            }
+            summarised.content = summarised
+                .content
+                .replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
+                .replace("%2F", "/");
+
+            summarised
         }
         _ => {
             let summarised = summarise_content(
