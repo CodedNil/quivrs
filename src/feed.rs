@@ -336,12 +336,16 @@ async fn build_item(
         .clone();
     info!(link = %link, "Parsing {}", feed.source);
 
-    let mut title = entry.title.clone().map(|t| t.content).unwrap_or_default();
+    let mut title = entry
+        .title
+        .clone()
+        .map_or("NOT PROVIDED".to_string(), |t| t.content);
     let mut description = entry
         .content
         .clone()
         .and_then(|c| c.body)
-        .unwrap_or_default();
+        .or_else(|| entry.summary.clone().map(|s| s.content))
+        .unwrap_or_else(|| "NOT PROVIDED".to_string());
     let published = entry.published.unwrap_or_else(Utc::now);
 
     // If twitter, swap the link back to twitter, and reject replies
@@ -352,9 +356,6 @@ async fn build_item(
         if let Some(end) = link.strip_prefix(NITTER_API_URL) {
             link = format!("https://x.com{end}");
         }
-
-        // Swap title into description
-        std::mem::swap(&mut title, &mut description);
 
         // Grab other tweets that were posted within 5 minutes and are replies to the same user, append the descriptions to build the thread
         let mut thread: Vec<(String, DateTime<Utc>)> = other_entries
