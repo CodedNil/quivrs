@@ -5,8 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use bincode::{Decode, Encode, config};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
 use json_feed_model::{Author, Feed, Item, Version};
@@ -18,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env,
-    fmt::Display,
+    fmt::{Display, Write},
     sync::LazyLock,
 };
 use tokio::fs;
@@ -26,9 +25,11 @@ use tracing::{info, warn};
 
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 const INVIDIOUS_API_URL: &str = "https://inv.nadeko.net/api/v1";
+const NITTER_API_URL: &str = "https://nitter.privacyredirect.com";
 
 const SUMMARISE_WEBSITE: &str = "Rewrite this rss feed entry outputted as embedded HTML. Content well formatted in paragraphs, written in same the article style as the original just trimmed and concise. Include at least one image (in a figure with caption where possible, no alt text) using the original image url. The first image is used as the thumbnail and should be placed after at least the first paragraph of text. Include extra images if available at the end. Also include inline links where appropriate.";
-const SUMMARISE_YOUTUBE: &str = "Rewrite this youtube video title and description. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarise the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.";
+const SUMMARISE_YOUTUBE: &str = "Rewrite this youtube video title and description as embedded HTML. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarise the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.";
+const SUMMARISE_TWITTER: &str = "Rewrite this twitter post title and description as embedded HTML. The title should be a few words that accurately describe the post. The description should stay accurate to the original but clean up the formatting.";
 
 const FEEDS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("feeds");
 static DB: LazyLock<Database> = LazyLock::new(|| {
@@ -49,7 +50,7 @@ struct FeedConfig {
     summarise_content: bool,
 }
 
-#[derive(Encode, Decode, Default)]
+#[derive(Serialize, Deserialize, Default)]
 struct FeedData {
     source: FeedSource,
     title: String,
@@ -61,7 +62,7 @@ struct FeedData {
     summarise_content: bool,
 
     description: String,
-    last_updated: String,
+    last_updated: DateTime<Utc>,
     favicon: Option<String>,
     icon: Option<String>,
     authors: Vec<String>,
@@ -77,11 +78,7 @@ impl FeedData {
             .iter()
             .filter(|(_, entry)| entry.title != "INVALID")
             .collect::<Vec<_>>();
-        items.sort_by(|(_, a), (_, b)| {
-            let key_a = DateTime::parse_from_rfc3339(&a.published).ok();
-            let key_b = DateTime::parse_from_rfc3339(&b.published).ok();
-            key_b.cmp(&key_a)
-        });
+        items.sort_by(|(_, a), (_, b)| b.published.cmp(&a.published));
         let items = items
             .iter()
             .map(|(i, e)| e.to_json_item(i))
@@ -101,19 +98,17 @@ impl FeedData {
             feed.set_favicon(favicon);
         }
 
-        assert!(feed.is_valid(&Version::Version1_1));
-
         feed
     }
 }
 
-#[derive(Encode, Decode, Default)]
+#[derive(Serialize, Deserialize, Default)]
 struct FeedEntry {
     title: String,
     link: String,
     description: String,
-    published: String,
-    image: String,
+    published: DateTime<Utc>,
+    image: Option<String>,
     authors: Vec<String>,
     tags: Vec<String>,
 }
@@ -125,13 +120,15 @@ impl FeedEntry {
         item.set_title(&self.title);
         item.set_url(&self.link);
         item.set_content_html(&self.description);
-        item.set_date_published(&self.published);
+        item.set_date_published(self.published);
         item.set_authors(self.authors.iter().map(|a| {
             let mut author = Author::new();
             author.set_name(a);
             author
         }));
-        item.set_banner_image(&self.image);
+        if let Some(image) = &self.image {
+            item.set_banner_image(image);
+        }
         item.set_tags(self.tags.clone());
         item
     }
@@ -144,7 +141,7 @@ impl FeedEntry {
     }
 }
 
-#[derive(Encode, Decode, Deserialize, Copy, Clone, Default)]
+#[derive(Serialize, Deserialize, Copy, Clone, Default)]
 enum FeedSource {
     #[default]
     Website,
@@ -166,12 +163,12 @@ impl Display for FeedSource {
 
 /// Helper function to encode `FeedData`
 fn encode_feed_data(feed_data: &FeedData) -> Result<Vec<u8>> {
-    Ok(bincode::encode_to_vec(feed_data, config::standard())?)
+    postcard::to_allocvec(feed_data).map_err(|e| anyhow!("Failed to encode FeedData: {e}"))
 }
 
 /// Helper function to decode `FeedData`
 fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
-    Ok(bincode::decode_from_slice(bytes, config::standard())?.0)
+    postcard::from_bytes(bytes).map_err(|e| anyhow!("Failed to decode FeedData: {e}"))
 }
 
 /// Ensure the `redb` database is ready for use.
@@ -211,7 +208,7 @@ pub async fn init_storage() -> Result<()> {
                 feed.url_rss = url_rss;
             }
 
-            // Update the youtube urls
+            // Update the per domain urls
             if matches!(&config_feed.source, FeedSource::Youtube) {
                 if feed.url.is_empty() {
                     feed.url = format!("https://www.youtube.com/@{feed_id}");
@@ -220,6 +217,14 @@ pub async fn init_storage() -> Result<()> {
                     let channel_id = resolve_youtube_channel_id(&feed.url).await?;
                     feed.url_rss =
                         format!("https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}");
+                }
+            }
+            if matches!(&config_feed.source, FeedSource::Twitter) {
+                if feed.url.is_empty() {
+                    feed.url = format!("https://x.com/{feed_id}");
+                }
+                if feed.url_rss.is_empty() {
+                    feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
                 }
             }
 
@@ -274,6 +279,7 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
         .iter()
         .find(|link| link.media_type.as_deref() == Some("text/html"))
         .or_else(|| fetched.links.first())
+        && !matches!(feed.source, FeedSource::Twitter)
     {
         feed.url.clone_from(&url.href);
     }
@@ -281,7 +287,7 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
         feed.description = description.content;
     }
     if let Some(last_updated) = fetched.updated {
-        feed.last_updated = last_updated.to_rfc3339();
+        feed.last_updated = last_updated;
     }
     feed.icon = fetched.logo.map(|icon| icon.uri);
     feed.favicon = fetched.icon.map(|icon| icon.uri);
@@ -289,7 +295,14 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
     feed.tags = fetched.categories.iter().map(|c| c.term.clone()).collect();
 
     // Process all entries concurrently
-    let entries = join_all(fetched.entries.into_iter().map(|e| build_item(feed, e))).await;
+    let entries = join_all(
+        fetched
+            .entries
+            .clone()
+            .iter()
+            .map(|e| build_item(feed_id, feed, e, &fetched.entries)),
+    )
+    .await;
     for (entry_id, entry) in entries.into_iter().flatten() {
         feed.entries.insert(entry_id, entry);
     }
@@ -304,22 +317,77 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarising content.
-async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)> {
+async fn build_item(
+    feed_id: &str,
+    feed: &FeedData,
+    entry: &Entry,
+    other_entries: &[Entry],
+) -> Result<(String, FeedEntry)> {
     // If the item already exists in our database, return None to avoid reprocessing.
     if feed.entries.contains_key(&entry.id) {
         bail!("Item already exists");
     }
 
-    let link = entry
+    let mut link = entry
         .links
         .first()
         .ok_or_else(|| anyhow!("Entry has no link."))?
         .href
         .clone();
-    info!(link = %link, "Loading {}", feed.source);
+    info!(link = %link, "Parsing {}", feed.source);
 
-    let mut title = entry.title.map_or_else(|| feed.url.clone(), |t| t.content);
-    let mut description = entry.content.and_then(|c| c.body).unwrap_or_default();
+    let mut title = entry.title.clone().map(|t| t.content).unwrap_or_default();
+    let mut description = entry
+        .content
+        .clone()
+        .and_then(|c| c.body)
+        .unwrap_or_default();
+    let published = entry.published.unwrap_or_else(Utc::now);
+
+    // If twitter, swap the link back to twitter, and reject replies
+    if matches!(feed.source, FeedSource::Twitter) {
+        if title.starts_with("R to @") {
+            return Ok((entry.id.clone(), FeedEntry::invalid()));
+        }
+        if let Some(end) = link.strip_prefix(NITTER_API_URL) {
+            link = format!("https://x.com{end}");
+        }
+
+        // Swap title into description
+        std::mem::swap(&mut title, &mut description);
+
+        // Grab other tweets that were posted within 5 minutes and are replies to the same user, append the descriptions to build the thread
+        let mut thread: Vec<(String, DateTime<Utc>)> = other_entries
+            .iter()
+            .filter_map(|other| {
+                let other_title = other.title.as_ref()?.content.clone();
+                if !other_title.starts_with(&format!("R to @{feed_id}")) {
+                    return None;
+                }
+                let other_time = other.published?;
+                if other_time <= published || (other_time - published) >= Duration::minutes(5) {
+                    return None;
+                }
+                Some((other_title, other_time))
+            })
+            .collect();
+
+        // Sort by published time (earliest first)
+        thread.sort_by_key(|(_, pub_time)| *pub_time);
+
+        // Push the entire thread into the description
+        if thread.len() > 1 {
+            description.push_str("\n\n");
+        }
+        for (i, (body, _)) in thread.iter().enumerate() {
+            writeln!(
+                description,
+                "Reply post [{}/{}] in thread : {body}",
+                i + 1,
+                thread.len()
+            )?;
+        }
+    }
 
     let summarised = match &feed.source {
         FeedSource::Youtube => {
@@ -332,7 +400,7 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
             let Some(video_id_part) = link.split("v=").nth(1) else {
                 // Invalid youtube link, probably a youtube short
                 info!("FILTERED: Youtube video {link}");
-                return Ok((entry.id, FeedEntry::invalid()));
+                return Ok((entry.id.clone(), FeedEntry::invalid()));
             };
             let video_id = video_id_part.split('&').next().unwrap_or(video_id_part);
 
@@ -342,15 +410,6 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
             let response = HTTP_CLIENT.get(caption_link).send().await?;
             let captions = response.text().await.unwrap_or_default();
 
-            let cleaned_captions = captions
-                .lines()
-                .filter(|line| !line.contains("-->"))
-                .collect::<Vec<&str>>()
-                .join(" ")
-                .trim()
-                .replace("  ", " ")
-                .to_string();
-
             summarise_content(
                 &link,
                 feed,
@@ -358,12 +417,20 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
                 &description,
                 SUMMARISE_YOUTUBE,
                 "Videos captions:",
-                &cleaned_captions,
+                captions
+                    .lines()
+                    .filter(|l| !l.contains("-->"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .replace("  ", " ")
+                    .trim(),
             )
             .await?
         }
+        FeedSource::Twitter => {
+            summarise_content(&link, feed, &title, &description, SUMMARISE_TWITTER, "", "").await?
+        }
         _ => {
-            let page_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
             let summarised = summarise_content(
                 &link,
                 feed,
@@ -371,7 +438,7 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
                 &description,
                 SUMMARISE_WEBSITE,
                 "Original content:",
-                &page_content,
+                &HTTP_CLIENT.get(&link).send().await?.text().await?,
             )
             .await?;
 
@@ -396,16 +463,16 @@ async fn build_item(feed: &FeedData, entry: Entry) -> Result<(String, FeedEntry)
 
     if !feed.filters.is_empty() && !summarised.included {
         info!("FILTERED: {link}");
-        return Ok((entry.id, FeedEntry::invalid()));
+        return Ok((entry.id.clone(), FeedEntry::invalid()));
     }
 
     Ok((
-        entry.id,
+        entry.id.clone(),
         FeedEntry {
             title,
             link,
             description,
-            published: entry.published.unwrap_or_else(Utc::now).to_rfc3339(),
+            published,
             authors: entry.authors.iter().map(|p| p.name.clone()).collect(),
             tags: entry.categories.iter().map(|c| c.term.clone()).collect(),
             image: summarised.image,
@@ -419,8 +486,8 @@ struct SummariseOutput {
     title: String,
     /// Summarised content, well written and engaging.
     content: String,
-    /// Key image url, to represent the feed as a thumbnail
-    image: String,
+    /// Key image url, to represent the feed as a thumbnail, if the feed doesn't provide leave this empty.
+    image: Option<String>,
     /// Whether this entry should be included, false for filtered out.
     included: bool,
 }
@@ -440,8 +507,10 @@ async fn summarise_content(
             let mut context = vec![
                 format!("Original title: {title}"),
                 format!("Original description: {description}"),
-                format!("{content_key} {original_content}"),
             ];
+            if !content_key.is_empty() {
+                context.push(format!("{content_key} {original_content}"));
+            }
             if !feed.filters.is_empty() {
                 context.push(format!(
                     "Users requested filters, do not include posts including any of these '{}'",

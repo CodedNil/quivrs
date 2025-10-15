@@ -14,5 +14,10 @@
     "source": "Youtube",
     "clean_title": true,
     "summarise_content": true
+  },
+  "ArtificialAnlys": {
+    "source": "Twitter",
+    "clean_title": true,
+    "summarise_content": true
   }
 }

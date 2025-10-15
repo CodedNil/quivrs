@@ -23,5 +23,3 @@ If feed was rejected due to filters, push it to a rejected feed, also make the a
 options a timed_summary which if enabled doesnt output every single feed (it would still have to store all entries as usual), but idk the specifics it would at each time generate a single entry which is a summary of that days
 the string would be be either a string or a vec<string> with each one being something like "8am" or "3pm" or "15:00" which i assume chrono can interpret just fine (if it cant be serialized print a warning)
 then each summary is posted at that time and is a summary of all posts since the last summary
-
-switch to postcard
