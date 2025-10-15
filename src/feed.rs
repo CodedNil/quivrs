@@ -10,9 +10,9 @@ use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
 use json_feed_model::{Author, Feed, Item, Version};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use regex::Regex;
 use reqwest::{Client, header::CONTENT_TYPE};
 use schemars::JsonSchema;
-use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -127,6 +127,7 @@ impl FeedEntry {
             author
         }));
         if let Some(image) = &self.image {
+            item.set_image(image);
             item.set_banner_image(image);
         }
         item.set_tags(self.tags.clone());
@@ -210,13 +211,12 @@ pub async fn init_storage() -> Result<()> {
 
             // Update the per domain urls
             if matches!(&config_feed.source, FeedSource::Youtube) {
-                if feed.url.is_empty() {
-                    feed.url = format!("https://www.youtube.com/@{feed_id}");
-                }
+                feed.url = format!("https://www.youtube.com/@{feed_id}");
                 if feed.url_rss.is_empty() {
-                    let channel_id = resolve_youtube_channel_id(&feed.url).await?;
-                    feed.url_rss =
-                        format!("https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}");
+                    feed.url_rss = format!(
+                        "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                        resolve_youtube_channel_id(&feed_id).await?
+                    );
                 }
             }
             if matches!(&config_feed.source, FeedSource::Twitter) {
@@ -484,6 +484,13 @@ async fn build_item(
         return Ok((entry.id.clone(), FeedEntry::invalid()));
     }
 
+    // Use media thumbnail if that exists, else summarised image
+    let image = entry
+        .media
+        .first()
+        .and_then(|m| m.thumbnails.first().map(|t| t.image.uri.clone()))
+        .or(summarised.image);
+
     Ok((
         entry.id.clone(),
         FeedEntry {
@@ -493,7 +500,7 @@ async fn build_item(
             published,
             authors: entry.authors.iter().map(|p| p.name.clone()).collect(),
             tags: entry.categories.iter().map(|c| c.term.clone()).collect(),
-            image: summarised.image,
+            image,
         },
     ))
 }
@@ -553,19 +560,21 @@ async fn summarise_content(
 }
 
 /// Resolves a `YouTube` channel ID from a given URL or by fetching the page content.
-async fn resolve_youtube_channel_id(url: &str) -> Result<String> {
-    let body = HTTP_CLIENT.get(url).send().await?.text().await?;
-    let document = Html::parse_document(&body);
-    let selector = Selector::parse("link[rel=\"canonical\"]").unwrap();
-    if let Some(element) = document.select(&selector).next()
-        && let Some(href) = element.value().attr("href")
-        && let Some(channel_id) = href.split('/').next_back()
+async fn resolve_youtube_channel_id(channel_name: &str) -> Result<String> {
+    let body = HTTP_CLIENT
+        .get(format!("https://www.youtube.com/@{channel_name}"))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let re = Regex::new(r#"<link\s+rel=["']?canonical["']?\s+href=["']([^"']+)["']"#).unwrap();
+    if let Some(caps) = re.captures(&body)
+        && let Some(channel_id) = caps[1].split('/').next_back().filter(|s| !s.is_empty())
     {
-        info!("Found channel ID for {url}: {channel_id}",);
+        info!("Found channel ID for {channel_name}: {channel_id}",);
         return Ok(channel_id.to_string());
     }
-
-    bail!("No channel ID found for `{url}`")
+    bail!("No channel ID found for `{channel_name}`")
 }
 
 /// Helper function to retrieve and decode `FeedData` from the database.
