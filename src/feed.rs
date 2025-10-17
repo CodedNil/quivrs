@@ -38,7 +38,7 @@ static DB: LazyLock<Database> = LazyLock::new(|| {
     Database::create(database_url).unwrap()
 });
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 struct FeedConfig {
     #[serde(default)]
     source: FeedSource,
@@ -68,16 +68,18 @@ struct FeedData {
 impl FeedData {
     fn to_json_feed(&self) -> Feed {
         // Sort by date_published, recent first
-        let mut items = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.title != "INVALID")
-            .collect::<Vec<_>>();
-        items.sort_by(|(_, a), (_, b)| b.published.cmp(&a.published));
-        let items = items
-            .iter()
-            .map(|(i, e)| e.to_json_item(i))
-            .collect::<Vec<_>>();
+        let items = {
+            let mut items = self
+                .entries
+                .iter()
+                .filter(|(_, entry)| entry.title != "INVALID")
+                .collect::<Vec<_>>();
+            items.sort_unstable_by(|(_, a), (_, b)| b.published.cmp(&a.published));
+            items
+                .into_iter()
+                .map(|(id, entry)| entry.to_json_item(id))
+                .collect::<Vec<_>>()
+        };
 
         let mut feed = Feed::new();
         feed.set_version(Version::Version1_1);
@@ -181,15 +183,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
             // Override with the config
             if let Some(url_rss) = &config.url_rss {
                 feed.url_rss.clone_from(url_rss);
-            }
-            feed.url_rss = match config.source {
-                FeedSource::Youtube => format!(
+            } else if matches!(config.source, FeedSource::Youtube) {
+                feed.url_rss = format!(
                     "https://www.youtube.com/feeds/videos.xml?channel_id={}",
                     resolve_youtube_channel_id(feed_id).await?
-                ),
-                FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
-                _ => feed.url_rss,
-            };
+                );
+            } else if matches!(config.source, FeedSource::Twitter) {
+                feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
+            }
 
             // Refresh the feed data
             refresh_feed(feed_id, config, &mut feed).await?;
@@ -241,16 +242,21 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
     feed.tags = fetched.categories.iter().map(|c| c.term.clone()).collect();
 
     // Process all entries concurrently
-    let entries = join_all(
+    for result in join_all(
         fetched
             .entries
-            .clone()
             .iter()
-            .map(|e| build_item(feed_id, config, feed, e, &fetched.entries)),
+            .filter(|entry| !feed.entries.contains_key(&entry.id))
+            .map(|entry| build_item(feed_id, config, entry, &fetched.entries)),
     )
-    .await;
-    for (entry_id, entry) in entries.into_iter().flatten() {
-        feed.entries.insert(entry_id, entry);
+    .await
+    {
+        match result {
+            Ok((entry_id, entry)) => {
+                feed.entries.insert(entry_id, entry);
+            }
+            Err(err) => warn!(feed_id = %feed_id, "Failed to build entry: {err:#}"),
+        }
     }
 
     Ok(())
@@ -260,15 +266,9 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
 async fn build_item(
     feed_id: &str,
     config: &FeedConfig,
-    feed: &FeedData,
     entry: &Entry,
     other_entries: &[Entry],
 ) -> Result<(String, FeedEntry)> {
-    // If the item already exists in our database, return None to avoid reprocessing.
-    if feed.entries.contains_key(&entry.id) {
-        bail!("Item already exists");
-    }
-
     let mut link = entry
         .links
         .first()
@@ -279,13 +279,13 @@ async fn build_item(
 
     let mut title = entry
         .title
-        .clone()
-        .map_or("NOT PROVIDED".to_string(), |t| t.content);
+        .as_ref()
+        .map_or_else(|| "NOT PROVIDED".to_string(), |t| t.content.clone());
     let mut description = entry
         .content
-        .clone()
-        .and_then(|c| c.body)
-        .or_else(|| entry.summary.clone().map(|s| s.content))
+        .as_ref()
+        .and_then(|c| c.body.clone())
+        .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
         .unwrap_or_else(|| "NOT PROVIDED".to_string());
     let published = entry.published.unwrap_or_else(Utc::now);
 
@@ -303,35 +303,32 @@ async fn build_item(
             .iter()
             .filter_map(|other| {
                 let other_title = other.title.as_ref()?.content.clone();
-                if !other_title.starts_with(&format!("R to @{feed_id}")) {
-                    return None;
-                }
                 let other_time = other.published?;
-                if other_time <= published || (other_time - published) >= Duration::minutes(5) {
-                    return None;
-                }
-                Some((other_title, other_time))
+                (other_title.starts_with(&format!("R to @{feed_id}"))
+                    && other_time > published
+                    && (other_time - published) < Duration::minutes(5))
+                .then_some((other_title, other_time))
             })
             .collect();
 
         // Sort by published time (earliest first)
-        thread.sort_by_key(|(_, pub_time)| *pub_time);
+        if !thread.is_empty() {
+            thread.sort_unstable_by_key(|(_, pub_time)| *pub_time);
 
-        // Push the entire thread into the description
-        if thread.len() > 1 {
+            // Push the entire thread into the description
             description.push_str("\n\n");
-        }
-        for (i, (body, _)) in thread.iter().enumerate() {
-            writeln!(
-                description,
-                "Reply post [{}/{}] in thread : {body}",
-                i + 1,
-                thread.len()
-            )?;
+            for (i, (body, _)) in thread.iter().enumerate() {
+                writeln!(
+                    description,
+                    "Reply post [{}/{}] in thread : {body}",
+                    i + 1,
+                    thread.len()
+                )?;
+            }
         }
     }
 
-    let summarised = match &config.source {
+    let summarised = match config.source {
         FeedSource::Youtube => {
             if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
             {
@@ -472,30 +469,30 @@ async fn summarise_content(
     content_key: &str,
     original_content: &str,
 ) -> Result<SummariseOutput> {
-    run::<SummariseOutput>(
-        {
-            let mut context = vec![
-                format!("Original title: {title}"),
-                format!("Original description: {description}"),
-            ];
-            if !content_key.is_empty() {
-                context.push(format!("{content_key} {original_content}"));
-            }
-            if let Some(filters) = &config.filters {
-                context.push(format!(
-                    "Users requested filters, do not include posts including any of these '{}'",
-                    filters.join(";")
-                ));
-            }
-            context
-        },
-        prompt,
-    )
-    .await
-    .map_err(|err| {
-        warn!(link = %link, "Summarisation failed: {err:#}");
-        anyhow!("Summarisation failed: {err}")
-    })
+    let mut context = vec![
+        format!("Original title: {title}"),
+        format!("Original description: {description}"),
+    ];
+    if !content_key.is_empty() && !original_content.is_empty() {
+        context.push(format!("{content_key} {original_content}"));
+    }
+    if let Some(filters) = config
+        .filters
+        .as_ref()
+        .filter(|filters| !filters.is_empty())
+    {
+        context.push(format!(
+            "Users requested filters, do not include posts including any of these '{}'",
+            filters.join(";")
+        ));
+    }
+
+    run::<SummariseOutput>(context, prompt)
+        .await
+        .map_err(|err| {
+            warn!(link = %link, "Summarisation failed: {err:#}");
+            anyhow!("Summarisation failed: {err}")
+        })
 }
 
 /// Resolves a `YouTube` channel ID from a given URL or by fetching the page content.
@@ -506,11 +503,11 @@ async fn resolve_youtube_channel_id(channel_name: &str) -> Result<String> {
         .await?
         .text()
         .await?;
-    let re = Regex::new(r#"<link\s+rel=["']?canonical["']?\s+href=["']([^"']+)["']"#).unwrap();
-    if let Some(caps) = re.captures(&body)
-        && let Some(channel_id) = caps[1].split('/').next_back().filter(|s| !s.is_empty())
+    if let Some(caps) =
+        Regex::new(r#"<link\s+rel=["']?canonical["']?\s+href=["']([^"']+)["']"#)?.captures(&body)
+        && let Some(channel_id) = caps[1].rsplit('/').find(|segment| !segment.is_empty())
     {
-        info!("Found channel ID for {channel_name}: {channel_id}",);
+        info!("Found channel ID for {channel_name}: {channel_id}");
         return Ok(channel_id.to_string());
     }
     bail!("No channel ID found for `{channel_name}`")
