@@ -23,6 +23,9 @@ dotenvy = "0.15.7"
 futures = "0.3.31"
 redb = "3.1.0"
 regex = "1.12.2"
+fast_html2md = { version = "0.0.48", default-features = false, features = [
+    "rewriter",
+] }
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }

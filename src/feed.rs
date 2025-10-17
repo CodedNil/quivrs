@@ -395,6 +395,10 @@ async fn build_item(
             summarised
         }
         _ => {
+            // Fetch the site and parse the html into markdown
+            let original_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
+            let md = html2md::rewrite_html(&original_content, false);
+
             let summarised = summarise_content(
                 &link,
                 config,
@@ -402,7 +406,7 @@ async fn build_item(
                 &description,
                 SUMMARISE_WEBSITE,
                 "Original content:",
-                &HTTP_CLIENT.get(&link).send().await?.text().await?,
+                &md,
             )
             .await?;
 

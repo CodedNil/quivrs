@@ -55,6 +55,9 @@ where
                 "strict": true,
                 "schema": schema_object
             }
+        },
+        "reasoning": {
+          "enabled": false
         }
     });
 
