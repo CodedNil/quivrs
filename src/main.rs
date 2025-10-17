@@ -3,7 +3,7 @@ mod llm_functions;
 
 use anyhow::Result;
 use axum::{Router, routing::get};
-use feed::{init_storage, refresh_all_feeds, summarised_feed_handler};
+use feed::{refresh_all_feeds, summarised_feed_handler};
 use std::time::Duration;
 use tokio::{
     net::TcpListener,
@@ -24,8 +24,6 @@ async fn main() -> Result<()> {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-
-    init_storage().await?;
 
     tokio::spawn(async move {
         let mut ticker = time::interval(DEFAULT_REFRESH_INTERVAL);

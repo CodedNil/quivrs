@@ -15,7 +15,7 @@ use reqwest::{Client, header::CONTENT_TYPE};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     env,
     error::Error,
     fmt::{Display, Write},
@@ -38,7 +38,7 @@ static DB: LazyLock<Database> = LazyLock::new(|| {
     Database::create(database_url).unwrap()
 });
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct FeedConfig {
     #[serde(default)]
     source: FeedSource,
@@ -53,15 +53,9 @@ struct FeedConfig {
 
 #[derive(Serialize, Deserialize, Default)]
 struct FeedData {
-    source: FeedSource,
     title: String,
     url: String,
     url_rss: String,
-
-    filters: Vec<String>,
-    original_title: bool,
-    original_content: bool,
-
     description: String,
     last_updated: DateTime<Utc>,
     favicon: Option<String>,
@@ -163,23 +157,21 @@ impl Display for FeedSource {
     }
 }
 
-/// Ensure the `redb` database is ready for use.
-pub async fn init_storage() -> Result<()> {
+/// Refreshes all feeds.
+pub async fn refresh_all_feeds() -> Result<()> {
+    // Load config file
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
-    let config: HashMap<String, FeedConfig> =
-        serde_json::from_str(&fs::read_to_string(&config_path).await?)
-            .context(format!("Failed to read {config_path}"))?;
+    let config_str = fs::read_to_string(&config_path).await?;
+    let config_map: HashMap<String, FeedConfig> =
+        serde_json::from_str(&config_str).context(format!("Failed to read {config_path}"))?;
+
+    // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        let existing_ids: HashSet<String> = table
-            .iter()?
-            .map(|e| Ok(e?.0.value().to_string()))
-            .collect::<Result<_>>()?;
+        table.retain(|key, _| config_map.contains_key(key))?;
 
-        let configured_ids: HashSet<String> = config.keys().cloned().collect();
-
-        for (feed_id, config) in config {
+        for (feed_id, config) in &config_map {
             // Get stored feed data
             let mut feed: FeedData = table
                 .get(feed_id.as_str())?
@@ -187,67 +179,39 @@ pub async fn init_storage() -> Result<()> {
                 .unwrap_or_default();
 
             // Override with the config
-            feed.source = config.source;
-            feed.original_title = config.original_title;
-            feed.original_content = config.original_content;
-            feed.filters = config.filters.unwrap_or(feed.filters);
-            feed.url_rss = config.url_rss.unwrap_or(feed.url_rss);
-
-            // Update the per domain urls
-            match config.source {
-                FeedSource::Youtube => {
-                    feed.url = format!("https://www.youtube.com/@{feed_id}");
-                    if feed.url_rss.is_empty() {
-                        feed.url_rss = format!(
-                            "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                            resolve_youtube_channel_id(&feed_id).await?
-                        );
-                    }
-                }
-                FeedSource::Twitter => {
-                    feed.url = format!("https://x.com/{feed_id}");
-                    feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
-                }
-                _ => {}
+            if let Some(url_rss) = &config.url_rss {
+                feed.url_rss.clone_from(url_rss);
             }
+            feed.url_rss = match config.source {
+                FeedSource::Youtube => format!(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                    resolve_youtube_channel_id(feed_id).await?
+                ),
+                FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
+                _ => feed.url_rss,
+            };
 
+            // Refresh the feed data
+            refresh_feed(feed_id, config, &mut feed).await?;
+
+            // Override with the config
+            feed.url = match config.source {
+                FeedSource::Youtube => format!("https://www.youtube.com/@{feed_id}"),
+                FeedSource::Twitter => format!("https://x.com/{feed_id}"),
+                _ => feed.url,
+            };
+
+            // Update the feed in the database
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
-        }
-
-        for stale_id in existing_ids.difference(&configured_ids) {
-            table.remove(stale_id.as_str())?;
         }
     }
     write_txn.commit()?;
-    Ok(())
-}
-
-/// Refreshes all feeds concurrently.
-pub async fn refresh_all_feeds() -> Result<()> {
-    let read_txn = DB.begin_read()?;
-    let read_table = read_txn.open_table(FEEDS_TABLE)?;
-    let feeds = read_table.iter()?.flatten();
-
-    join_all(feeds.map(|(feed_id, bytes)| async move {
-        let feed_id = feed_id.value();
-        let mut feed = match postcard::from_bytes(bytes.value()) {
-            Ok(feed) => feed,
-            Err(e) => {
-                warn!(feed_id = %feed_id, "Failed to decode feed: {e:#}");
-                return;
-            }
-        };
-        if let Err(e) = refresh_feed(feed_id, &mut feed).await {
-            warn!(feed_id = %feed_id, "Failed to refresh feed: {e:#}");
-        }
-    }))
-    .await;
 
     Ok(())
 }
 
 /// Refreshes a single feed and updates the cache.
-async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
+async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -> Result<()> {
     info!(feed_id = %feed_id, url = %feed.url, "Refreshing feed");
 
     // Fetch and parse the remote feed
@@ -257,12 +221,11 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
     if let Some(title) = fetched.title {
         feed.title = title.content;
     }
-    if !matches!(feed.source, FeedSource::Twitter)
-        && let Some(url) = fetched
-            .links
-            .iter()
-            .find(|link| link.media_type.as_deref() == Some("text/html"))
-            .or_else(|| fetched.links.first())
+    if let Some(url) = fetched
+        .links
+        .iter()
+        .find(|l| l.media_type.as_deref() == Some("text/html"))
+        .or_else(|| fetched.links.first())
     {
         feed.url.clone_from(&url.href);
     }
@@ -283,25 +246,20 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
             .entries
             .clone()
             .iter()
-            .map(|e| build_item(feed_id, feed, e, &fetched.entries)),
+            .map(|e| build_item(feed_id, config, feed, e, &fetched.entries)),
     )
     .await;
     for (entry_id, entry) in entries.into_iter().flatten() {
         feed.entries.insert(entry_id, entry);
     }
 
-    let write_txn = DB.begin_write()?;
-    {
-        let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        table.insert(feed_id, postcard::to_allocvec(&feed)?.as_slice())?;
-    }
-    write_txn.commit()?;
     Ok(())
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarising content.
 async fn build_item(
     feed_id: &str,
+    config: &FeedConfig,
     feed: &FeedData,
     entry: &Entry,
     other_entries: &[Entry],
@@ -317,7 +275,7 @@ async fn build_item(
         .ok_or_else(|| anyhow!("Entry has no link."))?
         .href
         .clone();
-    info!(link = %link, "Parsing {}", feed.source);
+    info!(link = %link, "Parsing {}", config.source);
 
     let mut title = entry
         .title
@@ -332,7 +290,7 @@ async fn build_item(
     let published = entry.published.unwrap_or_else(Utc::now);
 
     // If twitter, swap the link back to twitter, and reject replies
-    if matches!(feed.source, FeedSource::Twitter) {
+    if matches!(config.source, FeedSource::Twitter) {
         if title.starts_with("R to @") {
             return Ok((entry.id.clone(), FeedEntry::invalid()));
         }
@@ -373,7 +331,7 @@ async fn build_item(
         }
     }
 
-    let summarised = match &feed.source {
+    let summarised = match &config.source {
         FeedSource::Youtube => {
             if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
             {
@@ -398,7 +356,7 @@ async fn build_item(
 
             summarise_content(
                 &link,
-                feed,
+                config,
                 &title,
                 &description,
                 SUMMARISE_YOUTUBE,
@@ -414,9 +372,16 @@ async fn build_item(
             .await?
         }
         FeedSource::Twitter => {
-            let mut summarised =
-                summarise_content(&link, feed, &title, &description, SUMMARISE_TWITTER, "", "")
-                    .await?;
+            let mut summarised = summarise_content(
+                &link,
+                config,
+                &title,
+                &description,
+                SUMMARISE_TWITTER,
+                "",
+                "",
+            )
+            .await?;
 
             // Swap out the nitter images with original twitter ones
             let replace_nitter_url = |s: String| {
@@ -431,7 +396,7 @@ async fn build_item(
         _ => {
             let summarised = summarise_content(
                 &link,
-                feed,
+                config,
                 &title,
                 &description,
                 SUMMARISE_WEBSITE,
@@ -452,14 +417,14 @@ async fn build_item(
         }
     };
 
-    if !feed.original_title {
+    if !config.original_title {
         title = summarised.title;
     }
-    if !feed.original_content {
+    if !config.original_content {
         description = summarised.content;
     }
 
-    if !feed.filters.is_empty() && !summarised.included {
+    if config.filters.is_some() && !summarised.included {
         info!("FILTERED: {link}");
         return Ok((entry.id.clone(), FeedEntry::invalid()));
     }
@@ -500,7 +465,7 @@ struct SummariseOutput {
 /// Summarises content for a feed entry.
 async fn summarise_content(
     link: &str,
-    feed: &FeedData,
+    config: &FeedConfig,
     title: &str,
     description: &str,
     prompt: &str,
@@ -516,10 +481,10 @@ async fn summarise_content(
             if !content_key.is_empty() {
                 context.push(format!("{content_key} {original_content}"));
             }
-            if !feed.filters.is_empty() {
+            if let Some(filters) = &config.filters {
                 context.push(format!(
                     "Users requested filters, do not include posts including any of these '{}'",
-                    feed.filters.join(";")
+                    filters.join(";")
                 ));
             }
             context
