@@ -1,5 +1,5 @@
 use crate::llm_functions::run;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use axum::{
     extract::Path,
     http::StatusCode,
@@ -164,8 +164,8 @@ pub async fn refresh_all_feeds() -> Result<()> {
     // Load config file
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
     let config_str = fs::read_to_string(&config_path).await?;
-    let config_map: HashMap<String, FeedConfig> =
-        serde_json::from_str(&config_str).context(format!("Failed to read {config_path}"))?;
+    let config_map: HashMap<String, FeedConfig> = serde_json::from_str(&config_str)
+        .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
@@ -190,6 +190,10 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 );
             } else if matches!(config.source, FeedSource::Twitter) {
                 feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
+            } else if matches!(config.source, FeedSource::Website)
+                && feed_id.starts_with("https://")
+            {
+                feed.url_rss = feed_id.to_string();
             }
 
             // Refresh the feed data
