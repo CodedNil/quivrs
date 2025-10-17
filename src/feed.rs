@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env,
+    error::Error,
     fmt::{Display, Write},
     sync::LazyLock,
 };
@@ -45,9 +46,9 @@ struct FeedConfig {
     url_rss: Option<String>,
 
     #[serde(default)]
-    clean_title: bool,
+    original_title: bool, // Preserve the original title
     #[serde(default)]
-    summarise_content: bool,
+    original_content: bool, // Preserve the original content
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -58,8 +59,8 @@ struct FeedData {
     url_rss: String,
 
     filters: Vec<String>,
-    clean_title: bool,
-    summarise_content: bool,
+    original_title: bool,
+    original_content: bool,
 
     description: String,
     last_updated: DateTime<Utc>,
@@ -162,16 +163,6 @@ impl Display for FeedSource {
     }
 }
 
-/// Helper function to encode `FeedData`
-fn encode_feed_data(feed_data: &FeedData) -> Result<Vec<u8>> {
-    postcard::to_allocvec(feed_data).map_err(|e| anyhow!("Failed to encode FeedData: {e}"))
-}
-
-/// Helper function to decode `FeedData`
-fn decode_feed_data(bytes: &[u8]) -> Result<FeedData> {
-    postcard::from_bytes(bytes).map_err(|e| anyhow!("Failed to decode FeedData: {e}"))
-}
-
 /// Ensure the `redb` database is ready for use.
 pub async fn init_storage() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
@@ -188,47 +179,39 @@ pub async fn init_storage() -> Result<()> {
 
         let configured_ids: HashSet<String> = config.keys().cloned().collect();
 
-        for (feed_id, config_feed) in config {
+        for (feed_id, config) in config {
             // Get stored feed data
-            let mut feed = if let Some(existing_guard) = table.get(feed_id.as_str())?
-                && let Ok(stored) = decode_feed_data(existing_guard.value())
-            {
-                stored
-            } else {
-                FeedData::default()
-            };
+            let mut feed: FeedData = table
+                .get(feed_id.as_str())?
+                .and_then(|g| postcard::from_bytes(g.value()).ok())
+                .unwrap_or_default();
 
             // Override with the config
-            feed.source = config_feed.source;
-            feed.clean_title = config_feed.clean_title;
-            feed.summarise_content = config_feed.summarise_content;
-            if let Some(filters) = config_feed.filters {
-                feed.filters = filters;
-            }
-            if let Some(url_rss) = config_feed.url_rss {
-                feed.url_rss = url_rss;
-            }
+            feed.source = config.source;
+            feed.original_title = config.original_title;
+            feed.original_content = config.original_content;
+            feed.filters = config.filters.unwrap_or(feed.filters);
+            feed.url_rss = config.url_rss.unwrap_or(feed.url_rss);
 
             // Update the per domain urls
-            if matches!(&config_feed.source, FeedSource::Youtube) {
-                feed.url = format!("https://www.youtube.com/@{feed_id}");
-                if feed.url_rss.is_empty() {
-                    feed.url_rss = format!(
-                        "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                        resolve_youtube_channel_id(&feed_id).await?
-                    );
+            match config.source {
+                FeedSource::Youtube => {
+                    feed.url = format!("https://www.youtube.com/@{feed_id}");
+                    if feed.url_rss.is_empty() {
+                        feed.url_rss = format!(
+                            "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                            resolve_youtube_channel_id(&feed_id).await?
+                        );
+                    }
                 }
-            }
-            if matches!(&config_feed.source, FeedSource::Twitter) {
-                if feed.url.is_empty() {
+                FeedSource::Twitter => {
                     feed.url = format!("https://x.com/{feed_id}");
-                }
-                if feed.url_rss.is_empty() {
                     feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
                 }
+                _ => {}
             }
 
-            table.insert(feed_id.as_str(), encode_feed_data(&feed)?.as_slice())?;
+            table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
         }
 
         for stale_id in existing_ids.difference(&configured_ids) {
@@ -247,7 +230,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
     join_all(feeds.map(|(feed_id, bytes)| async move {
         let feed_id = feed_id.value();
-        let mut feed = match decode_feed_data(bytes.value()) {
+        let mut feed = match postcard::from_bytes(bytes.value()) {
             Ok(feed) => feed,
             Err(e) => {
                 warn!(feed_id = %feed_id, "Failed to decode feed: {e:#}");
@@ -274,12 +257,12 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
     if let Some(title) = fetched.title {
         feed.title = title.content;
     }
-    if let Some(url) = fetched
-        .links
-        .iter()
-        .find(|link| link.media_type.as_deref() == Some("text/html"))
-        .or_else(|| fetched.links.first())
-        && !matches!(feed.source, FeedSource::Twitter)
+    if !matches!(feed.source, FeedSource::Twitter)
+        && let Some(url) = fetched
+            .links
+            .iter()
+            .find(|link| link.media_type.as_deref() == Some("text/html"))
+            .or_else(|| fetched.links.first())
     {
         feed.url.clone_from(&url.href);
     }
@@ -310,7 +293,7 @@ async fn refresh_feed(feed_id: &str, feed: &mut FeedData) -> Result<()> {
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        table.insert(feed_id, encode_feed_data(&*feed)?.as_slice())?;
+        table.insert(feed_id, postcard::to_allocvec(&feed)?.as_slice())?;
     }
     write_txn.commit()?;
     Ok(())
@@ -398,12 +381,14 @@ async fn build_item(
             }
 
             // Get the video ID from the link
-            let Some(video_id_part) = link.split("v=").nth(1) else {
+            let Some(video_id) = link
+                .split_once("v=")
+                .and_then(|(_, rest)| rest.split('&').next())
+            else {
                 // Invalid youtube link, probably a youtube short
                 info!("FILTERED: Youtube video {link}");
                 return Ok((entry.id.clone(), FeedEntry::invalid()));
             };
-            let video_id = video_id_part.split('&').next().unwrap_or(video_id_part);
 
             // Load youtube captions
             let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
@@ -420,7 +405,7 @@ async fn build_item(
                 "Videos captions:",
                 captions
                     .lines()
-                    .filter(|l| !l.contains("-->"))
+                    .filter(|line| !line.contains("-->") && !line.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ")
                     .replace("  ", " ")
@@ -434,17 +419,12 @@ async fn build_item(
                     .await?;
 
             // Swap out the nitter images with original twitter ones
-            if let Some(image) = summarised.image {
-                summarised.image = Some(
-                    image
-                        .replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
-                        .replace("%2F", "/"),
-                );
-            }
-            summarised.content = summarised
-                .content
-                .replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
-                .replace("%2F", "/");
+            let replace_nitter_url = |s: String| {
+                s.replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
+                    .replace("%2F", "/")
+            };
+            summarised.image = summarised.image.map(replace_nitter_url);
+            summarised.content = replace_nitter_url(summarised.content);
 
             summarised
         }
@@ -472,10 +452,10 @@ async fn build_item(
         }
     };
 
-    if feed.clean_title {
+    if !feed.original_title {
         title = summarised.title;
     }
-    if feed.summarise_content {
+    if !feed.original_content {
         description = summarised.content;
     }
 
@@ -527,7 +507,7 @@ async fn summarise_content(
     content_key: &str,
     original_content: &str,
 ) -> Result<SummariseOutput> {
-    match run::<SummariseOutput>(
+    run::<SummariseOutput>(
         {
             let mut context = vec![
                 format!("Original title: {title}"),
@@ -547,16 +527,10 @@ async fn summarise_content(
         prompt,
     )
     .await
-    {
-        Ok(output) => Ok(output),
-        Err(err) => {
-            warn!(
-                link = %link,
-                "Summarisation failed: {err:#}"
-            );
-            bail!(err);
-        }
-    }
+    .map_err(|err| {
+        warn!(link = %link, "Summarisation failed: {err:#}");
+        anyhow!("Summarisation failed: {err}")
+    })
 }
 
 /// Resolves a `YouTube` channel ID from a given URL or by fetching the page content.
@@ -577,45 +551,51 @@ async fn resolve_youtube_channel_id(channel_name: &str) -> Result<String> {
     bail!("No channel ID found for `{channel_name}`")
 }
 
-/// Helper function to retrieve and decode `FeedData` from the database.
-fn get_feed_data_from_db(id: &str) -> Result<FeedData> {
-    let read_txn = DB
-        .begin_read()
-        .context("Failed to begin read transaction")?;
-    let read_table = read_txn
-        .open_table(FEEDS_TABLE)
-        .context("Failed to open feeds table")?;
-    let channel_bytes_guard = read_table
-        .get(id)?
-        .ok_or_else(|| anyhow!("Feed with ID '{id}' not found"))?;
-    let feed_data =
-        decode_feed_data(channel_bytes_guard.value()).context("Failed to decode feed data")?;
-    Ok(feed_data)
+/// A custom error type to centralize error handling and response generation.
+pub enum AppError {
+    NotFound(String),
+    Internal(Box<dyn Error + Send + Sync>),
+}
+
+/// Converts `AppError` into an HTTP response, handling status codes and logging.
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::NotFound(message) => (StatusCode::NOT_FOUND, message).into_response(),
+            Self::Internal(e) => {
+                warn!("Internal server error: {e:#}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
+            }
+        }
+    }
+}
+
+/// Allows any standard error to be converted into an `AppError`.
+impl<E> From<E> for AppError
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn from(err: E) -> Self {
+        Self::Internal(Box::new(err))
+    }
 }
 
 /// Axum handler to serve the generated feed.
-pub async fn summarised_feed_handler(Path(id): Path<String>) -> Response {
-    let feed_data = match get_feed_data_from_db(&id) {
-        Ok(data) => data,
-        Err(e) => {
-            warn!(feed_id = %id, "Failed to retrieve feed data: {e:#}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-    let feed_string = match serde_json::to_string(&feed_data.to_json_feed()) {
-        Ok(data) => data,
-        Err(e) => {
-            warn!(feed_id = %id, "Failed to serialize feed data: {e:#}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+pub async fn summarised_feed_handler(
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let read_txn = DB.begin_read()?;
+    let table = read_txn.open_table(FEEDS_TABLE)?;
+    let feed_bytes_guard = table
+        .get(id.as_str())?
+        .ok_or_else(|| AppError::NotFound(format!("Feed with ID '{id}' not found")))?;
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "application/rss+xml; charset=utf-8")
-        .body(feed_string.into())
-        .unwrap_or_else(|_| {
-            warn!(feed_id = %id, "Failed to build RSS response body");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })
+    let feed_data: FeedData = postcard::from_bytes(feed_bytes_guard.value())?;
+    let feed_string = serde_json::to_string(&feed_data.to_json_feed())?;
+
+    Ok((
+        StatusCode::OK,
+        [(CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
+        feed_string,
+    ))
 }
