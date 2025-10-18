@@ -1,26 +1,16 @@
 use crate::llm_functions::run;
 use anyhow::{Result, anyhow, bail};
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
 use chrono::{DateTime, Duration, Utc};
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
-use json_feed_model::{Author, Feed, Item, Version};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use regex::Regex;
-use reqwest::{Client, header::CONTENT_TYPE};
+use itertools::Itertools;
+use redb::{Database, ReadableTable, TableDefinition};
+use regex_lite::Regex;
+use reqwest::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    env,
-    error::Error,
-    fmt::{Display, Write},
-    sync::LazyLock,
-};
+use serde_json::{Value, json};
+use std::{collections::HashMap, env, fmt::Write, sync::LazyLock};
 use tokio::fs;
 use tracing::{info, warn};
 
@@ -32,8 +22,8 @@ const SUMMARISE_WEBSITE: &str = "Rewrite this rss feed entry outputted as embedd
 const SUMMARISE_YOUTUBE: &str = "Rewrite this youtube video title and description as embedded HTML. The title to be a more accurate description removing clickbait questions etc while preserving the original tone, meaning and fun. The description should accurately summarise the video based on its captions, it should contain a few sentences with a few concise summary, then (only if needed) two new lines then an expansion of the summary which is still kept simple.";
 const SUMMARISE_TWITTER: &str = "Rewrite this twitter post title and description as embedded HTML. The title should be a few words that accurately describe the post. The description should stay accurate to the original but clean up the formatting.";
 
-const FEEDS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("feeds");
-static DB: LazyLock<Database> = LazyLock::new(|| {
+pub const FEEDS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("feeds");
+pub static DB: LazyLock<Database> = LazyLock::new(|| {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "quivrs.redb".to_string());
     Database::create(database_url).unwrap()
 });
@@ -52,7 +42,7 @@ struct FeedConfig {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct FeedData {
+pub struct FeedData {
     title: String,
     url: String,
     url_rss: String,
@@ -66,36 +56,26 @@ struct FeedData {
 }
 
 impl FeedData {
-    fn to_json_feed(&self) -> Feed {
+    pub fn to_json_feed(&self) -> Value {
         // Sort by date_published, recent first
-        let items = {
-            let mut items = self
-                .entries
-                .iter()
-                .filter(|(_, entry)| entry.title != "INVALID")
-                .collect::<Vec<_>>();
-            items.sort_unstable_by(|(_, a), (_, b)| b.published.cmp(&a.published));
-            items
-                .into_iter()
-                .map(|(id, entry)| entry.to_json_item(id))
-                .collect::<Vec<_>>()
-        };
+        let items: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.title != "INVALID")
+            .sorted_unstable_by(|(_, a), (_, b)| b.published.cmp(&a.published))
+            .map(|(id, entry)| entry.to_json_item(id))
+            .collect();
 
-        let mut feed = Feed::new();
-        feed.set_version(Version::Version1_1);
-        feed.set_title(&self.title);
-        feed.set_home_page_url(&self.url);
-        feed.set_feed_url(&self.url_rss);
-        feed.set_description(&self.description);
-        feed.set_items(items);
-        if let Some(icon) = &self.icon {
-            feed.set_icon(icon);
-        }
-        if let Some(favicon) = &self.favicon {
-            feed.set_favicon(favicon);
-        }
-
-        feed
+        json!({
+            "version": "https://jsonfeed.org/version/1.1",
+            "title": self.title,
+            "home_page_url": self.url,
+            "feed_url": self.url_rss,
+            "description": self.description,
+            "icon": self.icon,
+            "favicon": self.favicon,
+            "items": items,
+        })
     }
 }
 
@@ -111,24 +91,18 @@ struct FeedEntry {
 }
 
 impl FeedEntry {
-    fn to_json_item(&self, id: &str) -> Item {
-        let mut item = Item::new();
-        item.set_id(id);
-        item.set_title(&self.title);
-        item.set_url(&self.link);
-        item.set_content_html(&self.description);
-        item.set_date_published(self.published);
-        item.set_authors(self.authors.iter().map(|a| {
-            let mut author = Author::new();
-            author.set_name(a);
-            author
-        }));
-        if let Some(image) = &self.image {
-            item.set_image(image);
-            item.set_banner_image(image);
-        }
-        item.set_tags(self.tags.clone());
-        item
+    fn to_json_item(&self, id: &str) -> Value {
+        json!({
+            "id": id,
+            "url": self.link,
+            "title": self.title,
+            "content_html": self.description,
+            "image": self.image,
+            "banner_image": self.image,
+            "date_published": self.published,
+            "authors": self.authors.iter().map(|name| json!({"name": name})).collect::<Vec<_>>(),
+            "tags": self.tags
+        })
     }
 
     fn invalid() -> Self {
@@ -139,24 +113,13 @@ impl FeedEntry {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 enum FeedSource {
     #[default]
     Website,
     Youtube,
     Twitter,
     Reddit,
-}
-
-impl Display for FeedSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Website => write!(f, "Website"),
-            Self::Youtube => write!(f, "Youtube"),
-            Self::Twitter => write!(f, "Twitter"),
-            Self::Reddit => write!(f, "Reddit"),
-        }
-    }
 }
 
 /// Refreshes all feeds.
@@ -181,20 +144,19 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 .unwrap_or_default();
 
             // Override with the config
-            if let Some(url_rss) = &config.url_rss {
-                feed.url_rss.clone_from(url_rss);
-            } else if matches!(config.source, FeedSource::Youtube) {
-                feed.url_rss = format!(
-                    "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                    resolve_youtube_channel_id(feed_id).await?
-                );
-            } else if matches!(config.source, FeedSource::Twitter) {
-                feed.url_rss = format!("{NITTER_API_URL}/{feed_id}/rss");
-            } else if matches!(config.source, FeedSource::Website)
-                && feed_id.starts_with("https://")
-            {
-                feed.url_rss = feed_id.to_string();
-            }
+            feed.url_rss = if let Some(url_rss) = &config.url_rss {
+                url_rss.clone()
+            } else {
+                match config.source {
+                    FeedSource::Youtube => format!(
+                        "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                        resolve_youtube_channel_id(feed_id).await?
+                    ),
+                    FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
+                    FeedSource::Website if feed_id.starts_with("https://") => feed_id.clone(),
+                    _ => feed.url_rss,
+                }
+            };
 
             // Refresh the feed data
             refresh_feed(feed_id, config, &mut feed).await?;
@@ -279,7 +241,7 @@ async fn build_item(
         .ok_or_else(|| anyhow!("Entry has no link."))?
         .href
         .clone();
-    info!(link = %link, "Parsing {}", config.source);
+    info!(link = %link, "Parsing {:?}", config.source);
 
     let mut title = entry
         .title
@@ -303,7 +265,7 @@ async fn build_item(
         }
 
         // Grab other tweets that were posted within 5 minutes and are replies to the same user, append the descriptions to build the thread
-        let mut thread: Vec<(String, DateTime<Utc>)> = other_entries
+        let thread: Vec<(String, DateTime<Utc>)> = other_entries
             .iter()
             .filter_map(|other| {
                 let other_title = other.title.as_ref()?.content.clone();
@@ -313,13 +275,11 @@ async fn build_item(
                     && (other_time - published) < Duration::minutes(5))
                 .then_some((other_title, other_time))
             })
+            .sorted_unstable_by_key(|(_, pub_time)| *pub_time)
             .collect();
 
-        // Sort by published time (earliest first)
+        // Sort by published time (earliest first), then push into the description
         if !thread.is_empty() {
-            thread.sort_unstable_by_key(|(_, pub_time)| *pub_time);
-
-            // Push the entire thread into the description
             description.push_str("\n\n");
             for (i, (body, _)) in thread.iter().enumerate() {
                 writeln!(
@@ -519,53 +479,4 @@ async fn resolve_youtube_channel_id(channel_name: &str) -> Result<String> {
         return Ok(channel_id.to_string());
     }
     bail!("No channel ID found for `{channel_name}`")
-}
-
-/// A custom error type to centralize error handling and response generation.
-pub enum AppError {
-    NotFound(String),
-    Internal(Box<dyn Error + Send + Sync>),
-}
-
-/// Converts `AppError` into an HTTP response, handling status codes and logging.
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        match self {
-            Self::NotFound(message) => (StatusCode::NOT_FOUND, message).into_response(),
-            Self::Internal(e) => {
-                warn!("Internal server error: {e:#}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
-            }
-        }
-    }
-}
-
-/// Allows any standard error to be converted into an `AppError`.
-impl<E> From<E> for AppError
-where
-    E: Error + Send + Sync + 'static,
-{
-    fn from(err: E) -> Self {
-        Self::Internal(Box::new(err))
-    }
-}
-
-/// Axum handler to serve the generated feed.
-pub async fn summarised_feed_handler(
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let read_txn = DB.begin_read()?;
-    let table = read_txn.open_table(FEEDS_TABLE)?;
-    let feed_bytes_guard = table
-        .get(id.as_str())?
-        .ok_or_else(|| AppError::NotFound(format!("Feed with ID '{id}' not found")))?;
-
-    let feed_data: FeedData = postcard::from_bytes(feed_bytes_guard.value())?;
-    let feed_string = serde_json::to_string(&feed_data.to_json_feed())?;
-
-    Ok((
-        StatusCode::OK,
-        [(CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
-        feed_string,
-    ))
 }
