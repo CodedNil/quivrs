@@ -1,9 +1,11 @@
 mod feed;
 mod llm_functions;
+mod serve;
 
 use anyhow::Result;
 use axum::{Router, routing::get};
-use feed::{refresh_all_feeds, summarised_feed_handler};
+use feed::refresh_all_feeds;
+use serve::summarised_feed_handler;
 use std::time::Duration;
 use tokio::{
     net::TcpListener,
