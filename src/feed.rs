@@ -1,4 +1,4 @@
-use crate::llm_functions::run;
+use crate::{llm_functions::run, miniflux};
 use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Duration, Utc};
 use feed_rs::{model::Entry, parser};
@@ -10,11 +10,16 @@ use reqwest::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, env, fmt::Write, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    fmt::Write,
+    sync::LazyLock,
+};
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
-static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+pub static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 const INVIDIOUS_API_URL: &str = "https://inv.nadeko.net/api/v1";
 const NITTER_API_URL: &str = "https://nitter.privacyredirect.com";
 
@@ -29,7 +34,7 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
 });
 
 #[derive(Deserialize)]
-struct FeedConfig {
+pub struct FeedConfig {
     #[serde(default)]
     source: FeedSource,
     filters: Option<Vec<String>>,
@@ -40,6 +45,8 @@ struct FeedConfig {
     #[serde(default)]
     original_content: bool, // Preserve the original content
 }
+
+pub type FeedConfigFile = HashMap<String, HashMap<String, FeedConfig>>;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FeedData {
@@ -127,52 +134,61 @@ pub async fn refresh_all_feeds() -> Result<()> {
     // Load config file
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
     let config_str = fs::read_to_string(&config_path).await?;
-    let config_map: HashMap<String, FeedConfig> = serde_json::from_str(&config_str)
+    let config_map: FeedConfigFile = serde_json::from_str(&config_str)
         .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        table.retain(|key, _| config_map.contains_key(key))?;
+        let mut feed_keys = HashSet::new();
 
-        for (feed_id, config) in &config_map {
-            // Get stored feed data
-            let mut feed: FeedData = table
-                .get(feed_id.as_str())?
-                .and_then(|g| postcard::from_bytes(g.value()).ok())
-                .unwrap_or_default();
+        for feeds in config_map.values() {
+            for (feed_id, config) in feeds {
+                feed_keys.insert(feed_id.clone());
 
-            // Override with the config
-            feed.url_rss = if let Some(url_rss) = &config.url_rss {
-                url_rss.clone()
-            } else {
-                match config.source {
-                    FeedSource::Youtube => format!(
-                        "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                        resolve_youtube_channel_id(feed_id).await?
-                    ),
-                    FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
-                    FeedSource::Website if feed_id.starts_with("https://") => feed_id.clone(),
-                    _ => feed.url_rss,
-                }
-            };
+                // Get stored feed data
+                let mut feed: FeedData = table
+                    .get(feed_id.as_str())?
+                    .and_then(|g| postcard::from_bytes(g.value()).ok())
+                    .unwrap_or_default();
 
-            // Refresh the feed data
-            refresh_feed(feed_id, config, &mut feed).await?;
+                // Override with the config
+                feed.url_rss = if let Some(url_rss) = &config.url_rss {
+                    url_rss.clone()
+                } else {
+                    match config.source {
+                        FeedSource::Youtube => format!(
+                            "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                            resolve_youtube_channel_id(feed_id).await?
+                        ),
+                        FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
+                        FeedSource::Website if feed_id.starts_with("https://") => feed_id.clone(),
+                        _ => feed.url_rss,
+                    }
+                };
 
-            // Override with the config
-            feed.url = match config.source {
-                FeedSource::Youtube => format!("https://www.youtube.com/@{feed_id}"),
-                FeedSource::Twitter => format!("https://x.com/{feed_id}"),
-                _ => feed.url,
-            };
+                // Refresh the feed data
+                refresh_feed(feed_id, config, &mut feed).await?;
 
-            // Update the feed in the database
-            table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
+                // Override with the config
+                feed.url = match config.source {
+                    FeedSource::Youtube => format!("https://www.youtube.com/@{feed_id}"),
+                    FeedSource::Twitter => format!("https://x.com/{feed_id}"),
+                    _ => feed.url,
+                };
+
+                // Update the feed in the database
+                table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
+            }
         }
+        table.retain(|key, _| feed_keys.contains(key))?;
     }
     write_txn.commit()?;
+
+    if let Err(e) = miniflux::update_feeds(&config_map).await {
+        error!("Failed to update miniflux feeds: {e}");
+    }
 
     Ok(())
 }
@@ -357,28 +373,17 @@ async fn build_item(
         _ => {
             // Fetch the site and parse the html into markdown
             let original_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
-            let md = html2md::rewrite_html(&original_content, false);
 
-            let summarised = summarise_content(
+            summarise_content(
                 &link,
                 config,
                 &title,
                 &description,
                 SUMMARISE_WEBSITE,
                 "Original content:",
-                &md,
+                &html2text::from_read(original_content.as_bytes(), 20)?,
             )
-            .await?;
-
-            // Save the description as a html file in outputs
-            #[cfg(debug_assertions)]
-            fs::write(
-                format!("outputs/{}.html", title.to_lowercase().replace(' ', "_")),
-                description.clone(),
-            )
-            .await?;
-
-            summarised
+            .await?
         }
     };
 

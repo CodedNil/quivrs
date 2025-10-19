@@ -1,13 +1,10 @@
-use reqwest::{
-    Client,
-    header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue},
-};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::{env, error::Error, sync::LazyLock};
+use std::{env, error::Error};
 
-static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+use crate::feed::HTTP_CLIENT;
 
 pub async fn run<T>(
     context: Vec<String>,
@@ -16,17 +13,6 @@ pub async fn run<T>(
 where
     T: JsonSchema + DeserializeOwned,
 {
-    // Set up request headers.
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!(
-            "Bearer {}",
-            env::var("OPENROUTER").expect("OPENROUTER not set")
-        ))?,
-    );
-
     // Generate the JSON schema dynamically using `schemars`.
     let mut schema_object = SchemaGenerator::new(SchemaSettings::openapi3().with(|s| {
         s.inline_subschemas = true;
@@ -64,7 +50,14 @@ where
     // Send the request and check for errors
     let response = HTTP_CLIENT
         .post("https://openrouter.ai/api/v1/chat/completions".to_string())
-        .headers(headers)
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            AUTHORIZATION,
+            &format!(
+                "Bearer {}",
+                env::var("OPENROUTER").expect("OPENROUTER not set")
+            ),
+        )
         .json(&payload)
         .send()
         .await?;

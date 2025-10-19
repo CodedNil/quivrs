@@ -1,6 +1,7 @@
 Youtube:
 Reimplement thumbnails
 Channels icon (maybe with a little youtube icon too)
+Let it have the timestamps then make it add those with &t=timestamp links as citations, and structure the response in a timestamped format
 
 Websites:
 Option to summarise all recent articles, combining many into a daily bulletin feed

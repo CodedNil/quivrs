@@ -1,5 +1,6 @@
 mod feed;
 mod llm_functions;
+mod miniflux;
 mod serve;
 
 use anyhow::Result;

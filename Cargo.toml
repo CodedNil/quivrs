@@ -23,7 +23,7 @@ dotenvy = "0.15.7"
 futures = "0.3.31"
 redb = "3.1.0"
 regex-lite = "0.1.8"
-fast_html2md = { git = "https://github.com/CodedNil/html2md" }
+html2text = "0.15.5"
 itertools = "0.14.0"
 
 # Serialization
@@ -40,6 +40,7 @@ unsafe_code = "forbid"
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 too-many-lines = "allow"
+struct_excessive_bools = "allow"
 
 [profile.release]
 lto = true

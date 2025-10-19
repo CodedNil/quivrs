@@ -1,5 +1,4 @@
 /target
 /.direnv
-/outputs
 .env
 quivrs.redb
