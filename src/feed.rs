@@ -1,4 +1,4 @@
-use crate::{llm_functions::run, miniflux};
+use crate::llm_functions::run;
 use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Duration, Utc};
 use feed_rs::{model::Entry, parser};
@@ -17,7 +17,7 @@ use std::{
     sync::LazyLock,
 };
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 pub static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 const INVIDIOUS_API_URL: &str = "https://inv.nadeko.net/api/v1";
@@ -50,15 +50,15 @@ pub type FeedConfigFile = HashMap<String, HashMap<String, FeedConfig>>;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FeedData {
-    title: String,
-    url: String,
-    url_rss: String,
-    description: String,
-    last_updated: DateTime<Utc>,
-    favicon: Option<String>,
-    icon: Option<String>,
-    authors: Vec<String>,
-    tags: Vec<String>,
+    pub title: String,
+    pub url: String,
+    pub url_rss: String,
+    pub description: String,
+    pub last_updated: DateTime<Utc>,
+    pub favicon: Option<String>,
+    pub icon: Option<String>,
+    pub authors: Vec<String>,
+    pub tags: Vec<String>,
     entries: HashMap<String, FeedEntry>,
 }
 
@@ -134,8 +134,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
     // Load config file
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
     let config_str = fs::read_to_string(&config_path).await?;
-    let config_map: FeedConfigFile = serde_json::from_str(&config_str)
+    let config_file: FeedConfigFile = serde_json::from_str(&config_str)
         .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
+    let mut collected_feeds = HashMap::new();
 
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
@@ -143,7 +144,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
         let mut feed_keys = HashSet::new();
 
-        for feeds in config_map.values() {
+        for feeds in config_file.values() {
             for (feed_id, config) in feeds {
                 feed_keys.insert(feed_id.clone());
 
@@ -180,14 +181,16 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
                 // Update the feed in the database
                 table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
+                collected_feeds.insert(feed_id.to_string(), feed);
             }
         }
         table.retain(|key, _| feed_keys.contains(key))?;
     }
     write_txn.commit()?;
 
-    if let Err(e) = miniflux::update_feeds(&config_map).await {
-        error!("Failed to update miniflux feeds: {e}");
+    #[cfg(not(debug_assertions))]
+    if let Err(e) = crate::miniflux::update_feeds(&config_file, &collected_feeds).await {
+        tracing::error!("Failed to update miniflux feeds: {e}");
     }
 
     Ok(())

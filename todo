@@ -11,9 +11,6 @@ Summarise all the posts into a daily bulletin feed
 https://www.reddit.com/r/reddit.com/wiki/rss/
 
 
-Automatically populate miniflux
-
-
 If feed was rejected due to filters, push it to a rejected feed, also make the ai write a rejection reason
 
 options a timed_summary which if enabled doesnt output every single feed (it would still have to store all entries as usual), but idk the specifics it would at each time generate a single entry which is a summary of that days
