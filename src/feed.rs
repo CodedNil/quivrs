@@ -164,7 +164,6 @@ pub async fn refresh_all_feeds() -> Result<()> {
                             resolve_youtube_channel_id(feed_id).await?
                         ),
                         FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
-                        FeedSource::Website if feed_id.starts_with("https://") => feed_id.clone(),
                         _ => feed.url_rss,
                     }
                 };

@@ -84,8 +84,7 @@ pub async fn update_feeds(
     // Add missing categories
     for category in wanted_categories.difference(&miniflux_categories_names) {
         info!("Adding category: {category}");
-        let response = post_api("v1/categories", json!({ "title": category })).await;
-        println!("Response: {response:?}");
+        post_api("v1/categories", json!({ "title": category })).await?;
     }
 
     // Remove excess categories
@@ -110,7 +109,10 @@ pub async fn update_feeds(
             continue;
         };
         if !miniflux_feeds.iter().any(|feed| feed.feed_url == feed_url) {
-            info!("Adding feed: {}", database_feed.title);
+            info!(
+                "Adding feed: {} {} {}",
+                database_feed.title, feed_url, category_id
+            );
             post_api(
                 "v1/feeds",
                 json!({
