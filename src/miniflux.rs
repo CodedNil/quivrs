@@ -90,9 +90,10 @@ pub async fn update_feeds(
 
     // Remove excess categories
     for category in miniflux_categories_names.difference(&wanted_categories) {
-        let id = miniflux_category_ids.get(category).unwrap();
-        info!("Removing category: {category} {id}");
-        delete_api(&format!("v1/categories/{id}")).await?;
+        if let Some(id) = miniflux_category_ids.get(category) {
+            info!("Removing category: {category} {id}");
+            delete_api(&format!("v1/categories/{id}")).await?;
+        }
     }
 
     // Get existing feeds
@@ -101,10 +102,10 @@ pub async fn update_feeds(
     // Add missing feeds
     for (feed_id, database_feed) in database_feeds {
         let feed_url = format!("{}{}", *QUIVRS_URL_PREFIX, feed_id);
-        let Some(category) = config_feeds
+        let Some(Some(category_id)) = config_feeds
             .iter()
             .find(|(_, inner_map)| inner_map.contains_key(feed_id))
-            .map(|(category, _)| category.clone())
+            .map(|(category, _)| miniflux_category_ids.get(category))
         else {
             continue;
         };
@@ -114,7 +115,7 @@ pub async fn update_feeds(
                 "v1/feeds",
                 json!({
                     "feed_url": feed_url,
-                    "category_id": miniflux_category_ids.get(&category).unwrap(),
+                    "category_id": category_id,
                 }),
             )
             .await?;
@@ -131,17 +132,16 @@ pub async fn update_feeds(
         let Some(database_feed) = database_feeds.get(feed_id) else {
             continue;
         };
-        let Some(category) = config_feeds
+        let Some(Some(category_id)) = config_feeds
             .iter()
             .find(|(_, inner_map)| inner_map.contains_key(feed_id))
-            .map(|(category, _)| category.clone())
+            .map(|(category, _)| miniflux_category_ids.get(category))
         else {
             continue;
         };
         miniflux_used_feeds.insert(miniflux_feed.id);
 
         // Update feed data if necessary
-        let category_id = miniflux_category_ids.get(&category).unwrap();
         if miniflux_feed.title != database_feed.title
             || miniflux_feed.category.id != *category_id
             || miniflux_feed.site_url != database_feed.url
