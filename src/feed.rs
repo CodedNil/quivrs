@@ -48,7 +48,7 @@ pub struct FeedConfig {
 
 pub type FeedConfigFile = HashMap<String, HashMap<String, FeedConfig>>;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FeedData {
     pub title: String,
     pub url: String,
@@ -86,7 +86,7 @@ impl FeedData {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct FeedEntry {
     title: String,
     link: String,
@@ -188,7 +188,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         // Wait for all tasks to complete
         for (feed_id, feed) in join_all(tasks).await.iter().flatten() {
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
-            collected_feeds.insert(feed_id, feed);
+            collected_feeds.insert((*feed_id).to_string(), feed.clone());
         }
 
         // Remove feeds that are no longer in the config
@@ -197,7 +197,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     write_txn.commit()?;
 
     #[cfg(not(debug_assertions))]
-    if let Err(e) = crate::miniflux::update_feeds(&config_file, &collected_feeds).await {
+    if let Err(e) = crate::miniflux::update_feeds(&config_file, collected_feeds).await {
         tracing::error!("Failed to update miniflux feeds: {e}");
     }
 
@@ -342,22 +342,31 @@ async fn build_item(
             let response = HTTP_CLIENT.get(caption_link).send().await?;
             let captions = response.text().await.unwrap_or_default();
 
-            summarise_content(
-                &link,
-                config,
-                &title,
-                &description,
-                SUMMARISE_YOUTUBE,
-                "Videos captions:",
-                captions
-                    .lines()
-                    .filter(|line| !line.contains("-->") && !line.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .replace("  ", " ")
-                    .trim(),
-            )
-            .await?
+            if !config.original_title || !config.original_content || config.filters.is_some() {
+                summarise_content(
+                    &link,
+                    config,
+                    &title,
+                    &description,
+                    SUMMARISE_YOUTUBE,
+                    "Videos captions:",
+                    captions
+                        .lines()
+                        .filter(|line| !line.contains("-->") && !line.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .replace("  ", " ")
+                        .trim(),
+                )
+                .await?
+            } else {
+                SummariseOutput {
+                    title: title.clone(),
+                    content: description.clone(),
+                    image: None,
+                    included: true,
+                }
+            }
         }
         FeedSource::Twitter => {
             let mut summarised = summarise_content(

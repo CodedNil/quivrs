@@ -66,7 +66,7 @@ async fn delete_api(url: &str) -> Result<String, reqwest::Error> {
 
 pub async fn update_feeds(
     config_feeds: &FeedConfigFile,
-    database_feeds: &HashMap<String, FeedData>,
+    database_feeds: HashMap<String, FeedData>,
 ) -> Result<()> {
     let wanted_categories: HashSet<String> = config_feeds.keys().cloned().collect();
 
@@ -99,7 +99,7 @@ pub async fn update_feeds(
     let miniflux_feeds = query_api::<Vec<MinifluxFeed>>("v1/feeds").await?;
 
     // Add missing feeds
-    for (feed_id, database_feed) in database_feeds {
+    for (feed_id, database_feed) in &database_feeds {
         let feed_url = format!("{}{}", *QUIVRS_URL_PREFIX, feed_id);
         let Some(Some(category_id)) = config_feeds
             .iter()
