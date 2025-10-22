@@ -136,13 +136,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
     let config_str = fs::read_to_string(&config_path).await?;
     let config_file: FeedConfigFile = serde_json::from_str(&config_str)
         .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
-    let mut collected_feeds = HashMap::new();
 
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
+    let mut collected_feeds = HashMap::new();
+    let mut feed_keys = HashSet::new();
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
-        let mut feed_keys = HashSet::new();
+        let mut tasks = Vec::new();
 
         for feeds in config_file.values() {
             for (feed_id, config) in feeds {
@@ -154,35 +155,43 @@ pub async fn refresh_all_feeds() -> Result<()> {
                     .and_then(|g| postcard::from_bytes(g.value()).ok())
                     .unwrap_or_default();
 
-                // Override with the config
-                feed.url_rss = if let Some(url_rss) = &config.url_rss {
-                    url_rss.clone()
-                } else {
-                    match config.source {
-                        FeedSource::Youtube => format!(
-                            "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-                            resolve_youtube_channel_id(feed_id).await?
-                        ),
-                        FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
-                        _ => feed.url_rss,
-                    }
-                };
+                tasks.push(async move {
+                    // Override with the config
+                    feed.url_rss = if let Some(url_rss) = &config.url_rss {
+                        url_rss.clone()
+                    } else {
+                        match config.source {
+                            FeedSource::Youtube => format!(
+                                "https://www.youtube.com/feeds/videos.xml?channel_id={}",
+                                resolve_youtube_channel_id(feed_id).await?
+                            ),
+                            FeedSource::Twitter => format!("{NITTER_API_URL}/{feed_id}/rss"),
+                            _ => feed.url_rss,
+                        }
+                    };
 
-                // Refresh the feed data
-                refresh_feed(feed_id, config, &mut feed).await?;
+                    // Refresh the feed data
+                    refresh_feed(feed_id, config, &mut feed).await?;
 
-                // Override with the config
-                feed.url = match config.source {
-                    FeedSource::Youtube => format!("https://www.youtube.com/@{feed_id}"),
-                    FeedSource::Twitter => format!("https://x.com/{feed_id}"),
-                    _ => feed.url,
-                };
+                    // Override with the config
+                    feed.url = match config.source {
+                        FeedSource::Youtube => format!("https://www.youtube.com/@{feed_id}"),
+                        FeedSource::Twitter => format!("https://x.com/{feed_id}"),
+                        _ => feed.url,
+                    };
 
-                // Update the feed in the database
-                table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
-                collected_feeds.insert(feed_id.to_string(), feed);
+                    Ok::<_, anyhow::Error>((feed_id, feed))
+                });
             }
         }
+
+        // Wait for all tasks to complete
+        for (feed_id, feed) in join_all(tasks).await.iter().flatten() {
+            table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
+            collected_feeds.insert(feed_id, feed);
+        }
+
+        // Remove feeds that are no longer in the config
         table.retain(|key, _| feed_keys.contains(key))?;
     }
     write_txn.commit()?;
@@ -197,7 +206,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
 /// Refreshes a single feed and updates the cache.
 async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -> Result<()> {
-    info!(feed_id = %feed_id, url = %feed.url, "Refreshing feed");
+    info!(feed_id = %feed_id, "Refreshing feed");
 
     // Fetch and parse the remote feed
     let content = HTTP_CLIENT.get(&feed.url_rss).send().await?.bytes().await?;
@@ -445,6 +454,9 @@ async fn summarise_content(
     original_content: &str,
 ) -> Result<SummariseOutput> {
     let mut context = vec![
+        format!(
+            "Rules: do NOT include ```json at the start, directly output as json with the outer structure being {{key: value}}"
+        ),
         format!("Original title: {title}"),
         format!("Original description: {description}"),
     ];

@@ -77,5 +77,7 @@ where
         .and_then(|v| v.as_str())
         .ok_or("Unexpected response structure")?;
 
-    Ok(serde_json::from_str(inner_text)?)
+    // If serialization fails, return an error including the inner text
+    Ok(serde_json::from_str(inner_text)
+        .map_err(|e| format!("Serialization failed: {e} - Outputted text: {inner_text}"))?)
 }

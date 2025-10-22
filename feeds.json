@@ -1,5 +1,10 @@
 {
   "Test": {
+    "kagi_ai": {
+      "url_rss": "https://news.kagi.com/ai.xml",
+      "original_title": true,
+      "original_content": true
+    },
     "bbc_tech": {
       "url_rss": "https://feeds.bbci.co.uk/news/technology/rss.xml"
     },
