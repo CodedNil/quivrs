@@ -125,23 +125,26 @@ pub async fn update_feeds(
     }
 
     // If title, site_url or category of the feed differs from our local data, update it
-    let mut miniflux_used_feeds: HashSet<usize> = HashSet::new();
     for miniflux_feed in &miniflux_feeds {
         // Get associated config and config_feeds
         let Some(feed_id) = miniflux_feed.feed_url.strip_prefix(&*QUIVRS_URL_PREFIX) else {
             continue;
         };
+        let Some((category, _)) = config_feeds
+            .iter()
+            .find(|(_, inner_map)| inner_map.contains_key(feed_id))
+        else {
+            // Delete unused feeds
+            info!("Deleting feed: {}", miniflux_feed.title);
+            delete_api(&format!("v1/feeds/{}", miniflux_feed.id)).await?;
+            continue;
+        };
+        let Some(category_id) = miniflux_category_ids.get(category) else {
+            continue;
+        };
         let Some(database_feed) = database_feeds.get(feed_id) else {
             continue;
         };
-        let Some(Some(category_id)) = config_feeds
-            .iter()
-            .find(|(_, inner_map)| inner_map.contains_key(feed_id))
-            .map(|(category, _)| miniflux_category_ids.get(category))
-        else {
-            continue;
-        };
-        miniflux_used_feeds.insert(miniflux_feed.id);
 
         // Update feed data if necessary
         if miniflux_feed.title != database_feed.title
@@ -158,14 +161,6 @@ pub async fn update_feeds(
                 }),
             )
             .await?;
-        }
-    }
-
-    // Delete unused feeds
-    for miniflux_feed in &miniflux_feeds {
-        if !miniflux_used_feeds.contains(&miniflux_feed.id) {
-            info!("Deleting feed: {}", miniflux_feed.title);
-            delete_api(&format!("v1/feeds/{}", miniflux_feed.id)).await?;
         }
     }
 
