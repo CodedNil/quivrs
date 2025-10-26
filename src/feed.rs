@@ -206,8 +206,6 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
 /// Refreshes a single feed and updates the cache.
 async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -> Result<()> {
-    info!(feed_id = %feed_id, "Refreshing feed");
-
     // Fetch and parse the remote feed
     let content = HTTP_CLIENT.get(&feed.url_rss).send().await?.bytes().await?;
     let fetched = parser::parse(content.as_ref())?;
@@ -268,7 +266,6 @@ async fn build_item(
         .ok_or_else(|| anyhow!("Entry has no link."))?
         .href
         .clone();
-    info!(link = %link, "Parsing {:?}", config.source);
 
     let mut title = entry
         .title
@@ -332,13 +329,11 @@ async fn build_item(
                 .and_then(|(_, rest)| rest.split('&').next())
             else {
                 // Invalid youtube link, probably a youtube short
-                info!("FILTERED: Youtube video {link}");
                 return Ok((entry.id.clone(), FeedEntry::invalid()));
             };
 
             // Load youtube captions
             let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
-            info!(link = %caption_link, "Loading youtube captions");
             let response = HTTP_CLIENT.get(caption_link).send().await?;
             let captions = response.text().await.unwrap_or_default();
 
@@ -503,7 +498,6 @@ async fn resolve_youtube_channel_id(channel_name: &str) -> Result<String> {
         Regex::new(r#"<link\s+rel=["']?canonical["']?\s+href=["']([^"']+)["']"#)?.captures(&body)
         && let Some(channel_id) = caps[1].rsplit('/').find(|segment| !segment.is_empty())
     {
-        info!("Found channel ID for {channel_name}: {channel_id}");
         return Ok(channel_id.to_string());
     }
     bail!("No channel ID found for `{channel_name}`")
