@@ -151,7 +151,13 @@ pub async fn update_feeds(
             || miniflux_feed.category.id != *category_id
             || miniflux_feed.site_url != database_feed.url
         {
-            info!("Updating feed: {}", miniflux_feed.title);
+            info!(
+                "Updating feed: {} - {} {} {}",
+                miniflux_feed.title,
+                miniflux_feed.title != database_feed.title,
+                miniflux_feed.category.id != *category_id,
+                miniflux_feed.site_url != database_feed.url
+            );
             put_api(
                 &format!("v1/feeds/{}", miniflux_feed.id),
                 json!({

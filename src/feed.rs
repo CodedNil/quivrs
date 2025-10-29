@@ -171,7 +171,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                     };
 
                     // Refresh the feed data
-                    refresh_feed(feed_id, config, &mut feed).await?;
+                    let new_items = refresh_feed(feed_id, config, &mut feed).await?;
 
                     // Override with the config
                     feed.url = match config.source {
@@ -180,13 +180,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
                         _ => feed.url,
                     };
 
-                    Ok::<_, anyhow::Error>((feed_id, feed))
+                    Ok::<_, anyhow::Error>((feed_id, feed, new_items))
                 });
             }
         }
 
         // Wait for all tasks to complete
-        for (feed_id, feed) in join_all(tasks).await.iter().flatten() {
+        for (feed_id, feed, new_items) in join_all(tasks).await.iter().flatten() {
+            info!("Feed {feed_id} updated with {new_items} new items");
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
             collected_feeds.insert((*feed_id).to_string(), feed.clone());
         }
@@ -205,10 +206,11 @@ pub async fn refresh_all_feeds() -> Result<()> {
 }
 
 /// Refreshes a single feed and updates the cache.
-async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -> Result<()> {
+async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -> Result<usize> {
     // Fetch and parse the remote feed
     let content = HTTP_CLIENT.get(&feed.url_rss).send().await?.bytes().await?;
     let fetched = parser::parse(content.as_ref())?;
+    let mut new_items = 0;
 
     if let Some(title) = fetched.title {
         feed.title = title.content;
@@ -244,13 +246,14 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
     {
         match result {
             Ok((entry_id, entry)) => {
+                new_items += 1;
                 feed.entries.insert(entry_id, entry);
             }
             Err(err) => warn!(feed_id = %feed_id, "Failed to build entry: {err:#}"),
         }
     }
 
-    Ok(())
+    Ok(new_items)
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarising content.
