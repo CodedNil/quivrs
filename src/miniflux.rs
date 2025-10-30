@@ -149,15 +149,27 @@ pub async fn update_feeds(
         // Update feed data if necessary
         if miniflux_feed.title != database_feed.title
             || miniflux_feed.category.id != *category_id
-            || miniflux_feed.site_url != database_feed.url
+            || (!database_feed.url.is_empty() && miniflux_feed.site_url != database_feed.url)
         {
-            info!(
-                "Updating feed: {} - {} {} {}",
-                miniflux_feed.title,
-                miniflux_feed.title != database_feed.title,
-                miniflux_feed.category.id != *category_id,
-                miniflux_feed.site_url != database_feed.url
-            );
+            if miniflux_feed.title != database_feed.title {
+                info!(
+                    "Updating feed title: {} -> {}",
+                    miniflux_feed.title, database_feed.title
+                );
+            }
+            if miniflux_feed.category.id != *category_id {
+                info!(
+                    "Updating feed category {}: {} -> {} {category}",
+                    miniflux_feed.title, miniflux_feed.category.id, *category_id
+                );
+            }
+            if miniflux_feed.site_url != database_feed.url {
+                info!(
+                    "Updating feed URL {}: {} -> {}",
+                    miniflux_feed.title, miniflux_feed.site_url, database_feed.url
+                );
+            }
+
             put_api(
                 &format!("v1/feeds/{}", miniflux_feed.id),
                 json!({

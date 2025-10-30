@@ -187,7 +187,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
         // Wait for all tasks to complete
         for (feed_id, feed, new_items) in join_all(tasks).await.iter().flatten() {
-            info!("Feed {feed_id} updated with {new_items} new items");
+            if *new_items > 0 {
+                info!("Feed {feed_id} updated with {new_items} new items");
+            }
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
             collected_feeds.insert((*feed_id).to_string(), feed.clone());
         }
