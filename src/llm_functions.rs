@@ -22,7 +22,7 @@ where
 
     // Create the inputs
     let payload = json!({
-        "model": "google/gemini-2.5-flash-lite-preview-09-2025",
+        "model": "x-ai/grok-4.1-fast",
         "structured_outputs": true,
         "messages": [
             {
@@ -37,7 +37,7 @@ where
         "response_format": {
             "type": "json_schema",
             "json_schema": {
-                "name": "weather",
+                "name": "response",
                 "strict": true,
                 "schema": schema_object
             }
