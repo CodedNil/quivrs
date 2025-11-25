@@ -191,7 +191,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 info!("Feed {feed_id} updated with {new_items} new items");
             }
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
-            collected_feeds.insert((*feed_id).to_string(), feed.clone());
+            collected_feeds.insert((*feed_id).clone(), feed.clone());
         }
 
         // Remove feeds that are no longer in the config
