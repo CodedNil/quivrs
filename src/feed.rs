@@ -1,4 +1,4 @@
-use crate::llm_functions::run;
+use crate::{llm_functions::run, miniflux::update_feeds};
 use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Duration, Utc};
 use feed_rs::{model::Entry, parser};
@@ -44,6 +44,8 @@ pub struct FeedConfig {
     original_title: bool, // Preserve the original title
     #[serde(default)]
     original_content: bool, // Preserve the original content
+    #[serde(default)]
+    condense_minutes: u16, // Number of minutes to condense posts within
 }
 
 pub type FeedConfigFile = HashMap<String, HashMap<String, FeedConfig>>;
@@ -140,6 +142,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
     let mut collected_feeds = HashMap::new();
+    let mut updated_feeds = HashSet::new();
     let mut feed_keys = HashSet::new();
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
@@ -189,6 +192,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         for (feed_id, feed, new_items) in join_all(tasks).await.iter().flatten() {
             if *new_items > 0 {
                 info!("Feed {feed_id} updated with {new_items} new items");
+                updated_feeds.insert((*feed_id).clone());
             }
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
             collected_feeds.insert((*feed_id).clone(), feed.clone());
@@ -199,8 +203,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
     write_txn.commit()?;
 
-    #[cfg(not(debug_assertions))]
-    if let Err(e) = crate::miniflux::update_feeds(&config_file, collected_feeds).await {
+    if let Err(e) = update_feeds(&config_file, collected_feeds, updated_feeds).await {
         tracing::error!("Failed to update miniflux feeds: {e}");
     }
 
@@ -242,7 +245,7 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
             .entries
             .iter()
             .filter(|entry| !feed.entries.contains_key(&entry.id))
-            .map(|entry| build_item(feed_id, config, entry, &fetched.entries)),
+            .map(|entry| build_item(config, entry, &fetched.entries)),
     )
     .await
     {
@@ -260,7 +263,6 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
 
 /// Builds a single RSS item, checking for existing items and optionally summarising content.
 async fn build_item(
-    feed_id: &str,
     config: &FeedConfig,
     entry: &Entry,
     other_entries: &[Entry],
@@ -284,25 +286,43 @@ async fn build_item(
         .unwrap_or_else(|| "NOT PROVIDED".to_string());
     let published = entry.published.unwrap_or_else(Utc::now);
 
-    // If twitter, swap the link back to twitter, and reject replies
-    if matches!(config.source, FeedSource::Twitter) {
-        if title.starts_with("R to @") {
-            return Ok((entry.id.clone(), FeedEntry::invalid()));
-        }
+    // Condense feed items within a timeframe if posted closely together
+    let condense_duration = if matches!(config.source, FeedSource::Twitter) {
+        // If twitter, swap the link back to twitter
         if let Some(end) = link.strip_prefix(NITTER_API_URL) {
             link = format!("https://x.com{end}");
         }
+        if config.condense_minutes > 0 {
+            Duration::minutes(i64::from(config.condense_minutes))
+        } else {
+            Duration::minutes(6)
+        }
+    } else if config.condense_minutes > 0 {
+        Duration::minutes(i64::from(config.condense_minutes))
+    } else {
+        Duration::zero()
+    };
 
-        // Grab other tweets that were posted within 5 minutes and are replies to the same user, append the descriptions to build the thread
+    if !condense_duration.is_zero() {
+        // Reject the post if there's another one within a few minutes before
+        if other_entries.iter().any(|other| {
+            other.published.is_some_and(|other_time| {
+                other_time < published && (published - other_time) < condense_duration
+            })
+        }) {
+            return Ok((entry.id.clone(), FeedEntry::invalid()));
+        }
+
+        // Grab other post that were posted within 5 minutes, append the descriptions to build the thread
         let thread: Vec<(String, DateTime<Utc>)> = other_entries
             .iter()
             .filter_map(|other| {
                 let other_title = other.title.as_ref()?.content.clone();
                 let other_time = other.published?;
-                (other_title.starts_with(&format!("R to @{feed_id}"))
+                (other_title != title
                     && other_time > published
-                    && (other_time - published) < Duration::minutes(5))
-                .then_some((other_title, other_time))
+                    && (other_time - published) < condense_duration)
+                    .then_some((other_title, other_time))
             })
             .sorted_unstable_by_key(|(_, pub_time)| *pub_time)
             .collect();
@@ -310,13 +330,8 @@ async fn build_item(
         // Sort by published time (earliest first), then push into the description
         if !thread.is_empty() {
             description.push_str("\n\n");
-            for (i, (body, _)) in thread.iter().enumerate() {
-                writeln!(
-                    description,
-                    "Reply post [{}/{}] in thread : {body}",
-                    i + 1,
-                    thread.len()
-                )?;
+            for (body, _) in &thread {
+                writeln!(description, "{body}")?;
             }
         }
     }

@@ -58,7 +58,7 @@ where
                 env::var("OPENROUTER").expect("OPENROUTER not set")
             ),
         )
-        .json(&payload)
+        .body(serde_json::to_vec(&payload).unwrap())
         .send()
         .await?;
     if !response.status().is_success() {
@@ -71,7 +71,7 @@ where
     }
 
     // Parse response JSON and extract inner text.
-    let response_json: Value = response.json().await?;
+    let response_json: Value = serde_json::from_slice(&response.bytes().await?)?;
     let inner_text = response_json
         .pointer("/choices/0/message/content")
         .and_then(|v| v.as_str())

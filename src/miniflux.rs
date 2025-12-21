@@ -1,7 +1,7 @@
 use crate::feed::{FeedConfigFile, FeedData, HTTP_CLIENT};
 use anyhow::{Ok, Result};
 use reqwest::Method;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -30,48 +30,61 @@ struct MinifluxFeed {
     category: MinifluxCategory,
 }
 
-async fn api(
-    method: Method,
-    url: &str,
-    body: Option<&Value>,
-) -> Result<reqwest::Response, reqwest::Error> {
+async fn post_api(url: &str, body: Value) -> Result<()> {
+    let request = HTTP_CLIENT
+        .request(Method::PUT, format!("{}/{url}", *MINIFLUX_URL))
+        .header("X-Auth-Token", MINIFLUX_KEY.as_str())
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_vec(&body).unwrap());
+    if !cfg!(debug_assertions) {
+        request.send().await?;
+    }
+    Ok(())
+}
+
+async fn put_api(url: &str, body: Option<&Value>) -> Result<()> {
     let mut request = HTTP_CLIENT
-        .request(method, format!("{}/{url}", *MINIFLUX_URL))
+        .request(Method::PUT, format!("{}/{url}", *MINIFLUX_URL))
         .header("X-Auth-Token", MINIFLUX_KEY.as_str())
         .header("Content-Type", "application/json");
     if let Some(body) = body {
-        request = request.json(&body);
+        request = request.body(serde_json::to_vec(&body).unwrap());
     }
-    request.send().await
+    if !cfg!(debug_assertions) {
+        request.send().await?;
+    }
+    Ok(())
 }
 
-async fn query_api<T>(url: &str) -> Result<T, reqwest::Error>
-where
-    T: DeserializeOwned,
-{
-    api(Method::GET, url, None).await?.json::<T>().await
-}
-
-async fn post_api(url: &str, body: Value) -> Result<String, reqwest::Error> {
-    api(Method::POST, url, Some(&body)).await?.text().await
-}
-
-async fn put_api(url: &str, body: Value) -> Result<String, reqwest::Error> {
-    api(Method::PUT, url, Some(&body)).await?.text().await
-}
-
-async fn delete_api(url: &str) -> Result<String, reqwest::Error> {
-    api(Method::DELETE, url, None).await?.text().await
+async fn delete_api(url: &str) -> Result<()> {
+    let request = HTTP_CLIENT
+        .request(Method::DELETE, format!("{}/{url}", *MINIFLUX_URL))
+        .header("X-Auth-Token", MINIFLUX_KEY.as_str())
+        .header("Content-Type", "application/json");
+    if !cfg!(debug_assertions) {
+        request.send().await?;
+    }
+    Ok(())
 }
 
 pub async fn update_feeds(
     config_feeds: &FeedConfigFile,
     database_feeds: HashMap<String, FeedData>,
+    updated_feeds: HashSet<String>,
 ) -> Result<()> {
     let wanted_categories: HashSet<String> = config_feeds.keys().cloned().collect();
 
     // Get existing categories on miniflux
-    let miniflux_categories = query_api::<Vec<MinifluxCategory>>("v1/categories").await?;
+    let miniflux_categories = serde_json::from_slice::<Vec<MinifluxCategory>>(
+        &HTTP_CLIENT
+            .request(Method::GET, format!("{}/v1/categories", *MINIFLUX_URL))
+            .header("X-Auth-Token", MINIFLUX_KEY.as_str())
+            .header("Content-Type", "application/json")
+            .send()
+            .await?
+            .bytes()
+            .await?,
+    )?;
     let miniflux_categories_names: HashSet<String> = miniflux_categories
         .iter()
         .map(|c| c.title.clone())
@@ -96,7 +109,16 @@ pub async fn update_feeds(
     }
 
     // Get existing feeds
-    let miniflux_feeds = query_api::<Vec<MinifluxFeed>>("v1/feeds").await?;
+    let miniflux_feeds = serde_json::from_slice::<Vec<MinifluxFeed>>(
+        &HTTP_CLIENT
+            .request(Method::GET, format!("{}/v1/feeds", *MINIFLUX_URL))
+            .header("X-Auth-Token", MINIFLUX_KEY.as_str())
+            .header("Content-Type", "application/json")
+            .send()
+            .await?
+            .bytes()
+            .await?,
+    )?;
 
     // Add missing feeds
     for (feed_id, database_feed) in &database_feeds {
@@ -172,13 +194,22 @@ pub async fn update_feeds(
 
             put_api(
                 &format!("v1/feeds/{}", miniflux_feed.id),
-                json!({
+                Some(&json!({
                     "title": database_feed.title,
                     "category_id": category_id,
                     "site_url": database_feed.url,
-                }),
+                })),
             )
             .await?;
+        }
+    }
+
+    // Force a miniflux refresh for changed feeds
+    for feed_id in &updated_feeds {
+        let feed_url = format!("{}{}", *QUIVRS_URL_PREFIX, feed_id);
+        if let Some(miniflux_feed) = miniflux_feeds.iter().find(|feed| feed.feed_url == feed_url) {
+            info!("Refreshing miniflux feed {}", miniflux_feed.title);
+            put_api(&format!("v1/feeds/{}/refresh", miniflux_feed.id), None).await?;
         }
     }
 
