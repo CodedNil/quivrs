@@ -8,7 +8,7 @@ use std::{
     env,
     sync::LazyLock,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 static MINIFLUX_URL: LazyLock<String> = LazyLock::new(|| env::var("MINIFLUX_URL").unwrap());
 static MINIFLUX_KEY: LazyLock<String> = LazyLock::new(|| env::var("MINIFLUX_KEY").unwrap());
@@ -32,12 +32,14 @@ struct MinifluxFeed {
 
 async fn post_api(url: &str, body: Value) -> Result<()> {
     let request = HTTP_CLIENT
-        .request(Method::PUT, format!("{}/{url}", *MINIFLUX_URL))
+        .request(Method::POST, format!("{}/{url}", *MINIFLUX_URL))
         .header("X-Auth-Token", MINIFLUX_KEY.as_str())
         .header("Content-Type", "application/json")
         .body(serde_json::to_vec(&body).unwrap());
-    if !cfg!(debug_assertions) {
-        request.send().await?;
+    if !cfg!(debug_assertions)
+        && let Err(err) = request.send().await?.error_for_status()
+    {
+        warn!("Failed to post to Miniflux API: {}", err);
     }
     Ok(())
 }
@@ -50,8 +52,10 @@ async fn put_api(url: &str, body: Option<&Value>) -> Result<()> {
     if let Some(body) = body {
         request = request.body(serde_json::to_vec(&body).unwrap());
     }
-    if !cfg!(debug_assertions) {
-        request.send().await?;
+    if !cfg!(debug_assertions)
+        && let Err(err) = request.send().await?.error_for_status()
+    {
+        warn!("Failed to put to Miniflux API: {}", err);
     }
     Ok(())
 }
@@ -61,8 +65,10 @@ async fn delete_api(url: &str) -> Result<()> {
         .request(Method::DELETE, format!("{}/{url}", *MINIFLUX_URL))
         .header("X-Auth-Token", MINIFLUX_KEY.as_str())
         .header("Content-Type", "application/json");
-    if !cfg!(debug_assertions) {
-        request.send().await?;
+    if !cfg!(debug_assertions)
+        && let Err(err) = request.send().await?.error_for_status()
+    {
+        warn!("Failed to delete to Miniflux API: {}", err);
     }
     Ok(())
 }
