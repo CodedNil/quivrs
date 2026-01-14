@@ -336,89 +336,99 @@ async fn build_item(
         }
     }
 
-    let summarised = match config.source {
-        FeedSource::Youtube => {
-            if let Some(media_description) = entry.media.iter().find_map(|m| m.description.as_ref())
-            {
-                description.clone_from(&media_description.content);
+    let summarised = if env::var("OPENROUTER").is_ok() {
+        match config.source {
+            FeedSource::Youtube => {
+                if let Some(media_description) =
+                    entry.media.iter().find_map(|m| m.description.as_ref())
+                {
+                    description.clone_from(&media_description.content);
+                }
+
+                // Get the video ID from the link
+                let Some(video_id) = link
+                    .split_once("v=")
+                    .and_then(|(_, rest)| rest.split('&').next())
+                else {
+                    // Invalid youtube link, probably a youtube short
+                    return Ok((entry.id.clone(), FeedEntry::invalid()));
+                };
+
+                // Load youtube captions
+                let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
+                let response = HTTP_CLIENT.get(caption_link).send().await?;
+                let captions = response.text().await.unwrap_or_default();
+
+                if !config.original_title || !config.original_content || config.filters.is_some() {
+                    summarise_content(
+                        &link,
+                        config,
+                        &title,
+                        &description,
+                        SUMMARISE_YOUTUBE,
+                        "Videos captions:",
+                        captions
+                            .lines()
+                            .filter(|line| !line.contains("-->") && !line.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                            .replace("  ", " ")
+                            .trim(),
+                    )
+                    .await?
+                } else {
+                    SummariseOutput {
+                        title: title.clone(),
+                        content: description.clone(),
+                        image: None,
+                        included: true,
+                    }
+                }
             }
+            FeedSource::Twitter => {
+                let mut summarised = summarise_content(
+                    &link,
+                    config,
+                    &title,
+                    &description,
+                    SUMMARISE_TWITTER,
+                    "",
+                    "",
+                )
+                .await?;
 
-            // Get the video ID from the link
-            let Some(video_id) = link
-                .split_once("v=")
-                .and_then(|(_, rest)| rest.split('&').next())
-            else {
-                // Invalid youtube link, probably a youtube short
-                return Ok((entry.id.clone(), FeedEntry::invalid()));
-            };
+                // Swap out the nitter images with original twitter ones
+                let replace_nitter_url = |s: String| {
+                    s.replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
+                        .replace("%2F", "/")
+                };
+                summarised.image = summarised.image.map(replace_nitter_url);
+                summarised.content = replace_nitter_url(summarised.content);
 
-            // Load youtube captions
-            let caption_link = format!("{INVIDIOUS_API_URL}/captions/{video_id}?label=English");
-            let response = HTTP_CLIENT.get(caption_link).send().await?;
-            let captions = response.text().await.unwrap_or_default();
+                summarised
+            }
+            _ => {
+                // Fetch the site and parse the html into markdown
+                let original_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
 
-            if !config.original_title || !config.original_content || config.filters.is_some() {
                 summarise_content(
                     &link,
                     config,
                     &title,
                     &description,
-                    SUMMARISE_YOUTUBE,
-                    "Videos captions:",
-                    captions
-                        .lines()
-                        .filter(|line| !line.contains("-->") && !line.is_empty())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                        .replace("  ", " ")
-                        .trim(),
+                    SUMMARISE_WEBSITE,
+                    "Original content:",
+                    &html2text::from_read(original_content.as_bytes(), 20)?,
                 )
                 .await?
-            } else {
-                SummariseOutput {
-                    title: title.clone(),
-                    content: description.clone(),
-                    image: None,
-                    included: true,
-                }
             }
         }
-        FeedSource::Twitter => {
-            let mut summarised = summarise_content(
-                &link,
-                config,
-                &title,
-                &description,
-                SUMMARISE_TWITTER,
-                "",
-                "",
-            )
-            .await?;
-
-            // Swap out the nitter images with original twitter ones
-            let replace_nitter_url = |s: String| {
-                s.replace(&format!("{NITTER_API_URL}/pic"), "https://pbs.twimg.com")
-                    .replace("%2F", "/")
-            };
-            summarised.image = summarised.image.map(replace_nitter_url);
-            summarised.content = replace_nitter_url(summarised.content);
-
-            summarised
-        }
-        _ => {
-            // Fetch the site and parse the html into markdown
-            let original_content = HTTP_CLIENT.get(&link).send().await?.text().await?;
-
-            summarise_content(
-                &link,
-                config,
-                &title,
-                &description,
-                SUMMARISE_WEBSITE,
-                "Original content:",
-                &html2text::from_read(original_content.as_bytes(), 20)?,
-            )
-            .await?
+    } else {
+        SummariseOutput {
+            title: title.clone(),
+            content: description.clone(),
+            image: None,
+            included: true,
         }
     };
 

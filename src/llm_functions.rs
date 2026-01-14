@@ -22,7 +22,7 @@ where
 
     // Create the inputs
     let payload = json!({
-        "model": "x-ai/grok-4.1-fast",
+        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "x-ai/grok-4.1-fast".to_string()),
         "structured_outputs": true,
         "messages": [
             {
@@ -41,9 +41,6 @@ where
                 "strict": true,
                 "schema": schema_object
             }
-        },
-        "reasoning": {
-          "enabled": false
         }
     });
 
