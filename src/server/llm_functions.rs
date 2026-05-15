@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use std::{env, error::Error};
 use tap::Tap;
 
-pub async fn run<T>(context: &str, message: &str) -> Result<T, Box<dyn Error + Send + Sync>>
+pub async fn run<T>(message: &str) -> Result<T, Box<dyn Error + Send + Sync>>
 where
     T: JsonSchema + DeserializeOwned,
 {
@@ -19,24 +19,24 @@ where
     });
 
     let payload = json!({
-        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-v4-flash".to_string()),
-        "structured_outputs": true,
-        "messages": [
-            { "role": "system", "content": context },
-            { "role": "user",   "content": message }
-        ],
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "schema",
+        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-v4-pro".to_string()),
+        "input": message,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": std::any::type_name::<T>(),
                 "strict": true,
                 "schema": schema_object
-            }
+            },
+            "verbosity": "low"
+        },
+        "reasoning": {
+            "enabled": false
         }
     });
 
     let response = HTTP_CLIENT
-        .post("https://openrouter.ai/api/v1/chat/completions")
+        .post("https://openrouter.ai/api/v1/responses")
         .header(CONTENT_TYPE, "application/json")
         .header(
             AUTHORIZATION,
@@ -60,10 +60,19 @@ where
 
     let response_json: Value = response.json().await?;
     let inner_text = response_json
-        .pointer("/choices/0/message/content")
+        .pointer("/output/0/content/0/text")
         .and_then(|v| v.as_str())
         .ok_or("Unexpected response structure")?;
 
-    serde_json::from_str(inner_text)
-        .map_err(|e| format!("Serialization failed: {e} - Output: {inner_text}").into())
+    serde_json::from_str(inner_text).map_err(|e| {
+        format!(
+            "Serialization failed: {e} - Output received: {}",
+            inner_text
+                .replace('\n', " ")
+                .chars()
+                .take(500)
+                .collect::<String>()
+        )
+        .into()
+    })
 }

@@ -1,5 +1,4 @@
 {
-  "kagi_ai": "https://news.kagi.com/ai.xml",
   "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
   "verge": "https://www.theverge.com/rss/index.xml"
 }

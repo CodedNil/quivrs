@@ -1,5 +1,5 @@
 mod embeddings;
-mod feed;
+pub mod feed;
 mod llm_functions;
 
 use reqwest::Client;

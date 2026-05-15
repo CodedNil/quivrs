@@ -3,13 +3,12 @@ use super::{
     embeddings::{cosine_similarity, get_embedding},
     llm_functions::run,
 };
+use crate::shared::{ArticleEntry, ArticleSource, StoredArticle};
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use feed_rs::parser;
 use futures::future::join_all;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -30,37 +29,6 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
 });
 
 type FeedConfigFile = HashMap<String, String>;
-
-#[derive(Serialize, Deserialize)]
-struct StoredArticle {
-    id: Uuid,
-    sources: Vec<ArticleSource>,
-    entry: ArticleEntry,
-    embedding: Vec<f32>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct ArticleSource {
-    url: String,
-    title: String,
-    published: DateTime<Utc>,
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Default)]
-struct ArticleEntry {
-    /// Article's title, kept concise and descriptive
-    title: String,
-    /// Short information summary with no newlines, a few sentences max
-    description: String,
-    /// Full article content as rendered HTML; use figure/figcaption for images, include inline links, well-structured paragraphs; place first image after first paragraph as thumbnail
-    full_content: String,
-    /// Estimated user interest 0.0-1.0; higher for technically deep, novel, or well-written content; lower for clickbait, marketing, or low-effort content
-    estimated_liked: f32,
-    /// Descriptive tags (e.g. technology, ai, machine-learning), lowercase, hyphen-separated
-    tags: Vec<String>,
-}
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
@@ -113,19 +81,6 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
     info!("Embedding {} new entries", new_entries.len());
 
-    // Embeddings always run (local model)
-    let embeddings: Vec<Vec<f32>> =
-        join_all(new_entries.iter().map(|s| get_embedding(s.title.clone())))
-            .await
-            .into_iter()
-            .map(|r| {
-                r.unwrap_or_else(|e| {
-                    warn!("Embedding failed: {e}");
-                    vec![]
-                })
-            })
-            .collect();
-
     // Load all existing articles for similarity matching
     let mut articles: HashMap<Uuid, StoredArticle> = {
         let read_txn = DB.begin_read()?;
@@ -147,7 +102,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
     let mut articles_to_generate: Vec<Uuid> = Vec::new();
     let mut new_source_index: HashMap<String, Uuid> = HashMap::new();
 
-    for (source, embedding) in new_entries.into_iter().zip(embeddings.into_iter()) {
+    for source in new_entries {
+        let embedding = get_embedding(format!("{} - {}", source.title, source.description))
+            .await
+            .map_err(|e| {
+                warn!("Embedding failed: {e}");
+            })
+            .unwrap_or_default();
+
         let similar = articles
             .values()
             .filter(|a| !a.embedding.is_empty() && !embedding.is_empty())
@@ -178,6 +140,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 StoredArticle {
                     id,
                     sources: vec![source.clone()],
+                    estimated_liked: 0.0,
                     entry: ArticleEntry::default(),
                     embedding,
                     created_at: Utc::now(),
@@ -202,7 +165,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             .map(|(id, sources): (Uuid, Vec<ArticleSource>)| async move {
                 match generate_article_content(&sources).await {
                     Ok(entry) => {
-                        info!("[GEN   ] '{}'", entry.title);
+                        info!("[GEN] '{}'", entry.title);
                         Some((id, entry))
                     }
                     Err(err) => {
@@ -269,9 +232,16 @@ async fn scan_feed(
                 .title
                 .as_ref()
                 .map_or_else(|| "Untitled".to_string(), |t| t.content.clone());
+            let description = entry
+                .content
+                .as_ref()
+                .and_then(|c| c.body.clone())
+                .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
+                .unwrap_or_else(|| "NOT PROVIDED".to_string());
             Some(ArticleSource {
                 url,
                 title,
+                description,
                 published: entry.published.unwrap_or_else(Utc::now),
             })
         })
@@ -300,29 +270,30 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
         (source, content)
     });
 
-    let context = join_all(fetches)
-        .await
-        .into_iter()
-        .enumerate()
-        .map(|(i, (source, content))| {
-            let mut block = format!(
-                "--- Source {} ---\nTitle: {}\nURL: {}",
-                i + 1,
-                source.title,
-                source.url
-            );
+    let context = "Generate a consolidated article from the provided sources. Synthesise all sources into a single cohesive piece. Do not format as a reply to user.\n\n".to_string()
+        + &join_all(fetches)
+            .await
+            .into_iter()
+            .enumerate()
+            .map(|(i, (source, content))| {
+                let mut block = format!(
+                    "--- Source {} ---\nTitle: {}\nURL: {}",
+                    i + 1,
+                    source.title,
+                    source.url
+                );
 
-            if !content.is_empty() {
-                block.push_str("\nContent:\n");
-                block.push_str(&content);
-            }
+                if !content.is_empty() {
+                    block.push_str("\nContent:\n");
+                    block.push_str(&content.replace('\n', " "));
+                }
 
-            block
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+                block
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
-    run::<ArticleEntry>(&context, "Generate a consolidated article from the provided sources. Synthesise all sources into a single cohesive piece.")
+    run::<ArticleEntry>(&context)
         .await
         .map_err(|e| anyhow!("Article generation failed: {e}"))
 }
