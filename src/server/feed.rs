@@ -28,12 +28,10 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
     Database::create(url).unwrap()
 });
 
-type FeedConfigFile = HashMap<String, String>;
-
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
     let config_str = fs::read_to_string(&config_path).await?;
-    let config_file: FeedConfigFile = serde_json::from_str(&config_str)
+    let config_file: HashMap<String, String> = serde_json::from_str(&config_str)
         .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
     let feeds: Vec<(String, String)> = config_file
@@ -99,16 +97,16 @@ pub async fn refresh_all_feeds() -> Result<()> {
     };
 
     // Assign each new entry to an existing article (if similar) or create a new one
-    let mut articles_to_generate: Vec<Uuid> = Vec::new();
+    let mut articles_to_generate: HashSet<Uuid> = HashSet::new();
     let mut new_source_index: HashMap<String, Uuid> = HashMap::new();
 
     for source in new_entries {
         let embedding = get_embedding(format!("{} - {}", source.title, source.description))
             .await
-            .map_err(|e| {
+            .unwrap_or_else(|e| {
                 warn!("Embedding failed: {e}");
-            })
-            .unwrap_or_default();
+                Vec::new()
+            });
 
         let similar = articles
             .values()
@@ -128,9 +126,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             let article = articles.get_mut(&article_id).unwrap();
             article.sources.push(source.clone());
             article.updated_at = Utc::now();
-            if !articles_to_generate.contains(&article_id) {
-                articles_to_generate.push(article_id);
-            }
+            articles_to_generate.insert(article_id);
             new_source_index.insert(source.url, article_id);
         } else {
             let id = Uuid::new_v4();
@@ -147,7 +143,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                     updated_at: Utc::now(),
                 },
             );
-            articles_to_generate.push(id);
+            articles_to_generate.insert(id);
             new_source_index.insert(source.url, id);
         }
     }

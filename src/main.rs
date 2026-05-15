@@ -1,6 +1,8 @@
+mod shared;
+
 #[cfg(feature = "server")]
 mod server;
-mod shared;
+
 mod web;
 
 fn main() {

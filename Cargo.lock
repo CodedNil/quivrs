@@ -5859,7 +5859,6 @@ dependencies = [
  "feed-rs",
  "futures",
  "html2text",
- "itertools 0.14.0",
  "minilm-burn",
  "postcard",
  "redb",

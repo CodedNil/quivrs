@@ -10,7 +10,6 @@ dioxus-free-icons = { version = "0.10.0", features = ["font-awesome-solid"] }
 tracing = "0.1.44"
 anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
-itertools = "0.14.0"
 tap = "1.0.1"
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 schemars = "1.2.1"
