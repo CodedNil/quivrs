@@ -23,6 +23,8 @@ async fn server_run() {
     #[cfg(debug_assertions)]
     dotenvy::dotenv().ok();
 
+    dioxus::logger::initialize_default();
+
     server::start();
 
     let app = axum::Router::<FullstackState>::new()

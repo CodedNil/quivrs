@@ -31,10 +31,11 @@ pub async fn get_embedding(text: String) -> Result<Vec<f32>> {
         let (input_ids, attention_mask) =
             tokenize_batch::<B>(&state.tokenizer, &[text.as_str()], &state.device);
         let output = state.model.forward(input_ids, attention_mask.clone(), None);
+        drop(state);
         let embeddings = normalize_l2(mean_pooling(output.hidden_states, attention_mask));
         let data = embeddings.to_data();
         data.as_slice::<f32>()
-            .map(|s| s.to_vec())
+            .map(<[f32]>::to_vec)
             .map_err(|e| anyhow::anyhow!("Failed to read embedding data: {e:?}"))
     })
     .await

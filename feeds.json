@@ -1,13 +1,5 @@
 {
-  "Test": {
-    "kagi_ai": {
-      "url_rss": "https://news.kagi.com/ai.xml"
-    },
-    "bbc_tech": {
-      "url_rss": "https://feeds.bbci.co.uk/news/technology/rss.xml"
-    },
-    "verge": {
-      "url_rss": "https://www.theverge.com/rss/index.xml"
-    }
-  }
+  "kagi_ai": "https://news.kagi.com/ai.xml",
+  "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+  "verge": "https://www.theverge.com/rss/index.xml"
 }

@@ -52,7 +52,7 @@ tower-http = { version = "0.6.10", features = [
 redb = "4.1.0"
 html2text = "0.17.1"
 futures = "0.3.32"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 minilm-burn = { git = "https://github.com/tracel-ai/models", package = "minilm-burn", default-features = false, features = [
     "pretrained",
 ] }
