@@ -50,9 +50,17 @@ tower-http = { version = "0.6.10", features = [
     "compression-gzip",
 ] }
 redb = "4.1.0"
-regex-lite = "0.1.9"
 html2text = "0.17.1"
 futures = "0.3.32"
+uuid = { version = "1", features = ["v4"] }
+minilm-burn = { git = "https://github.com/tracel-ai/models", package = "minilm-burn", default-features = false, features = [
+    "pretrained",
+] }
+burn = { version = "0.21.0", default-features = false, features = [
+    "wgpu",
+    "std",
+] }
+tokenizers = "=0.22.2"
 
 [features]
 default = []

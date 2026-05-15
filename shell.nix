@@ -10,6 +10,11 @@ pkgs.mkShell {
     dioxus-cli
     lld
     binaryen
+    pkg-config
+  ];
+  buildInputs = with pkgs; [
+    openssl
+    oniguruma
   ];
   RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
 }

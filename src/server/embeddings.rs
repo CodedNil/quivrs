@@ -1,0 +1,56 @@
+use anyhow::Result;
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
+use minilm_burn::{MiniLmModel, MiniLmVariant, mean_pooling, normalize_l2, tokenize_batch};
+use std::sync::{LazyLock, Mutex};
+use tokenizers::Tokenizer;
+
+type B = Wgpu;
+
+struct EmbedState {
+    model: MiniLmModel<B>,
+    tokenizer: Tokenizer,
+    device: WgpuDevice,
+}
+
+static STATE: LazyLock<Mutex<EmbedState>> = LazyLock::new(|| {
+    let device = WgpuDevice::default();
+    let (model, tokenizer) = MiniLmModel::<B>::pretrained(&device, MiniLmVariant::default(), None)
+        .expect("Failed to load MiniLM model");
+    Mutex::new(EmbedState {
+        model,
+        tokenizer,
+        device,
+    })
+});
+
+pub async fn get_embedding(text: String) -> Result<Vec<f32>> {
+    tokio::task::spawn_blocking(move || {
+        let state = STATE
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Embedding model lock poisoned"))?;
+        let (input_ids, attention_mask) =
+            tokenize_batch::<B>(&state.tokenizer, &[text.as_str()], &state.device);
+        let output = state.model.forward(input_ids, attention_mask.clone(), None);
+        let embeddings = normalize_l2(mean_pooling(output.hidden_states, attention_mask));
+        let data = embeddings.to_data();
+        data.as_slice::<f32>()
+            .map(|s| s.to_vec())
+            .map_err(|e| anyhow::anyhow!("Failed to read embedding data: {e:?}"))
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Embedding task panicked: {e}"))?
+}
+
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if mag_a == 0.0 || mag_b == 0.0 {
+        0.0
+    } else {
+        dot / (mag_a * mag_b)
+    }
+}

@@ -1,5 +1,4 @@
-use crate::feed::HTTP_CLIENT;
-use anyhow::Result;
+use super::HTTP_CLIENT;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde::de::DeserializeOwned;
@@ -41,7 +40,7 @@ where
         .header(CONTENT_TYPE, "application/json")
         .header(
             AUTHORIZATION,
-            &format!(
+            format!(
                 "Bearer {}",
                 env::var("OPENROUTER").expect("OPENROUTER not set")
             ),
@@ -52,7 +51,7 @@ where
 
     if !response.status().is_success() {
         return Err(format!(
-            "Request failed with status {}: {}",
+            "Request failed {}: {}",
             response.status(),
             response.text().await?
         )
@@ -66,5 +65,5 @@ where
         .ok_or("Unexpected response structure")?;
 
     serde_json::from_str(inner_text)
-        .map_err(|e| format!("Serialization failed: {e} - Outputted text: {inner_text}").into())
+        .map_err(|e| format!("Serialization failed: {e} - Output: {inner_text}").into())
 }
