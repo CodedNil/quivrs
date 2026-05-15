@@ -1,19 +1,16 @@
-use crate::{llm_functions::run, miniflux::update_feeds};
+use crate::llm_functions::run;
 use anyhow::{Result, anyhow, bail};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use feed_rs::{model::Entry, parser};
 use futures::future::join_all;
-use itertools::Itertools;
 use redb::{Database, ReadableTable, TableDefinition};
 use regex_lite::Regex;
 use reqwest::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     env,
-    fmt::Write,
     sync::LazyLock,
 };
 use tokio::fs;
@@ -39,13 +36,6 @@ pub struct FeedConfig {
     source: FeedSource,
     filters: Option<Vec<String>>,
     url_rss: Option<String>,
-
-    #[serde(default)]
-    original_title: bool, // Preserve the original title
-    #[serde(default)]
-    original_content: bool, // Preserve the original content
-    #[serde(default)]
-    condense_minutes: u16, // Number of minutes to condense posts within
 }
 
 pub type FeedConfigFile = HashMap<String, HashMap<String, FeedConfig>>;
@@ -64,30 +54,6 @@ pub struct FeedData {
     entries: HashMap<String, FeedEntry>,
 }
 
-impl FeedData {
-    pub fn to_json_feed(&self) -> Value {
-        // Sort by date_published, recent first
-        let items: Vec<_> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.title != "INVALID")
-            .sorted_unstable_by(|(_, a), (_, b)| b.published.cmp(&a.published))
-            .map(|(id, entry)| entry.to_json_item(id))
-            .collect();
-
-        json!({
-            "version": "https://jsonfeed.org/version/1.1",
-            "title": self.title,
-            "home_page_url": self.url,
-            "feed_url": self.url_rss,
-            "description": self.description,
-            "icon": self.icon,
-            "favicon": self.favicon,
-            "items": items,
-        })
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct FeedEntry {
     title: String,
@@ -100,20 +66,6 @@ struct FeedEntry {
 }
 
 impl FeedEntry {
-    fn to_json_item(&self, id: &str) -> Value {
-        json!({
-            "id": id,
-            "url": self.link,
-            "title": self.title,
-            "content_html": self.description,
-            "image": self.image,
-            "banner_image": self.image,
-            "date_published": self.published,
-            "authors": self.authors.iter().map(|name| json!({"name": name})).collect::<Vec<_>>(),
-            "tags": self.tags
-        })
-    }
-
     fn invalid() -> Self {
         Self {
             title: "INVALID".to_string(),
@@ -141,8 +93,6 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
     // Go through all the feeds and refresh them
     let write_txn = DB.begin_write()?;
-    let mut collected_feeds = HashMap::new();
-    let mut updated_feeds = HashSet::new();
     let mut feed_keys = HashSet::new();
     {
         let mut table = write_txn.open_table(FEEDS_TABLE)?;
@@ -192,20 +142,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
         for (feed_id, feed, new_items) in join_all(tasks).await.iter().flatten() {
             if *new_items > 0 {
                 info!("Feed {feed_id} updated with {new_items} new items");
-                updated_feeds.insert((*feed_id).clone());
             }
             table.insert(feed_id.as_str(), postcard::to_allocvec(&feed)?.as_slice())?;
-            collected_feeds.insert((*feed_id).clone(), feed.clone());
         }
 
         // Remove feeds that are no longer in the config
         table.retain(|key, _| feed_keys.contains(key))?;
     }
     write_txn.commit()?;
-
-    if let Err(e) = update_feeds(&config_file, collected_feeds, updated_feeds).await {
-        tracing::error!("Failed to update miniflux feeds: {e}");
-    }
 
     Ok(())
 }
@@ -245,7 +189,7 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
             .entries
             .iter()
             .filter(|entry| !feed.entries.contains_key(&entry.id))
-            .map(|entry| build_item(config, entry, &fetched.entries)),
+            .map(|entry| build_item(config, entry)),
     )
     .await
     {
@@ -262,12 +206,8 @@ async fn refresh_feed(feed_id: &str, config: &FeedConfig, feed: &mut FeedData) -
 }
 
 /// Builds a single RSS item, checking for existing items and optionally summarising content.
-async fn build_item(
-    config: &FeedConfig,
-    entry: &Entry,
-    other_entries: &[Entry],
-) -> Result<(String, FeedEntry)> {
-    let mut link = entry
+async fn build_item(config: &FeedConfig, entry: &Entry) -> Result<(String, FeedEntry)> {
+    let link = entry
         .links
         .first()
         .ok_or_else(|| anyhow!("Entry has no link."))?
@@ -285,56 +225,6 @@ async fn build_item(
         .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
         .unwrap_or_else(|| "NOT PROVIDED".to_string());
     let published = entry.published.unwrap_or_else(Utc::now);
-
-    // Condense feed items within a timeframe if posted closely together
-    let condense_duration = if matches!(config.source, FeedSource::Twitter) {
-        // If twitter, swap the link back to twitter
-        if let Some(end) = link.strip_prefix(NITTER_API_URL) {
-            link = format!("https://x.com{end}");
-        }
-        if config.condense_minutes > 0 {
-            Duration::minutes(i64::from(config.condense_minutes))
-        } else {
-            Duration::minutes(6)
-        }
-    } else if config.condense_minutes > 0 {
-        Duration::minutes(i64::from(config.condense_minutes))
-    } else {
-        Duration::zero()
-    };
-
-    if !condense_duration.is_zero() {
-        // Reject the post if there's another one within a few minutes before
-        if other_entries.iter().any(|other| {
-            other.published.is_some_and(|other_time| {
-                other_time < published && (published - other_time) < condense_duration
-            })
-        }) {
-            return Ok((entry.id.clone(), FeedEntry::invalid()));
-        }
-
-        // Grab other post that were posted within 5 minutes, append the descriptions to build the thread
-        let thread: Vec<(String, DateTime<Utc>)> = other_entries
-            .iter()
-            .filter_map(|other| {
-                let other_title = other.title.as_ref()?.content.clone();
-                let other_time = other.published?;
-                (other_title != title
-                    && other_time > published
-                    && (other_time - published) < condense_duration)
-                    .then_some((other_title, other_time))
-            })
-            .sorted_unstable_by_key(|(_, pub_time)| *pub_time)
-            .collect();
-
-        // Sort by published time (earliest first), then push into the description
-        if !thread.is_empty() {
-            description.push_str("\n\n");
-            for (body, _) in &thread {
-                writeln!(description, "{body}")?;
-            }
-        }
-    }
 
     let summarised = if env::var("OPENROUTER").is_ok() {
         match config.source {
@@ -359,7 +249,7 @@ async fn build_item(
                 let response = HTTP_CLIENT.get(caption_link).send().await?;
                 let captions = response.text().await.unwrap_or_default();
 
-                if !config.original_title || !config.original_content || config.filters.is_some() {
+                if config.filters.is_some() {
                     summarise_content(
                         &link,
                         config,
@@ -432,12 +322,8 @@ async fn build_item(
         }
     };
 
-    if !config.original_title {
-        title = summarised.title;
-    }
-    if !config.original_content {
-        description = summarised.content;
-    }
+    title = summarised.title;
+    description = summarised.content;
 
     if config.filters.is_some() && !summarised.included {
         info!("FILTERED: {link}");
@@ -508,7 +394,7 @@ async fn summarise_content(
         ));
     }
 
-    run::<SummariseOutput>(context, prompt)
+    run::<SummariseOutput>(&context.join("\n"), prompt)
         .await
         .map_err(|err| {
             warn!(link = %link, "Summarisation failed: {err:#}");

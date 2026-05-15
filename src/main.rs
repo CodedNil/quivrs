@@ -1,35 +1,39 @@
+#[cfg(feature = "server")]
 mod feed;
+#[cfg(feature = "server")]
 mod llm_functions;
-mod miniflux;
-mod serve;
+mod web;
 
-use anyhow::Result;
-use axum::{Router, routing::get};
-use feed::refresh_all_feeds;
-use serve::summarised_feed_handler;
 use std::time::Duration;
-use tokio::{
-    net::TcpListener,
-    time::{self, MissedTickBehavior},
-};
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() {
+    #[cfg(feature = "web")]
+    dioxus::launch(web::app);
+
+    #[cfg(feature = "server")]
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(async move { server_run().await });
+}
+
+#[cfg(feature = "server")]
+async fn server_run() {
+    use crate::feed::refresh_all_feeds;
+    use dioxus::{
+        prelude::dioxus_server::{FullstackState, ServeConfig},
+        server::DioxusRouterExt,
+    };
+    use tokio::time::{MissedTickBehavior, interval};
+    use tower_http::compression::CompressionLayer;
+
     #[cfg(debug_assertions)]
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
-
     tokio::spawn(async move {
-        let mut ticker = time::interval(DEFAULT_REFRESH_INTERVAL);
+        let mut ticker = interval(DEFAULT_REFRESH_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         info!("Starting feed refresh scheduler (interval: {DEFAULT_REFRESH_INTERVAL:?})",);
         loop {
@@ -40,16 +44,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    let app = Router::new().route("/feeds/{id}", get(summarised_feed_handler));
+    let app = axum::Router::<FullstackState>::new()
+        .serve_dioxus_application(ServeConfig::new(), web::app)
+        .layer(CompressionLayer::new());
 
-    let port = std::env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()
-        .expect("PORT environment variable must be a valid port number");
-    let listen_addr = format!("0.0.0.0:{port}");
-
-    let listener = TcpListener::bind(&listen_addr).await?;
-    info!("Listening on {}", listen_addr);
-    axum::serve(listener, app).await?;
-    Ok(())
+    let addr = dioxus::cli_config::fullstack_address_or_localhost();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
