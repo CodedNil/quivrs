@@ -20,6 +20,9 @@ pub fn start() {
             if let Err(err) = feed::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }
+            if let Err(err) = feed::regenerate_articles().await {
+                error!("Article regeneration failed: {err}");
+            }
         }
     });
 }

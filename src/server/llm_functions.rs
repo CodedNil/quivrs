@@ -19,7 +19,7 @@ where
     });
 
     let payload = json!({
-        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-v4-pro".to_string()),
+        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "google/gemini-3.1-flash-lite".to_string()),
         "input": message,
         "text": {
             "format": {
@@ -32,8 +32,22 @@ where
         },
         "reasoning": {
             "enabled": false
-        }
+        },
+        "tools": [
+            {
+                "type": "openrouter:web_search",
+                "parameters": {
+                    "engine": "auto",
+                    "max_results": 3,
+                    "search_context_size": "low"
+                },
+            }
+        ]
     });
+
+    // Write payload to payload.json
+    let payload_str = serde_json::to_string_pretty(&payload).unwrap_or_default();
+    std::fs::write("payload.json", payload_str).ok();
 
     let response = HTTP_CLIENT
         .post("https://openrouter.ai/api/v1/responses")
@@ -59,10 +73,24 @@ where
     }
 
     let response_json: Value = response.json().await?;
-    let inner_text = response_json
-        .pointer("/output/0/content/0/text")
-        .and_then(|v| v.as_str())
-        .ok_or("Unexpected response structure")?;
+
+    // Write output to output.json
+    let payload_str = serde_json::to_string_pretty(&response_json).unwrap_or_default();
+    std::fs::write("output.json", payload_str).ok();
+
+    // let outputs = serde_json::to_string_pretty(&response_json);
+    // tracing::info!("{outputs:?}");
+
+    // Scan through the output array to find the final output text
+    let inner_text = response_json["output"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|step| step["content"].as_array())
+        .flatten()
+        .find(|item| item["type"] == "output_text")
+        .and_then(|item| item["text"].as_str())
+        .ok_or("Failed to extract output_text from response")?;
 
     serde_json::from_str(inner_text).map_err(|e| {
         format!(

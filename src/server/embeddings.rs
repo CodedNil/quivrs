@@ -1,21 +1,20 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use burn::backend::wgpu::{Wgpu, WgpuDevice};
 use minilm_burn::{MiniLmModel, MiniLmVariant, mean_pooling, normalize_l2, tokenize_batch};
 use std::sync::{LazyLock, Mutex};
 use tokenizers::Tokenizer;
 
-type B = Wgpu;
-
 struct EmbedState {
-    model: MiniLmModel<B>,
+    model: MiniLmModel<Wgpu>,
     tokenizer: Tokenizer,
     device: WgpuDevice,
 }
 
 static STATE: LazyLock<Mutex<EmbedState>> = LazyLock::new(|| {
     let device = WgpuDevice::default();
-    let (model, tokenizer) = MiniLmModel::<B>::pretrained(&device, MiniLmVariant::default(), None)
-        .expect("Failed to load MiniLM model");
+    let (model, tokenizer) =
+        MiniLmModel::<Wgpu>::pretrained(&device, MiniLmVariant::default(), None)
+            .expect("Failed to load MiniLM model");
     Mutex::new(EmbedState {
         model,
         tokenizer,
@@ -24,22 +23,19 @@ static STATE: LazyLock<Mutex<EmbedState>> = LazyLock::new(|| {
 });
 
 pub async fn get_embedding(text: String) -> Result<Vec<f32>> {
-    tokio::task::spawn_blocking(move || {
-        let state = STATE
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Embedding model lock poisoned"))?;
-        let (input_ids, attention_mask) =
-            tokenize_batch::<B>(&state.tokenizer, &[text.as_str()], &state.device);
-        let output = state.model.forward(input_ids, attention_mask.clone(), None);
-        drop(state);
-        let embeddings = normalize_l2(mean_pooling(output.hidden_states, attention_mask));
-        let data = embeddings.to_data();
-        data.as_slice::<f32>()
-            .map(<[f32]>::to_vec)
-            .map_err(|e| anyhow::anyhow!("Failed to read embedding data: {e:?}"))
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("Embedding task panicked: {e}"))?
+    let state = STATE.lock().map_err(|_| anyhow!("Lock poisoned"))?;
+
+    let (ids, mask) = tokenize_batch::<Wgpu>(&state.tokenizer, &[&text], &state.device);
+    let output = state.model.forward(ids, mask.clone(), None);
+
+    drop(state);
+    let embeddings = normalize_l2(mean_pooling(output.hidden_states, mask));
+
+    embeddings
+        .to_data()
+        .as_slice::<f32>()
+        .map(<[f32]>::to_vec)
+        .map_err(|e| anyhow!("Failed to read embedding data: {e:?}"))
 }
 
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {

@@ -17,6 +17,7 @@ chrono = { version = "0.4.44", default-features = false, features = [
     "clock",
     "serde",
 ] }
+itertools = "0.14.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.118"
@@ -53,7 +54,7 @@ tower-http = { version = "0.6.10", features = [
     "compression-gzip",
 ] }
 redb = "4.1.0"
-html2text = "0.17.1"
+rs-trafilatura = "0.2.2"
 futures = "0.3.32"
 minilm-burn = { git = "https://github.com/tracel-ai/models", package = "minilm-burn", default-features = false, features = [
     "pretrained",

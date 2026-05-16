@@ -16,7 +16,7 @@ pub async fn get_articles() -> Result<Vec<StoredArticle>, ServerFnError> {
     let mut articles: Vec<StoredArticle> = table
         .iter()
         .map_err(|e| ServerFnError::new(e.to_string()))?
-        .filter_map(|item| item.ok())
+        .filter_map(std::result::Result::ok)
         .filter_map(|(_, v)| postcard::from_bytes::<StoredArticle>(v.value()).ok())
         .collect();
 
