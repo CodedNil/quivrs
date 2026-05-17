@@ -1,5 +1,5 @@
+pub mod articles;
 mod embeddings;
-pub mod feed;
 mod llm_functions;
 
 use reqwest::Client;
@@ -8,7 +8,12 @@ use tokio::time::{MissedTickBehavior, interval};
 use tracing::{error, info};
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
-static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Quivrs/1.0")
+        .build()
+        .expect("Failed to build HTTP client")
+});
 
 pub fn start() {
     tokio::spawn(async move {
@@ -17,10 +22,10 @@ pub fn start() {
         info!("Feed refresh scheduler started (interval: {DEFAULT_REFRESH_INTERVAL:?})");
         loop {
             ticker.tick().await;
-            if let Err(err) = feed::refresh_all_feeds().await {
+            if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }
-            if let Err(err) = feed::regenerate_articles().await {
+            if let Err(err) = articles::regenerate_articles().await {
                 error!("Article regeneration failed: {err}");
             }
         }

@@ -45,7 +45,7 @@ where
 
     // Write payload to payload.json
     let payload_str = serde_json::to_string_pretty(&payload).unwrap_or_default();
-    std::fs::write("payload.json", payload_str).ok();
+    std::fs::write("tmp/payload.json", payload_str).ok();
 
     let response = HTTP_CLIENT
         .post("https://openrouter.ai/api/v1/responses")

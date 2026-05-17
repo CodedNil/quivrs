@@ -2,36 +2,9 @@ add categories like tech news etc
 
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
-only merge articles from within 2 days
 better ground with citations embedded
 two column list for pros/cons
 images grid 2x1
-timeline
-
-/// Up to 4 short highlights that give an overview of this article and key details.
-/// Each formatted as a string "header~text".
-Highlights(Vec<String>),
-
-/// Up to 4 different perspectives on this article. Each formatted as a string "header~text".
-/// Header is the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view.
-Perspectives(Vec<String>),
-
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
-pub struct Background {
-    /// Short summary of the background, can be left blank if not relevant.
-    pub text: String,
-    /// Timeline of events, can be left empty if not relevant. "date~text" where date is the header and is for example "2026" or "January 2026" or "13th January 2026". Text should be max one sentence.
-    pub timeline: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
-pub struct ProsCons {
-    /// Pros of the article, comma separated, sentence-case.
-    pub pros: String,
-    /// Cons of the article, comma separated, sentence-case.
-    pub cons: String,
-}
-
 
 split into for sure loved which is the main feed, this includes sources you want 100% of the videos from like youtube videos
 then a feed for explore which is ones you might like, 0.7-0.9

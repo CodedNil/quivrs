@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 
 #[server]
 pub async fn get_articles() -> Result<Vec<StoredArticle>, ServerFnError> {
-    use crate::server::feed::{ARTICLES_TABLE, DB};
+    use crate::server::articles::{ARTICLES_TABLE, DB};
     use redb::{ReadableDatabase, ReadableTable};
 
     let read_txn = DB

@@ -8,7 +8,6 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
-use feed_rs::parser;
 use futures::future::join_all;
 use itertools::Itertools;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
@@ -59,10 +58,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         ron::from_str(&fs::read_to_string(&config_path).await?)
             .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
-    let feeds: Vec<(String, String)> = config_file
-        .iter()
-        .map(|(id, url)| (id.clone(), url.clone()))
-        .collect();
+    let feeds: Vec<(String, String)> = config_file.into_iter().collect();
 
     info!("Scanning {} feeds", feeds.len());
     let new_entries: HashSet<ArticleSource> =
@@ -88,20 +84,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let embeddings = match generate_embeddings(
+    let embeddings = generate_embeddings(
         &new_entries
             .iter()
             .map(|source| format!("{} {}", source.title, source.description))
             .collect::<Vec<_>>(),
     )
     .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Batch embedding generation failed: {e}");
-            return Err(e);
-        }
-    };
+    .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
     // Assign each new entry to an existing article (if similar) or create a new one
     for (source, embedding) in new_entries.into_iter().zip(embeddings) {
@@ -117,6 +107,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
         let highest_match = articles
             .values()
             .filter(|a| !a.embedding.is_empty())
+            .filter(|a| {
+                (source.published - a.sources[0].published).abs() <= chrono::TimeDelta::days(2)
+            })
             .map(|a| {
                 (
                     a.id,
@@ -140,12 +133,12 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 );
 
                 if let Some(article) = articles.get_mut(&article_id) {
-                    article.sources.push(source.clone());
+                    article.sources.push(source);
                     article.updated_at = Utc::now();
                     article.entry = None; // Reset entry so regeneration targets it
 
                     table.insert(
-                        article_id.to_string().as_str(),
+                        &article_id.to_string().as_str(),
                         postcard::to_allocvec(article)?.as_slice(),
                     )?;
                 }
@@ -164,7 +157,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
                 let new_article = StoredArticle {
                     id,
-                    sources: vec![source.clone()],
+                    sources: vec![source],
                     estimated_liked: 0.0,
                     entry: None,
                     embedding,
@@ -173,7 +166,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 };
 
                 table.insert(
-                    id.to_string().as_str(),
+                    &id.to_string().as_str(),
                     postcard::to_allocvec(&new_article)?.as_slice(),
                 )?;
 
@@ -193,38 +186,28 @@ pub async fn regenerate_articles() -> Result<()> {
         return Ok(());
     }
 
-    // Gather all target articles that lack a compiled LLM summary
-    let target_ids: Vec<Uuid> = if let Ok(table) = DB.begin_read()?.open_table(ARTICLES_TABLE) {
-        table
-            .iter()?
-            .flatten()
-            .filter_map(|(k, v)| {
-                let article = postcard::from_bytes::<StoredArticle>(v.value()).ok()?;
-                (article.entry.is_none() && article.sources.len() > 1)
-                    .then(|| Uuid::parse_str(k.value()).ok())?
-            })
-            .collect()
-    } else {
-        return Ok(());
-    };
+    let targets: Vec<(Uuid, StoredArticle)> =
+        if let Ok(table) = DB.begin_read()?.open_table(ARTICLES_TABLE) {
+            table
+                .iter()?
+                .flatten()
+                .filter_map(|(k, v)| {
+                    let article = postcard::from_bytes::<StoredArticle>(v.value()).ok()?;
+                    let id = Uuid::parse_str(k.value()).ok()?;
+                    (article.entry.is_none() && article.sources.len() > 1).then_some((id, article))
+                })
+                .collect()
+        } else {
+            return Ok(());
+        };
 
-    if target_ids.is_empty() {
+    if targets.is_empty() {
         return Ok(());
     }
 
-    info!("Generating content for {} articles...", target_ids.len());
+    info!("Generating content for {} articles...", targets.len());
 
-    for id in target_ids {
-        let mut article = {
-            let read_txn = DB.begin_read()?;
-            let table = read_txn.open_table(ARTICLES_TABLE)?;
-            if let Some(bytes) = table.get(id.to_string().as_str())? {
-                postcard::from_bytes::<StoredArticle>(bytes.value())?
-            } else {
-                continue;
-            }
-        };
-
+    for (id, mut article) in targets {
         // Long running await out of any DB transaction locks
         match generate_article_content(&article.sources).await {
             Ok(entry) => {
@@ -232,17 +215,15 @@ pub async fn regenerate_articles() -> Result<()> {
                 article.entry = Some(entry);
                 article.updated_at = Utc::now();
 
-                // Instantly commit changes one article at a time
                 let write_txn = DB.begin_write()?;
                 {
                     let mut table = write_txn.open_table(ARTICLES_TABLE)?;
                     table.insert(
-                        id.to_string().as_str(),
+                        &id.to_string().as_str(),
                         postcard::to_allocvec(&article)?.as_slice(),
                     )?;
                 }
                 write_txn.commit()?;
-                break;
             }
             Err(err) => {
                 warn!(article_id = %id, "Generation failed: {err:#}");
@@ -255,44 +236,85 @@ pub async fn regenerate_articles() -> Result<()> {
 
 async fn scan_feed(url_rss: &str) -> Result<Vec<ArticleSource>> {
     let content = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
-    let fetched = parser::parse(content.as_ref())?;
+    let feed = feedparser_rs::parse(content.as_ref())?;
 
-    let new_entries: Vec<ArticleSource> = fetched
+    // Write as url_rss.json
+    let safe_filename = url_rss
+        .replace("https://", "")
+        .replace("http://", "")
+        .replace(['/', ':'], "_");
+    let file_path = format!("{safe_filename}.json");
+    std::fs::create_dir_all("tmp").ok();
+    std::fs::write(format!("tmp/{file_path}.json"), format!("{feed:#?}")).unwrap();
+
+    let articles = feed
         .entries
         .into_iter()
         .filter_map(|entry| {
-            let url = url_normalize::normalize_url(
-                &entry.links.into_iter().next()?.href,
-                &url_normalize::Options::default(),
-            )
-            .unwrap();
+            let mut raw_url = entry
+                .clone()
+                .link
+                .or_else(|| entry.links.first().map(|l| l.href.to_string()))?;
 
-            // Filter out iplayer URLs
+            // Get external url for reddit posts
+            if raw_url.contains("reddit.com/r/") {
+                // Look inside the summary/content string for the external article link
+                // Reddit format: <span><a href="EXTERNAL_URL">[link]</a></span>
+                let search_content = entry.summary.as_deref().unwrap_or("");
+
+                if let Some(link_idx) = search_content.find("\">[link]</a>") {
+                    // Walk backwards to find the start of the href attribute
+                    if let Some(href_start) = search_content[..link_idx].rfind("href=\"") {
+                        let start = href_start + 6; // Move past 'href="'
+                        let external_url = &search_content[start..link_idx];
+
+                        // Swap out the Reddit thread URL for the true external article URL
+                        raw_url = external_url.to_string();
+                    } else {
+                        return None; // It's a discussion/text thread; skip it.
+                    }
+                } else {
+                    return None; // No external link tag found; skip it.
+                }
+            }
+
+            let url =
+                match url_normalize::normalize_url(&raw_url, &url_normalize::Options::default()) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        error!("Failed to normalize URL '{}': {:?}", raw_url, e);
+                        return None;
+                    }
+                };
+
             if url.contains("bbc.co.uk/iplayer") || url.contains("bbc.co.uk/sounds") {
                 return None;
             }
 
-            let image = entry.media.first().and_then(|m| {
-                m.thumbnails
-                    .first()
-                    .map(|t| (t.image.uri.clone(), t.image.title.clone()))
-            });
+            // Grab the primary image
+            let image = entry
+                .media_thumbnail
+                .first()
+                .map(|t| (t.url.to_string(), entry.media_title.clone()));
+
+            // Reconstruct content blocks by joining them if multiple exist
+            let description = if entry.content.is_empty() {
+                entry.summary.unwrap_or_else(|| "NOT PROVIDED".into())
+            } else {
+                entry.content.into_iter().map(|c| c.value).join("\n")
+            };
 
             Some(ArticleSource {
                 url,
-                title: entry.title.map_or_else(|| "Untitled".into(), |t| t.content),
-                description: entry
-                    .content
-                    .and_then(|c| c.body)
-                    .or_else(|| entry.summary.map(|s| s.content))
-                    .unwrap_or_else(|| "NOT PROVIDED".into()),
+                title: entry.title.unwrap_or_else(|| "Untitled".into()),
+                description,
                 image,
                 published: entry.published.unwrap_or_else(Utc::now),
             })
         })
         .collect();
 
-    Ok(new_entries)
+    Ok(articles)
 }
 
 async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEntry> {
@@ -305,7 +327,6 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
                 include_images: true,
                 include_links: true,
                 favor_recall: true,
-                // favor_precision: true,
                 include_formatting: true,
                 target_language: Some("en".to_string()),
                 deduplicate: true,
@@ -326,15 +347,14 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
         }
     });
 
-    let results = join_all(fetches).await;
-    let successful_fetches = results.into_iter().collect::<Result<Vec<_>>>()?;
-    let articles_content = &successful_fetches
+    let successful_fetches = join_all(fetches)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let articles_content = successful_fetches
         .into_iter()
         .enumerate()
         .map(|(i, (source, content))| {
-            let description = content.content_text;
-
-            // List of images with captions, hero image first
             let mut images_found = HashSet::new();
             let images: String = source
                 .image
@@ -364,15 +384,16 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
                 i + 1,
                 source.title,
                 source.url,
-                description.replace('\n', " "),
+                content.content_text.replace('\n', " "),
                 images
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
 
-    let context = "Synthesise all sources into a single cohesive article in the output json_schema. Use a few web searchs for the title of each source to gather the latest information. EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.\n\n".to_string()
-        + articles_content;
+    let context = format!(
+        "Synthesise all sources into a single cohesive article in the output json_schema. Use a few web searchs for the title of each source to gather the latest information. EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.\n\n{articles_content}"
+    );
 
     run::<ArticleEntry>(&context)
         .await
