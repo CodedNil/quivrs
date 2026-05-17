@@ -74,7 +74,7 @@ where
 
     // Write output to output.json
     let payload_str = serde_json::to_string_pretty(&response_json).unwrap_or_default();
-    std::fs::write("output.json", payload_str).ok();
+    std::fs::write("tmp/output.json", payload_str).ok();
 
     // Scan through the output array to find the final output text
     let inner_text = response_json["output"]

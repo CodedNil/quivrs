@@ -88,7 +88,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     let embeddings = generate_embeddings(
         &new_entries
             .iter()
-            .map(|source| format!("{} {}", source.title, source.description))
+            .map(|source| format!("{} {}", source.title, source.summary))
             .collect::<Vec<_>>(),
     )
     .await

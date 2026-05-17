@@ -27,7 +27,7 @@ impl PartialEq for StoredArticle {
 pub struct ArticleSource {
     pub url: String,
     pub title: String,
-    pub description: String,
+    pub summary: String,
     pub image: Option<String>,
     pub image_description: Option<String>,
     pub published: DateTime<Utc>,
@@ -54,6 +54,7 @@ pub struct ArticleEntry {
     pub description: String,
 
     /// The article's content, broken down into sections, first should always be a paragraph and second an image if there is one available.
+    /// All the important information should be in the first few sections, with the rest being a deeper dive/expansion.
     /// You can and should use sections multiple times throughout the article, multiple paragraphs and multiple images.
     /// Often include Highlights and Perspectives (Boxes with Header)
     pub sections: Vec<Section>,

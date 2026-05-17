@@ -39,11 +39,16 @@ pub async fn scan_feed(url_rss: &str) -> Result<Vec<ArticleSource>> {
 
     Ok(entries
         .into_iter()
-        .filter(|e| !e.url.contains("bbc.co.uk/iplayer") && !e.url.contains("bbc.co.uk/sounds"))
+        .filter(|e| {
+            !(e.url.contains("bbc.co.uk/iplayer")
+                || e.url.contains("bbc.co.uk/sounds")
+                || (e.url.contains("reddit.com") && e.url.contains("/comments"))
+                || e.url.contains("v.redd.it/"))
+        })
         .map(|e| ArticleSource {
             url: e.url,
             title: e.title,
-            description: e.content,
+            summary: e.content,
             image: e.image,
             image_description: e.image_description,
             published: e.published,
@@ -334,7 +339,8 @@ fn extract_html_attr(tag: &str, attr: &str) -> Option<String> {
 fn extract_reddit_url(html: &str) -> Option<String> {
     let link_idx = html.find(">[link]</a>")?;
     let href_start = html[..link_idx].rfind("href=\"")?;
-    Some(html[href_start + 6..link_idx].to_string())
+    let url = html[href_start + 6..link_idx].trim_end_matches('"');
+    Some(url.to_string())
 }
 
 fn normalize_article_url(url: &str) -> String {
