@@ -23,13 +23,25 @@ impl PartialEq for StoredArticle {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Eq)]
 pub struct ArticleSource {
     pub url: String,
     pub title: String,
     pub description: String,
     pub image: Option<(String, Option<String>)>,
     pub published: DateTime<Utc>,
+}
+
+impl PartialEq for ArticleSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+    }
+}
+
+impl std::hash::Hash for ArticleSource {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.url.hash(state);
+    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Default, Clone)]

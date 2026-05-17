@@ -31,16 +31,6 @@ pub static DB: LazyLock<Database> = LazyLock::new(|| {
 });
 
 pub async fn refresh_all_feeds() -> Result<()> {
-    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.json".to_string());
-    let config_file: HashMap<String, String> =
-        serde_json::from_str(&fs::read_to_string(&config_path).await?)
-            .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
-
-    let feeds: Vec<(String, String)> = config_file
-        .iter()
-        .map(|(id, url)| (id.clone(), url.clone()))
-        .collect();
-
     // Load all existing articles for similarity matching
     let mut articles = if let Ok(table) = DB.begin_read()?.open_table(ARTICLES_TABLE) {
         table
@@ -64,18 +54,29 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .collect();
 
     // Scan all feeds in parallel, collect new entries
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
+    let config_file: HashMap<String, String> =
+        ron::from_str(&fs::read_to_string(&config_path).await?)
+            .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
+
+    let feeds: Vec<(String, String)> = config_file
+        .iter()
+        .map(|(id, url)| (id.clone(), url.clone()))
+        .collect();
+
     info!("Scanning {} feeds", feeds.len());
-    let new_entries: Vec<ArticleSource> = join_all(feeds.into_iter().map(|(id, url)| async move {
-        scan_feed(&id, &url).await.unwrap_or_else(|err| {
-            warn!(feed_id = %id, "Feed scan failed: {err:#}");
-            vec![]
-        })
-    }))
-    .await
-    .into_iter()
-    .flatten()
-    .filter(|entry| !existing_urls.contains(&entry.url))
-    .collect();
+    let new_entries: HashSet<ArticleSource> =
+        join_all(feeds.into_iter().map(|(id, url)| async move {
+            scan_feed(&url).await.unwrap_or_else(|err| {
+                warn!(feed_id = %id, "Feed scan failed: {err:#}");
+                vec![]
+            })
+        }))
+        .await
+        .into_iter()
+        .flatten()
+        .filter(|entry| !existing_urls.contains(&entry.url))
+        .collect();
 
     if new_entries.is_empty() {
         info!("No new entries found");
@@ -199,7 +200,8 @@ pub async fn regenerate_articles() -> Result<()> {
             .flatten()
             .filter_map(|(k, v)| {
                 let article = postcard::from_bytes::<StoredArticle>(v.value()).ok()?;
-                (article.entry.is_none()).then(|| Uuid::parse_str(k.value()).ok())?
+                (article.entry.is_none() && article.sources.len() > 1)
+                    .then(|| Uuid::parse_str(k.value()).ok())?
             })
             .collect()
     } else {
@@ -251,16 +253,19 @@ pub async fn regenerate_articles() -> Result<()> {
     Ok(())
 }
 
-async fn scan_feed(feed_id: &str, url_rss: &str) -> Result<Vec<ArticleSource>> {
+async fn scan_feed(url_rss: &str) -> Result<Vec<ArticleSource>> {
     let content = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
     let fetched = parser::parse(content.as_ref())?;
 
-    let total_entries = fetched.entries.len();
     let new_entries: Vec<ArticleSource> = fetched
         .entries
         .into_iter()
         .filter_map(|entry| {
-            let url = entry.links.into_iter().next()?.href;
+            let url = url_normalize::normalize_url(
+                &entry.links.into_iter().next()?.href,
+                &url_normalize::Options::default(),
+            )
+            .unwrap();
 
             // Filter out iplayer URLs
             if url.contains("bbc.co.uk/iplayer") || url.contains("bbc.co.uk/sounds") {
@@ -287,11 +292,6 @@ async fn scan_feed(feed_id: &str, url_rss: &str) -> Result<Vec<ArticleSource>> {
         })
         .collect();
 
-    info!(
-        "Feed {feed_id}: {}/{} entries new",
-        new_entries.len(),
-        total_entries
-    );
     Ok(new_entries)
 }
 

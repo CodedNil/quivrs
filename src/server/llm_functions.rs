@@ -21,6 +21,7 @@ where
     let payload = json!({
         "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "google/gemini-3.1-flash-lite".to_string()),
         "service_tier": "flex",
+        "provider": { "only": ["Google"] },
         "input": message,
         "text": {
             "format": {

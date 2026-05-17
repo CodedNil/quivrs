@@ -85,6 +85,10 @@ fn article_item(article: StoredArticle, mut selected: Signal<Option<StoredArticl
     let is_selected = selected.read().as_ref().map(|a| a.id) == Some(article.id);
     let mut hovered = use_signal(|| false);
 
+    let Some(entry) = &article.entry else {
+        return rsx! {}.into();
+    };
+
     let (title, description) = if let Some(entry) = &article.entry {
         (entry.title.as_str(), entry.description.as_str())
     } else {
