@@ -1,4 +1,11 @@
 {
   "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-  "verge": "https://www.theverge.com/rss/index.xml"
+  "verge": "https://www.theverge.com/rss/index.xml",
+  "tomsguide": "https://www.tomsguide.com/rss",
+  "bbc_england_london": "https://feeds.bbci.co.uk/news/england/london/rss.xml?edition=uk",
+  "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
+  "skynews": "https://feeds.skynews.com/feeds/rss/home.xml",
+  "reddit_uknews": "https://www.reddit.com/r/uknews/.rss",
+  "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics/.rss",
+  "reddit_unitedkingdom": "https://www.reddit.com/r/unitedkingdom/.rss"
 }

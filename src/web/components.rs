@@ -21,21 +21,6 @@ pub mod base16 {
 }
 
 #[component]
-pub fn section_heading(label: String) -> Element {
-    rsx! {
-        h2 {
-            font_size: "0.62rem",
-            font_weight: "700",
-            color: base16::BASE03,
-            text_transform: "uppercase",
-            letter_spacing: "0.1em",
-            margin: "0 0 0.75rem 0",
-            "{label}"
-        }
-    }
-}
-
-#[component]
 pub fn image_figure(url: String, caption: String, margin: String) -> Element {
     rsx! {
         figure { margin,
@@ -52,52 +37,6 @@ pub fn image_figure(url: String, caption: String, margin: String) -> Element {
                 margin_top: "0.375rem",
                 text_align: "center",
                 "{caption}"
-            }
-        }
-    }
-}
-
-#[component]
-pub fn surface_card(children: Element, padding: Option<String>) -> Element {
-    rsx! {
-        div {
-            background_color: base16::BASE01,
-            border: "1px solid {base16::BASE02}",
-            border_top: "1px solid {base16::BASE02}",
-            border_radius: "0.375rem",
-            padding: padding.unwrap_or_else(|| "0.75rem 0.875rem".to_string()),
-            {children}
-        }
-    }
-}
-
-#[component]
-pub fn labeled_row(
-    label: String,
-    body: String,
-    label_color: String,
-    label_width: String,
-    gap: String,
-) -> Element {
-    rsx! {
-        div { display: "flex", gap, align_items: "flex-start",
-            span {
-                flex_shrink: "0",
-                font_size: "0.65rem",
-                font_weight: "600",
-                color: label_color,
-                width: label_width,
-                padding_top: "0.1rem",
-                line_height: "1.4",
-                "{label}"
-            }
-            p {
-                font_size: "0.8rem",
-                color: base16::BASE05,
-                line_height: "1.5",
-                margin: "0",
-                flex: "1",
-                "{body}"
             }
         }
     }

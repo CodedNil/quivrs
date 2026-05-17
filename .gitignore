@@ -1,5 +1,6 @@
 /target
 /data
 /.direnv
+/.fastembed_cache
 .env
 quivrs.redb

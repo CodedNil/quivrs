@@ -20,11 +20,12 @@ where
 
     let payload = json!({
         "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "google/gemini-3.1-flash-lite".to_string()),
+        "service_tier": "flex",
         "input": message,
         "text": {
             "format": {
                 "type": "json_schema",
-                "name": std::any::type_name::<T>(),
+                "name": "output",
                 "strict": true,
                 "schema": schema_object
             },
@@ -36,11 +37,7 @@ where
         "tools": [
             {
                 "type": "openrouter:web_search",
-                "parameters": {
-                    "engine": "auto",
-                    "max_results": 3,
-                    "search_context_size": "low"
-                },
+                "parameters": { "engine": "native" },
             }
         ]
     });
@@ -77,9 +74,6 @@ where
     // Write output to output.json
     let payload_str = serde_json::to_string_pretty(&response_json).unwrap_or_default();
     std::fs::write("output.json", payload_str).ok();
-
-    // let outputs = serde_json::to_string_pretty(&response_json);
-    // tracing::info!("{outputs:?}");
 
     // Scan through the output array to find the final output text
     let inner_text = response_json["output"]

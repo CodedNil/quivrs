@@ -1,7 +1,7 @@
 mod components;
 
 use crate::shared::{Section, StoredArticle, server_functions::get_articles};
-use components::{base16, image_figure, labeled_row, section_heading, surface_card};
+use components::{base16, image_figure};
 use dioxus::prelude::*;
 
 pub fn app() -> Element {
@@ -76,25 +76,23 @@ pub fn app() -> Element {
     }
 }
 
-fn article_title(article: &StoredArticle) -> &str {
-    if let Some(entry) = &article.entry {
-        &entry.title
-    } else {
-        article.sources.first().map_or("Untitled", |s| &s.title)
-    }
-}
-
 fn source_parts(s: &str) -> (&str, &str) {
     s.split_once('~').unwrap_or(("", s))
 }
 
 #[component]
 fn article_item(article: StoredArticle, mut selected: Signal<Option<StoredArticle>>) -> Element {
-    let Some(entry) = &article.entry else {
-        return rsx! {};
-    };
     let is_selected = selected.read().as_ref().map(|a| a.id) == Some(article.id);
     let mut hovered = use_signal(|| false);
+
+    let (title, description) = if let Some(entry) = &article.entry {
+        (entry.title.as_str(), entry.description.as_str())
+    } else {
+        article
+            .sources
+            .first()
+            .map_or(("Untitled", "Untitled"), |s| (&s.title, &s.description))
+    };
 
     let bg = if is_selected {
         "rgba(23, 37, 84, 0.4)"
@@ -129,14 +127,14 @@ fn article_item(article: StoredArticle, mut selected: Signal<Option<StoredArticl
                 color: base16::BASE05,
                 line_height: "1.375",
                 margin: "0 0 0.25rem 0",
-                "{article_title(&article)}"
+                "{title}"
             }
             p {
                 font_size: "0.68rem",
                 color: base16::BASE05,
                 line_height: "1.625",
                 margin: "0",
-                "{entry.description}"
+                "{description}"
             }
         }
     }
@@ -144,15 +142,30 @@ fn article_item(article: StoredArticle, mut selected: Signal<Option<StoredArticl
 
 fn render_section(section: &Section) -> Element {
     match section {
-        Section::Text(text) => rsx! {
-            p {
-                font_size: "0.875rem",
-                color: base16::BASE05,
-                line_height: "1.75",
-                margin: "0 0 1rem 0",
-                "{text}"
+        Section::Header(header) => rsx! {
+            div { margin_bottom: "1.75rem",
+                h2 {
+                    font_size: "0.62rem",
+                    font_weight: "700",
+                    color: base16::BASE03,
+                    text_transform: "uppercase",
+                    letter_spacing: "0.1em",
+                    margin: "0 0 0.75rem 0",
+                    "{header}"
+                }
             }
         },
+        Section::Paragraph(text) => {
+            rsx! {
+                p {
+                    font_size: "0.875rem",
+                    color: base16::BASE05,
+                    line_height: "1.75",
+                    margin: "0 0 1rem 0",
+                    "{text}"
+                }
+            }
+        }
         Section::Image(raw) => {
             let (url, caption) = source_parts(raw);
             rsx! {
@@ -163,178 +176,19 @@ fn render_section(section: &Section) -> Element {
                 }
             }
         }
-        Section::Highlights(highlights) => rsx! {
-            div { margin_bottom: "1.75rem",
-                section_heading { label: "Highlights" }
-                div {
-                    display: "grid",
-                    grid_template_columns: "repeat(auto-fill, minmax(14rem, 1fr))",
-                    gap: "0.625rem",
-                    for h in highlights {
-                        {
-                            let (header, body) = source_parts(h);
-                            rsx! {
-                                surface_card {
-                                    p {
-                                        font_size: "0.7rem",
-                                        font_weight: "600",
-                                        color: base16::BASE05,
-                                        margin: "0 0 0.25rem 0",
-                                        "{header}"
-                                    }
-                                    p {
-                                        font_size: "0.8rem",
-                                        color: base16::BASE05,
-                                        line_height: "1.5",
-                                        margin: "0",
-                                        "{body}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        Section::Perspectives(perspectives) => rsx! {
-            div { margin_bottom: "1.75rem",
-                section_heading { label: "Perspectives" }
-                div {
-                    display: "flex",
-                    flex_direction: "column",
-                    gap: "0.5rem",
-                    for pv in perspectives {
-                        {
-                            let (who, body) = source_parts(pv);
-                            rsx! {
-                                surface_card {
-                                    labeled_row {
-                                        label: who.to_string(),
-                                        body: body.to_string(),
-                                        label_color: base16::BASE0E.to_string(),
-                                        label_width: "7rem",
-                                        gap: "0.75rem",
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        Section::Background(bg) => rsx! {
-            div { margin_bottom: "1.75rem",
-                section_heading { label: "Background" }
-                surface_card { padding: "0.875rem".to_string(),
-                    p {
-                        font_size: "0.8rem",
+        Section::List(items) => rsx! {
+            ul {
+                margin: "0 0 1.25rem 0",
+                padding_left: "1.25rem",
+                display: "flex",
+                flex_direction: "column",
+                gap: "0.375rem",
+                for item in items {
+                    li {
+                        font_size: "0.875rem",
                         color: base16::BASE05,
-                        line_height: "1.625",
-                        margin: "0 0 0.875rem 0",
-                        "{bg.text}"
-                    }
-                    div {
-                        display: "flex",
-                        flex_direction: "column",
-                        gap: "0.5rem",
-                        for event in &bg.timeline {
-                            {
-                                let (date, text) = source_parts(event);
-                                rsx! {
-                                    labeled_row {
-                                        label: date.to_string(),
-                                        body: text.to_string(),
-                                        label_color: base16::BASE04.to_string(),
-                                        label_width: "5.5rem",
-                                        gap: "0.875rem",
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        Section::TwoImages(raw) => {
-            let (left, right) = raw.split_once('|').unwrap_or((raw, ""));
-            let (left_url, left_cap) = source_parts(left);
-            let (right_url, right_cap) = source_parts(right);
-            rsx! {
-                div {
-                    display: "grid",
-                    grid_template_columns: "1fr 1fr",
-                    gap: "0.625rem",
-                    margin: "1.25rem 0",
-                    image_figure {
-                        url: left_url.to_string(),
-                        caption: left_cap.to_string(),
-                        margin: "0",
-                    }
-                    image_figure {
-                        url: right_url.to_string(),
-                        caption: right_cap.to_string(),
-                        margin: "0",
-                    }
-                }
-            }
-        }
-        Section::ProsCons(pros_cons) => rsx! {
-            div { margin_bottom: "1.75rem",
-                div {
-                    display: "grid",
-                    grid_template_columns: "1fr 1fr",
-                    gap: "0.75rem",
-                    surface_card {
-                        p {
-                            font_size: "0.62rem",
-                            font_weight: "700",
-                            color: base16::BASE05,
-                            text_transform: "uppercase",
-                            letter_spacing: "0.1em",
-                            margin: "0 0 0.625rem 0",
-                            "The Good"
-                        }
-                        ul {
-                            margin: "0",
-                            padding_left: "1rem",
-                            display: "flex",
-                            flex_direction: "column",
-                            gap: "0.375rem",
-                            for part in pros_cons.pros.split(',') {
-                                li {
-                                    font_size: "0.75rem",
-                                    color: base16::BASE05,
-                                    line_height: "1.4",
-                                    "{part.trim()}"
-                                }
-                            }
-                        }
-                    }
-                    surface_card {
-                        p {
-                            font_size: "0.62rem",
-                            font_weight: "700",
-                            color: base16::BASE05,
-                            text_transform: "uppercase",
-                            letter_spacing: "0.1em",
-                            margin: "0 0 0.625rem 0",
-                            "The Bad"
-                        }
-                        ul {
-                            margin: "0",
-                            padding_left: "1rem",
-                            display: "flex",
-                            flex_direction: "column",
-                            gap: "0.375rem",
-                            for part in pros_cons.cons.split(',') {
-                                li {
-                                    font_size: "0.75rem",
-                                    color: base16::BASE05,
-                                    line_height: "1.4",
-                                    "{part.trim()}"
-                                }
-                            }
-                        }
+                        line_height: "1.6",
+                        "{item}"
                     }
                 }
             }
@@ -365,11 +219,11 @@ fn article_detail(article: StoredArticle) -> Element {
                 line_height: "1.25",
                 color: base16::BASE05,
                 margin: "0 0 0.375rem 0",
-                "{article_title(&article)}"
+                "{entry.title}"
             }
             p {
                 font_size: "0.7rem",
-                color: base16::BASE05,
+                color: base16::BASE03,
                 margin: "0 0 1rem 0",
                 "{updated}"
             }
@@ -405,40 +259,12 @@ fn article_detail(article: StoredArticle) -> Element {
                 {render_section(section)}
             }
 
-            div { margin_bottom: "1.75rem",
-                section_heading { label: "References" }
-                ol {
-                    margin: "0",
-                    padding_left: "1.25rem",
-                    display: "flex",
-                    flex_direction: "column",
-                    gap: "0.25rem",
-                    for source in &entry.sources {
-                        {
-                            let (url, title) = source_parts(source);
-                            rsx! {
-                                li { font_size: "0.75rem", color: base16::BASE05,
-                                    a {
-                                        color: base16::BASE05,
-                                        text_decoration: "none",
-                                        href: "{url}",
-                                        target: "_blank",
-                                        rel: "noopener noreferrer",
-                                        "{title}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             div {
                 padding_top: "1.25rem",
                 border_top: "1px solid {base16::BASE02}",
                 h4 {
                     font_size: "0.62rem",
-                    color: base16::BASE05,
+                    color: base16::BASE03,
                     text_transform: "uppercase",
                     letter_spacing: "0.1em",
                     margin: "0 0 0.625rem 0",
@@ -449,9 +275,10 @@ fn article_detail(article: StoredArticle) -> Element {
                         display: "block",
                         font_size: "0.75rem",
                         color: base16::BASE05,
+                        text_decoration: "none",
                         margin_bottom: "0.375rem",
-                        text_overflow: "ellipsis",
                         overflow: "hidden",
+                        text_overflow: "ellipsis",
                         white_space: "nowrap",
                         href: "{source.url}",
                         target: "_blank",

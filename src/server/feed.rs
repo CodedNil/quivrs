@@ -1,9 +1,11 @@
-use super::{
-    HTTP_CLIENT,
-    embeddings::{cosine_similarity, get_embedding},
-    llm_functions::run,
+use crate::{
+    server::{
+        HTTP_CLIENT,
+        embeddings::{cosine_similarity, generate_embeddings},
+        llm_functions::run,
+    },
+    shared::{ArticleEntry, ArticleSource, StoredArticle},
 };
-use crate::shared::{ArticleEntry, ArticleSource, StoredArticle};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use feed_rs::parser;
@@ -16,10 +18,10 @@ use std::{
     sync::LazyLock,
 };
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-const SIMILARITY_THRESHOLD: f32 = 0.88;
+const SIMILARITY_THRESHOLD: f32 = 0.6;
 
 pub const ARTICLES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("articles");
 
@@ -80,24 +82,46 @@ pub async fn refresh_all_feeds() -> Result<()> {
         return Ok(());
     }
 
+    // Generate embeddings for all new articles
+    info!(
+        "Generating embeddings for {} new articles...",
+        new_entries.len()
+    );
+    let embeddings = match generate_embeddings(
+        &new_entries
+            .iter()
+            .map(|source| format!("{} {}", source.title, source.description))
+            .collect::<Vec<_>>(),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Batch embedding generation failed: {e}");
+            return Err(e);
+        }
+    };
+
     // Assign each new entry to an existing article (if similar) or create a new one
-    for source in new_entries {
-        let embedding = get_embedding(format!("{} - {}", source.title, source.description))
-            .await
-            .unwrap_or_else(|e| {
-                warn!("Embedding failed: {e}");
-                Vec::new()
-            });
+    for (source, embedding) in new_entries.into_iter().zip(embeddings) {
         if embedding.is_empty() {
+            warn!(
+                "Skipping article due to empty embedding vector for: {}",
+                source.title
+            );
             continue;
         }
 
-        let similar = articles
+        // Find the highest similarity match
+        let highest_match = articles
             .values()
             .filter(|a| !a.embedding.is_empty())
-            .filter_map(|a| {
-                let sim = cosine_similarity(&embedding, &a.embedding);
-                (sim >= SIMILARITY_THRESHOLD).then(|| (a.id, a.sources[0].title.clone(), sim))
+            .map(|a| {
+                (
+                    a.id,
+                    &a.sources[0].title,
+                    cosine_similarity(&embedding, &a.embedding),
+                )
             })
             .max_by(|a, b| a.2.total_cmp(&b.2));
 
@@ -105,7 +129,10 @@ pub async fn refresh_all_feeds() -> Result<()> {
         {
             let mut table = write_txn.open_table(ARTICLES_TABLE)?;
 
-            if let Some((article_id, existing_title, sim)) = similar {
+            if let Some(&(article_id, existing_title, sim)) = highest_match
+                .as_ref()
+                .filter(|m| m.2 >= SIMILARITY_THRESHOLD)
+            {
                 info!(
                     "[MERGE] '{}' → '{}' (sim {sim:.2})",
                     source.title, existing_title
@@ -123,7 +150,16 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 }
             } else {
                 let id = Uuid::new_v4();
-                info!("[NEW] '{}'", source.title);
+
+                // Print the runner-up similarity
+                if let Some((_, closest_title, sim)) = &highest_match {
+                    info!(
+                        "[NEW] '{}' - Highest {sim:.2} '{}'",
+                        source.title, closest_title
+                    );
+                } else {
+                    info!("[NEW] '{}'", source.title);
+                }
 
                 let new_article = StoredArticle {
                     id,

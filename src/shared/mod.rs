@@ -46,53 +46,21 @@ pub struct ArticleEntry {
     /// Try to include all the images available.
     pub sections: Vec<Section>,
 
-    /// Sources for the article, "url~title".
-    pub sources: Vec<String>,
-
     /// Descriptive tags, lowercase and hyphen-separated (e.g. technology, ai, machine-learning).
     pub tags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone)]
 pub enum Section {
+    /// Header for a section that follows, add before every instance of List.
+    Header(String),
+
     /// Paragraph of text.
-    Text(String),
+    Paragraph(String),
 
     /// Full width image with caption. "url~caption", include multiple of these throughout the article.
     Image(String),
 
-    /// Two images side by side with captions. "url~caption|url~caption".
-    TwoImages(String),
-
-    /// Up to 4 short highlights that give an overview of this article and key details.
-    /// Each formatted as a string "header~text".
-    Highlights(Vec<String>),
-
-    /// Up to 4 different perspectives on this article. Each formatted as a string "header~text".
-    /// Header is the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view.
-    Perspectives(Vec<String>),
-
-    /// Background information including timeline, if available/relevant.
-    /// Should only include this section if it's important and informative for the historical context.
-    Background(Background),
-
-    /// Pros and Cons informative if it is a review article.
-    /// Only include if there are multiple of each.
-    ProsCons(ProsCons),
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
-pub struct Background {
-    /// Short summary of the background, can be left blank if not relevant.
-    pub text: String,
-    /// Timeline of events, can be left empty if not relevant. "date~text" where date is the header and is for example "2026" or "January 2026" or "13th January 2026". Text should be max one sentence.
-    pub timeline: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
-pub struct ProsCons {
-    /// Pros of the article, comma separated, sentence-case.
-    pub pros: String,
-    /// Cons of the article, comma separated, sentence-case.
-    pub cons: String,
+    /// Simple bulleted list of items.
+    List(Vec<String>),
 }
