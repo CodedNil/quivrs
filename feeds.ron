@@ -8,4 +8,6 @@
     "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics/.rss",
     // "reddit_unitedkingdom": "https://www.reddit.com/r/unitedkingdom/.rss",
     // "reddit_uknews": "https://www.reddit.com/r/uknews/.rss",
+    "lobste.rs": "https://lobste.rs/rss",
+    "hacker_news": "https://hnrss.org/frontpage",
 }

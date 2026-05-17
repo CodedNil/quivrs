@@ -3,6 +3,7 @@ use crate::{
         HTTP_CLIENT,
         embeddings::{cosine_similarity, generate_embeddings},
         llm_functions::run,
+        parse_feed::scan_feed,
     },
     shared::{ArticleEntry, ArticleSource, StoredArticle},
 };
@@ -234,89 +235,6 @@ pub async fn regenerate_articles() -> Result<()> {
     Ok(())
 }
 
-async fn scan_feed(url_rss: &str) -> Result<Vec<ArticleSource>> {
-    let content = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
-    let feed = feedparser_rs::parse(content.as_ref())?;
-
-    // Write as url_rss.json
-    let safe_filename = url_rss
-        .replace("https://", "")
-        .replace("http://", "")
-        .replace(['/', ':'], "_");
-    let file_path = format!("{safe_filename}.json");
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write(format!("tmp/{file_path}.json"), format!("{feed:#?}")).unwrap();
-
-    let articles = feed
-        .entries
-        .into_iter()
-        .filter_map(|entry| {
-            let mut raw_url = entry
-                .clone()
-                .link
-                .or_else(|| entry.links.first().map(|l| l.href.to_string()))?;
-
-            // Get external url for reddit posts
-            if raw_url.contains("reddit.com/r/") {
-                // Look inside the summary/content string for the external article link
-                // Reddit format: <span><a href="EXTERNAL_URL">[link]</a></span>
-                let search_content = entry.summary.as_deref().unwrap_or("");
-
-                if let Some(link_idx) = search_content.find("\">[link]</a>") {
-                    // Walk backwards to find the start of the href attribute
-                    if let Some(href_start) = search_content[..link_idx].rfind("href=\"") {
-                        let start = href_start + 6; // Move past 'href="'
-                        let external_url = &search_content[start..link_idx];
-
-                        // Swap out the Reddit thread URL for the true external article URL
-                        raw_url = external_url.to_string();
-                    } else {
-                        return None; // It's a discussion/text thread; skip it.
-                    }
-                } else {
-                    return None; // No external link tag found; skip it.
-                }
-            }
-
-            let url =
-                match url_normalize::normalize_url(&raw_url, &url_normalize::Options::default()) {
-                    Ok(u) => u,
-                    Err(e) => {
-                        error!("Failed to normalize URL '{}': {:?}", raw_url, e);
-                        return None;
-                    }
-                };
-
-            if url.contains("bbc.co.uk/iplayer") || url.contains("bbc.co.uk/sounds") {
-                return None;
-            }
-
-            // Grab the primary image
-            let image = entry
-                .media_thumbnail
-                .first()
-                .map(|t| (t.url.to_string(), entry.media_title.clone()));
-
-            // Reconstruct content blocks by joining them if multiple exist
-            let description = if entry.content.is_empty() {
-                entry.summary.unwrap_or_else(|| "NOT PROVIDED".into())
-            } else {
-                entry.content.into_iter().map(|c| c.value).join("\n")
-            };
-
-            Some(ArticleSource {
-                url,
-                title: entry.title.unwrap_or_else(|| "Untitled".into()),
-                description,
-                image,
-                published: entry.published.unwrap_or_else(Utc::now),
-            })
-        })
-        .collect();
-
-    Ok(articles)
-}
-
 async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEntry> {
     let fetches = sources.iter().map(|source| async move {
         let content = async {
@@ -358,8 +276,9 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
             let mut images_found = HashSet::new();
             let images: String = source
                 .image
-                .iter()
-                .map(|(url, alt)| (url.as_str(), alt.as_deref()))
+                .as_deref()
+                .map(|url| (url, source.image_description.as_deref()))
+                .into_iter()
                 .chain(
                     content
                         .images

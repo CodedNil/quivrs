@@ -1,6 +1,7 @@
 pub mod articles;
 mod embeddings;
 mod llm_functions;
+mod parse_feed;
 
 use reqwest::Client;
 use std::{sync::LazyLock, time::Duration};

@@ -28,7 +28,8 @@ pub struct ArticleSource {
     pub url: String,
     pub title: String,
     pub description: String,
-    pub image: Option<(String, Option<String>)>,
+    pub image: Option<String>,
+    pub image_description: Option<String>,
     pub published: DateTime<Utc>,
 }
 
