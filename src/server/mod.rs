@@ -19,6 +19,10 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 
 pub fn start() {
     tokio::spawn(async move {
+        if let Err(err) = database::init().await {
+            error!("Database initialisation failed: {err}");
+            return;
+        }
         if let Err(err) = database::regenerate_stale_embeddings().await {
             error!("Stale embedding regeneration failed: {err}");
         }
@@ -34,7 +38,7 @@ pub fn start() {
             // if let Err(err) = articles::regenerate_articles().await {
             //     error!("Article regeneration failed: {err}");
             // }
-            if let Err(err) = database::cleanup_binned(7) {
+            if let Err(err) = database::cleanup_binned(7).await {
                 error!("Cleanup failed: {err}");
             }
         }

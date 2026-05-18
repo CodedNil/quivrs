@@ -40,10 +40,12 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .flatten()
         .collect();
 
-    let new_entries: Vec<ArticleSource> = all_entries
-        .into_iter()
-        .filter(|entry| !database::url_exists(&entry.url))
-        .collect();
+    let mut new_entries = Vec::new();
+    for entry in all_entries {
+        if !database::url_exists(&entry.url).await {
+            new_entries.push(entry);
+        }
+    }
 
     if new_entries.is_empty() {
         info!("No new entries found");
@@ -73,7 +75,8 @@ pub async fn refresh_all_feeds() -> Result<()> {
         let candidates = database::get_embedding_candidates(
             (source.published - TimeDelta::days(2)).timestamp(),
             (source.published + TimeDelta::days(2)).timestamp(),
-        )?;
+        )
+        .await?;
         let highest_match = candidates
             .iter()
             .filter(|c| !c.embedding.is_empty())
@@ -87,7 +90,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 "[MERGE] '{}' → '{}' (sim {sim:.2})",
                 source.title, existing_title
             );
-            database::merge_into_article(article_id, &source, &embedding)?;
+            database::merge_into_article(article_id, &source, &embedding).await?;
         } else {
             if let Some((_, closest_title, sim)) = &highest_match {
                 info!(
@@ -98,7 +101,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 info!("[NEW] '{}'", source.title);
             }
             if let Ok((article_type, category)) = classify(&embedding).await {
-                database::insert_article(&source, &embedding, article_type, category)?;
+                database::insert_article(&source, &embedding, article_type, category).await?;
             }
         }
     }
@@ -112,23 +115,21 @@ pub async fn regenerate_articles() -> Result<()> {
         return Ok(());
     }
 
-    let targets = database::get_regeneration_targets()?;
+    let targets = database::get_regeneration_targets().await?;
     if targets.is_empty() {
         return Ok(());
     }
 
     info!("Generating content for {} articles...", targets.len());
 
-    // Convert targets into an owned stream and buffer concurrent tasks
     let mut article_stream = stream::iter(targets)
         .map(|(id, sources)| async move { (id, generate_article_content(sources).await) })
         .buffer_unordered(5);
 
-    // Process results as they finish
     while let Some((id, result)) = article_stream.next().await {
         match result {
             Ok(entry) => {
-                if let Err(err) = database::save_article_entry(id, &entry) {
+                if let Err(err) = database::save_article_entry(id, &entry).await {
                     warn!(article_id = %id, "Failed to save article to database: {err:#}");
                 }
             }

@@ -8,28 +8,27 @@ use crate::{
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use postcard::{from_bytes, to_allocvec};
-use rusqlite::{Connection, params};
-use std::{
-    collections::HashMap,
-    env,
-    sync::{LazyLock, Mutex},
+use sqlx::{
+    Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
+use std::{collections::HashMap, env, str::FromStr, sync::LazyLock};
 use tracing::{error, info};
 use uuid::Uuid;
 
-/// Global database connection pool
-static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
-    let url = env::var("DATABASE_URL").unwrap_or_else(|_| "quivrs.db".to_string());
-    let conn = Connection::open(&url).expect("Failed to open database");
+static DB: LazyLock<SqlitePool> = LazyLock::new(|| {
+    let url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:quivrs.db".to_string());
+    let opts = SqliteConnectOptions::from_str(&url)
+        .expect("Invalid DATABASE_URL")
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .create_if_missing(true);
+    SqlitePoolOptions::new().connect_lazy_with(opts)
+});
 
-    // Initialize database schema.
-    // WAL mode allows concurrent readers while a writer is active.
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-
-         -- Core article data
-         CREATE TABLE IF NOT EXISTS articles (
+pub async fn init() -> Result<()> {
+    sqlx::raw_sql(
+        "CREATE TABLE IF NOT EXISTS articles (
              id               TEXT PRIMARY KEY,
              title            TEXT NOT NULL,
              sources          BLOB NOT NULL,
@@ -43,36 +42,28 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
              updated_at       INTEGER NOT NULL
          );
          CREATE INDEX IF NOT EXISTS published ON articles(published);
-
-         -- Mapping of individual URLs to article IDs
          CREATE TABLE IF NOT EXISTS article_urls (
              url        TEXT PRIMARY KEY,
              article_id TEXT NOT NULL
          );
-
-         -- User-specific state for articles
          CREATE TABLE IF NOT EXISTS user_articles (
              article_id TEXT PRIMARY KEY,
              status     TEXT NOT NULL DEFAULT 'New',
              binned_at  INTEGER
          );
-
-         -- User ratings for specific articles
          CREATE TABLE IF NOT EXISTS article_ratings (
              article_id TEXT PRIMARY KEY,
              rating     TEXT NOT NULL
          );
-
-         -- Generic item ratings
          CREATE TABLE IF NOT EXISTS item_ratings (
              key    TEXT PRIMARY KEY,
              rating TEXT NOT NULL
          );",
     )
-    .expect("Failed to initialize database schema");
-
-    Mutex::new(conn)
-});
+    .execute(&*DB)
+    .await?;
+    Ok(())
+}
 
 pub struct EmbeddingCandidate {
     pub id: Uuid,
@@ -81,112 +72,99 @@ pub struct EmbeddingCandidate {
 }
 
 /// Checks if a URL has already been processed.
-pub fn url_exists(url: &str) -> bool {
-    DB.lock()
-        .unwrap()
-        .query_row(
-            "SELECT 1 FROM article_urls WHERE url = ?1",
-            params![url],
-            |_| Ok(()),
-        )
-        .is_ok()
+pub async fn url_exists(url: &str) -> bool {
+    sqlx::query("SELECT 1 FROM article_urls WHERE url = ?")
+        .bind(url)
+        .fetch_optional(&*DB)
+        .await
+        .map(|opt| opt.is_some())
+        .unwrap_or(false)
 }
 
 /// Retrieves articles within a time window for similarity comparison.
-pub fn get_embedding_candidates(
+pub async fn get_embedding_candidates(
     window_start: i64,
     window_end: i64,
 ) -> Result<Vec<EmbeddingCandidate>> {
-    let conn = DB.lock().unwrap();
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, title, embedding FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?",
-    )?;
-
-    let candidates = stmt
-        .query_and_then(
-            params![window_start, window_end, MODEL_NAME],
-            |row| -> Result<EmbeddingCandidate> {
-                let id_str: String = row.get(0)?;
-                let title: String = row.get(1)?;
-                let emb_bytes: Vec<u8> = row.get(2)?;
-                Ok(EmbeddingCandidate {
-                    id: Uuid::parse_str(&id_str)?,
-                    title,
-                    embedding: from_bytes(&emb_bytes)?,
-                })
-            },
-        )?
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(candidates)
+    sqlx::query_as::<_, (Uuid, String, Vec<u8>)>(
+        "SELECT id, title, embedding FROM articles
+         WHERE published BETWEEN ? AND ? AND embedding_model = ?",
+    )
+    .bind(window_start)
+    .bind(window_end)
+    .bind(MODEL_NAME)
+    .fetch_all(&*DB)
+    .await?
+    .into_iter()
+    .map(|(id, title, embedding)| {
+        Ok(EmbeddingCandidate {
+            id,
+            title,
+            embedding: from_bytes(&embedding)?,
+        })
+    })
+    .collect()
 }
 
 /// Inserts a new article and its initial metadata.
-pub fn insert_article(
+pub async fn insert_article(
     source: &ArticleSource,
     embedding: &[f32],
     article_type: ArticleType,
     category: Category,
 ) -> Result<()> {
-    let id_str = Uuid::new_v4().to_string();
-    let mut conn = DB.lock().unwrap();
-    let tx = conn.transaction()?;
+    let id = Uuid::new_v4();
+    let sources_bytes = to_allocvec(std::slice::from_ref(source))?;
+    let embedding_bytes = to_allocvec(embedding)?;
 
-    // Insert the master article track
-    tx.execute(
-        "INSERT INTO articles (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, article_type, category)
-        VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?)",
-        params![
-            id_str,
-            source.title,
-            to_allocvec(std::slice::from_ref(source))?,
-            to_allocvec(embedding)?,
-            MODEL_NAME,
-            source.published.timestamp(),
-            Utc::now().timestamp(),
-            article_type.to_string(),
-            category.to_string(),
-        ],
-    )?;
-
-    // Map url tracking index
-    tx.execute(
-        "INSERT INTO article_urls (url, article_id) VALUES (?, ?)",
-        params![source.url, id_str],
-    )?;
-
-    // Initialize user view state link
-    tx.execute(
-        "INSERT INTO user_articles (article_id, status) VALUES (?, 'New')",
-        params![id_str],
-    )?;
-
-    tx.commit()?;
+    let mut tx = DB.begin().await?;
+    sqlx::query(
+        "INSERT INTO articles
+             (id, title, sources, estimated_liked, entry, embedding, embedding_model,
+              published, updated_at, article_type, category)
+         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(&source.title)
+    .bind(&sources_bytes)
+    .bind(&embedding_bytes)
+    .bind(MODEL_NAME)
+    .bind(source.published.timestamp())
+    .bind(Utc::now().timestamp())
+    .bind(article_type.to_string())
+    .bind(category.to_string())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO article_urls (url, article_id) VALUES (?, ?)")
+        .bind(&source.url)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO user_articles (article_id, status) VALUES (?, 'New')")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Merges a new source into an existing article.
-pub fn merge_into_article(
+pub async fn merge_into_article(
     article_id: Uuid,
     source: &ArticleSource,
     embedding: &[f32],
 ) -> Result<()> {
-    let id_str = article_id.to_string();
-    let mut conn = DB.lock().unwrap();
-    let tx = conn.transaction()?;
+    let mut tx = DB.begin().await?;
 
-    // Fetch current data
-    let (sources_bytes, existing_emb_bytes): (Vec<u8>, Vec<u8>) = tx.query_row(
-        "SELECT sources, embedding FROM articles WHERE id = ?",
-        params![id_str],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
+    let (sources_bytes, existing_emb_bytes): (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("SELECT sources, embedding FROM articles WHERE id = ?")
+            .bind(article_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
-    // Append new source
     let mut sources: Vec<ArticleSource> = from_bytes(&sources_bytes)?;
     sources.push(source.clone());
 
-    // Merge embeddings
     let existing_emb: Vec<f32> = from_bytes(&existing_emb_bytes)?;
     let merged_emb: Vec<f32> = existing_emb
         .iter()
@@ -194,43 +172,35 @@ pub fn merge_into_article(
         .map(|(a, b)| (a + b) / 2.0)
         .collect();
 
-    // Update article data
-    tx.execute(
-        "UPDATE articles SET sources = ?, embedding = ?, embedding_model = ?, entry = NULL, updated_at = ? WHERE id = ?",
-        params![
-            to_allocvec(&sources)?,
-            to_allocvec(&merged_emb)?,
-            MODEL_NAME,
-            Utc::now().timestamp(),
-            id_str
-        ],
-    )?;
-
-    // Map the new URL
-    tx.execute(
-        "INSERT OR IGNORE INTO article_urls (url, article_id) VALUES (?, ?)",
-        params![source.url, id_str],
-    )?;
-
-    tx.commit()?;
+    sqlx::query(
+        "UPDATE articles
+         SET sources = ?, embedding = ?, embedding_model = ?, entry = NULL, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(to_allocvec(&sources)?)
+    .bind(to_allocvec(&merged_emb)?)
+    .bind(MODEL_NAME)
+    .bind(Utc::now().timestamp())
+    .bind(article_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("INSERT OR IGNORE INTO article_urls (url, article_id) VALUES (?, ?)")
+        .bind(&source.url)
+        .bind(article_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 /// Embeddings generated with an older model will be regenerated.
 pub async fn regenerate_stale_embeddings() -> Result<()> {
-    let stale = {
-        let conn = DB.lock().unwrap();
-        conn.prepare_cached("SELECT id, sources FROM articles WHERE embedding_model != ?")?
-            .query_and_then(
-                params![MODEL_NAME],
-                |row| -> Result<(Uuid, Vec<ArticleSource>)> {
-                    let id_str: String = row.get(0)?;
-                    let sources_bytes: Vec<u8> = row.get(1)?;
-                    Ok((Uuid::parse_str(&id_str)?, from_bytes(&sources_bytes)?))
-                },
-            )?
-            .collect::<Result<Vec<_>>>()
-    }?;
+    let stale: Vec<(Uuid, Vec<u8>)> =
+        sqlx::query_as("SELECT id, sources FROM articles WHERE embedding_model != ?")
+            .bind(MODEL_NAME)
+            .fetch_all(&*DB)
+            .await?;
+
     if stale.is_empty() {
         return Ok(());
     }
@@ -239,164 +209,162 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
 
     let texts: Vec<String> = stale
         .iter()
-        .map(|(_, sources)| {
-            sources
+        .map(|(_, sources_bytes)| -> Result<String> {
+            let sources: Vec<ArticleSource> = from_bytes(sources_bytes)?;
+            Ok(sources
                 .iter()
                 .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(" "))
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     let embeddings = generate_embeddings(&texts)
         .await
         .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
 
     for ((id, _), embedding) in stale.iter().zip(embeddings) {
-        DB.lock().unwrap().execute(
+        sqlx::query(
             "UPDATE articles SET embedding = ?, embedding_model = ?, updated_at = ? WHERE id = ?",
-            params![
-                to_allocvec(&embedding)?,
-                MODEL_NAME,
-                Utc::now().timestamp(),
-                id.to_string(),
-            ],
-        )?;
+        )
+        .bind(to_allocvec(&embedding)?)
+        .bind(MODEL_NAME)
+        .bind(Utc::now().timestamp())
+        .bind(id)
+        .execute(&*DB)
+        .await?;
     }
 
     Ok(())
 }
 
 /// Finds articles that have multiple sources but haven't had a merged entry generated yet.
-pub fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)>> {
-    let conn = DB.lock().unwrap();
-    let mut stmt = conn.prepare_cached("SELECT id, sources FROM articles WHERE entry IS NULL")?;
-
-    let targets = stmt
-        .query_and_then([], |row| -> Result<(Uuid, Vec<ArticleSource>)> {
-            let id_str: String = row.get(0)?;
-            let sources_bytes: Vec<u8> = row.get(1)?;
-
-            Ok((Uuid::parse_str(&id_str)?, from_bytes(&sources_bytes)?))
-        })?
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(targets)
+pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)>> {
+    sqlx::query_as::<_, (Uuid, Vec<u8>)>("SELECT id, sources FROM articles WHERE entry IS NULL")
+        .fetch_all(&*DB)
+        .await?
+        .into_iter()
+        .map(|(id, sources)| Ok((id, from_bytes(&sources)?)))
+        .collect()
 }
 
 /// Saves the LLM-generated summary/entry for an article.
-pub fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
-    DB.lock().unwrap().execute(
-        "UPDATE articles SET entry = ?, updated_at = ? WHERE id = ?",
-        params![
-            to_allocvec(entry)?,
-            Utc::now().timestamp(),
-            article_id.to_string()
-        ],
-    )?;
+pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
+    sqlx::query("UPDATE articles SET entry = ?, updated_at = ? WHERE id = ?")
+        .bind(to_allocvec(entry)?)
+        .bind(Utc::now().timestamp())
+        .bind(article_id)
+        .execute(&*DB)
+        .await?;
     Ok(())
 }
 
 /// Updates the user status (new, read, binned) for an article.
-pub fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
+pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
     let binned_at = (status == ArticleStatus::Binned).then(|| Utc::now().timestamp());
-    DB.lock().unwrap().execute(
+    sqlx::query(
         "INSERT INTO user_articles (article_id, status, binned_at) VALUES (?, ?, ?)
          ON CONFLICT(article_id) DO UPDATE SET status = excluded.status, binned_at = excluded.binned_at",
-        params![article_id.to_string(), status.to_string(), binned_at],
-    )?;
+    )
+    .bind(article_id)
+    .bind(status.to_string())
+    .bind(binned_at)
+    .execute(&*DB)
+    .await?;
     Ok(())
 }
 
 /// Sets a user rating (Like/Dislike) for an article.
-pub fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
-    DB.lock().unwrap().execute(
+pub async fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
+    sqlx::query(
         "INSERT INTO article_ratings (article_id, rating) VALUES (?, ?)
          ON CONFLICT(article_id) DO UPDATE SET rating = excluded.rating",
-        params![article_id.to_string(), rating.to_string()],
-    )?;
+    )
+    .bind(article_id)
+    .bind(rating.to_string())
+    .execute(&*DB)
+    .await?;
     Ok(())
 }
 
 /// Retrieves all articles with their user-specific status and ratings.
-pub fn get_user_articles() -> Result<Vec<ArticleData>> {
-    let conn = DB.lock().unwrap();
-    conn.prepare_cached(
-        "SELECT ua.article_id, ua.status, ar.rating, a.sources, a.estimated_liked, a.entry, a.published, a.updated_at, a.article_type, a.category
+pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
+    sqlx::query(
+        "SELECT ua.article_id, ua.status, ar.rating, a.sources, a.estimated_liked, a.entry,
+                a.published, a.updated_at, a.article_type, a.category
          FROM user_articles ua
          JOIN articles a ON ua.article_id = a.id
          LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
          ORDER BY a.published DESC",
-    )?
-    .query_and_then([], |row| -> Result<ArticleData> {
-        let id = Uuid::parse_str(&row.get::<_, String>(0)?)?;
+    )
+    .fetch_all(&*DB)
+    .await?
+    .into_iter()
+    .map(|row| -> Result<ArticleData> {
+        let id: Uuid = row.try_get("article_id")?;
         let status = row
-            .get::<_, String>(1)?
+            .try_get::<String, _>("status")?
             .parse()
             .map_err(|e| anyhow!("{e}"))?;
         let rating = row
-            .get::<_, Option<String>>(2)?
+            .try_get::<Option<String>, _>("rating")?
             .map(|s| s.parse())
             .transpose()
             .map_err(|e| anyhow!("{e}"))?;
-        let article_type = row
-            .get::<_, String>(8)?
-            .parse()
-            .unwrap_or(ArticleType::News);
-        let category = row
-            .get::<_, String>(9)?
-            .parse()
-            .unwrap_or(Category::Technology);
-
         let art = StoredArticle {
             id,
-            sources: from_bytes(&row.get::<_, Vec<u8>>(3)?)?,
-            estimated_liked: row.get::<_, f64>(4)? as f32,
+            sources: from_bytes(&row.try_get::<Vec<u8>, _>("sources")?)?,
+            estimated_liked: row.try_get::<f64, _>("estimated_liked")? as f32,
             entry: row
-                .get::<_, Option<Vec<u8>>>(5)?
+                .try_get::<Option<Vec<u8>>, _>("entry")?
                 .map(|b| from_bytes(&b))
-                .transpose().unwrap_or_default(),
-            published: DateTime::from_timestamp(row.get::<_, i64>(6)?, 0).unwrap_or_default(),
-            updated_at: DateTime::from_timestamp(row.get::<_, i64>(7)?, 0).unwrap_or_default(),
-            article_type,
-            category,
+                .transpose()
+                .unwrap_or_default(),
+            published: DateTime::from_timestamp(row.try_get("published")?, 0).unwrap_or_default(),
+            updated_at: DateTime::from_timestamp(row.try_get("updated_at")?, 0).unwrap_or_default(),
+            article_type: row
+                .try_get::<String, _>("article_type")?
+                .parse()
+                .unwrap_or(ArticleType::News),
+            category: row
+                .try_get::<String, _>("category")?
+                .parse()
+                .unwrap_or(Category::Technology),
         };
         Ok((id, status, rating, art))
-    })?
-    .collect::<Result<Vec<_>>>()
+    })
+    .collect()
 }
 
 /// Deletes articles from `user_articles` that have been binned for longer than the specified days.
-pub fn cleanup_binned(days: i64) -> Result<()> {
+pub async fn cleanup_binned(days: i64) -> Result<()> {
     let cutoff = Utc::now().timestamp() - days * 86_400;
-    DB.lock().unwrap().execute(
-        "DELETE FROM user_articles WHERE status = 'Binned' AND binned_at < ?",
-        params![cutoff],
-    )?;
+    sqlx::query("DELETE FROM user_articles WHERE status = 'Binned' AND binned_at < ?")
+        .bind(cutoff)
+        .execute(&*DB)
+        .await?;
     Ok(())
 }
 
 /// Sets a rating for a generic item (source, feed, or tag).
-pub fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
-    DB.lock().unwrap().execute(
+pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
+    sqlx::query(
         "INSERT INTO item_ratings (key, rating) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET rating = excluded.rating",
-        params![key, rating.to_string()],
-    )?;
+    )
+    .bind(key)
+    .bind(rating.to_string())
+    .execute(&*DB)
+    .await?;
     Ok(())
 }
 
 /// Retrieves all generic item ratings.
-pub fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
-    let conn = DB.lock().unwrap();
-    conn.prepare_cached("SELECT key, rating FROM item_ratings")?
-        .query_and_then([], |row| -> Result<(String, Rating)> {
-            let key: String = row.get(0)?;
-            let rating: Rating = row
-                .get::<_, String>(1)?
-                .parse()
-                .map_err(|e| anyhow!("{e}"))?;
-            Ok((key, rating))
-        })?
-        .collect::<Result<_>>()
+pub async fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
+    sqlx::query_as::<_, (String, String)>("SELECT key, rating FROM item_ratings")
+        .fetch_all(&*DB)
+        .await?
+        .into_iter()
+        .map(|(key, rating)| rating.parse().map(|r| (key, r)).map_err(|e| anyhow!("{e}")))
+        .collect()
 }
