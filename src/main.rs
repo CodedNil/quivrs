@@ -10,7 +10,10 @@ fn main() {
     dioxus::launch(web::app);
 
     #[cfg(feature = "server")]
-    tokio::runtime::Runtime::new()
+    tokio::runtime::Builder::new_multi_thread()
+        .thread_stack_size(16 * 1024 * 1024)
+        .enable_all()
+        .build()
         .unwrap()
         .block_on(async move { server_run().await });
 }

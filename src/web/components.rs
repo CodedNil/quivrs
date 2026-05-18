@@ -7,24 +7,25 @@ use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[allow(dead_code)]
-pub mod base16 {
-    pub const BASE00: &str = "#24273a"; // Default Background
-    pub const BASE01: &str = "#1e2030"; // Lighter Background
-    pub const BASE02: &str = "#363a4f"; // Selection Background
-    pub const BASE03: &str = "#494d64"; // Comments, Invisibles, Line Highlighting
-    pub const BASE04: &str = "#5b6078"; // Dark Foreground
-    pub const BASE05: &str = "#cad3f5"; // Default Foreground
-    pub const BASE06: &str = "#f4dbd6"; // Light Foreground
-    pub const BASE07: &str = "#b7bdf8"; // Lightest Foreground
-    pub const BASE08: &str = "#ed8796"; // Red: Variables, XML Tags, Markup Link Text, Markup Lists, Diff Deleted
-    pub const BASE09: &str = "#f5a97f"; // Orange: Integers, Boolean, Constants, XML Attributes, Markup Link Url
-    pub const BASE0A: &str = "#eed49f"; // Yellow: Classes, Markup Bold, Search Text Background
-    pub const BASE0B: &str = "#a6da95"; // Green: Strings, Inherited Class, Markup Code, Diff Inserted
-    pub const BASE0C: &str = "#8bd5ca"; // Cyan: Support, Regular Expressions, Escape Characters, Markup Quotes
-    pub const BASE0D: &str = "#8aadf4"; // Blue: Functions, Methods, Attribute IDs, Headings
-    pub const BASE0E: &str = "#c6a0f6"; // Magenta: Keywords, Storage, Selector, Markup Italic, Diff Changed
-    pub const BASE0F: &str = "#f0c6c6"; // Brown: Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>
+pub mod style {
+    pub const RADIUS_CARD: &str = "0.625rem";
+    pub const RADIUS_GROUP: &str = "0.875rem";
+
+    pub const SIDEBAR_BG: &str = "var(--base0d)";
+    pub const GROUP_BG: &str = "var(--base01)";
+    pub const GROUP_SHADOW: &str = "inset 0 2px 10px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.22)";
+
+    pub const CARD_BG_IDLE: &str = "var(--base00)";
+    pub const CARD_BG_SELECTED: &str = "color-mix(in srgb, var(--base0d) 22%, var(--base00))";
+
+    pub const CARD_SHADOW_IDLE: &str = "0 1px 3px rgba(0,0,0,0.22)";
+    pub const CARD_SHADOW_HOVER: &str = "0 4px 14px rgba(0,0,0,0.3)";
+    pub const CARD_SHADOW_SELECTED: &str =
+        "0 4px 18px rgba(0,0,0,0.38), 0 2px 8px color-mix(in srgb, var(--base0d) 30%, transparent)";
+    pub const CARD_SHADOW_ACTIVE: &str = "0 1px 2px rgba(0,0,0,0.18)";
+
+    pub const TRANSITION_CARD: &str =
+        "transform 0.12s ease, box-shadow 0.18s ease, background-color 0.15s ease";
 }
 
 pub const fn rating_color(r: Rating) -> &'static str {
@@ -32,16 +33,8 @@ pub const fn rating_color(r: Rating) -> &'static str {
         Rating::Hated => "#e06c75",
         Rating::Disliked => "#d4896a",
         Rating::Neutral => "#6c7680",
-        Rating::Liked => "#74a679",
-        Rating::Loved => "#98c379",
-    }
-}
-
-pub const fn status_color(s: ArticleStatus) -> &'static str {
-    match s {
-        ArticleStatus::New => "#61afef",
-        ArticleStatus::Stored => "#56b6c2",
-        ArticleStatus::Binned => "#6c7680",
+        Rating::Liked => "#84B043",
+        Rating::Loved => "#517037",
     }
 }
 
@@ -106,15 +99,15 @@ pub fn render_inline(text: &str) -> Element {
 fn render_box_item(item: &str) -> Element {
     rsx! {
         div {
-            background_color: base16::BASE01,
-            border: "1px solid {base16::BASE02}",
+            background_color: "var(--base01)",
+            border: "1px solid var(--base02)",
             border_radius: "0.375rem",
             padding: "0.625rem 0.875rem",
             if let Some((header, text)) = item.split_once('~') {
                 div {
                     font_size: "0.62rem",
                     font_weight: "700",
-                    color: base16::BASE03,
+                    color: "var(--base03)",
                     text_transform: "uppercase",
                     letter_spacing: "0.08em",
                     margin_bottom: "0.25rem",
@@ -122,14 +115,14 @@ fn render_box_item(item: &str) -> Element {
                 }
                 div {
                     font_size: "0.875rem",
-                    color: base16::BASE05,
+                    color: "var(--base05)",
                     line_height: "1.5",
                     {render_inline(text)}
                 }
             } else {
                 div {
                     font_size: "0.875rem",
-                    color: base16::BASE05,
+                    color: "var(--base05)",
                     line_height: "1.5",
                     {render_inline(item)}
                 }
@@ -144,7 +137,7 @@ pub fn render_section(section: &Section) -> Element {
             h2 {
                 font_size: "0.62rem",
                 font_weight: "700",
-                color: base16::BASE03,
+                color: "var(--base03)",
                 text_transform: "uppercase",
                 letter_spacing: "0.1em",
                 margin: "1.75rem 0 0.375rem 0",
@@ -154,7 +147,7 @@ pub fn render_section(section: &Section) -> Element {
         Section::Paragraph(text) => rsx! {
             p {
                 font_size: "0.875rem",
-                color: base16::BASE05,
+                color: "var(--base05)",
                 line_height: "1.75",
                 margin: "0 0 1rem 0",
                 {render_inline(text)}
@@ -173,7 +166,7 @@ pub fn render_section(section: &Section) -> Element {
                     }
                     figcaption {
                         font_size: "0.7rem",
-                        color: base16::BASE03,
+                        color: "var(--base03)",
                         margin_top: "0.375rem",
                         text_align: "center",
                         "{caption}"
@@ -191,7 +184,7 @@ pub fn render_section(section: &Section) -> Element {
                 for item in items {
                     li {
                         font_size: "0.875rem",
-                        color: base16::BASE05,
+                        color: "var(--base05)",
                         line_height: "1.6",
                         if let Some((header, text)) = item.split_once('~') {
                             span { font_weight: "700", "{header}" }
@@ -237,7 +230,7 @@ fn PillButton(
     color: &'static str,
     onclick: EventHandler<MouseEvent>,
 ) -> Element {
-    let border_color = if active { color } else { base16::BASE02 };
+    let border_color = if active { color } else { "var(--base02)" };
     rsx! {
         button {
             font_size: "0.62rem",
@@ -245,7 +238,7 @@ fn PillButton(
             padding: "0.2rem 0.625rem",
             border_radius: "9999px",
             background_color: if active { color } else { "transparent" },
-            color: if active { base16::BASE01 } else { base16::BASE04 },
+            color: if active { "var(--base01)" } else { "var(--base04)" },
             border: "1px solid {border_color}",
             cursor: "pointer",
             onclick,
@@ -263,7 +256,7 @@ pub fn RatingPill(
     url: Option<String>,
 ) -> Element {
     let current = item_ratings.read().get(&item_key).copied();
-    let bg_color = current.map_or(base16::BASE02, rating_color);
+    let bg_color = current.map_or("var(--base02)", rating_color);
     let mut is_hovered = use_signal(|| false);
 
     rsx! {
@@ -273,7 +266,7 @@ pub fn RatingPill(
             background_color: bg_color,
             border_radius: "9999px",
             overflow: "hidden",
-            color: base16::BASE01,
+            color: "var(--base01)",
             font_size: "0.62rem",
             font_weight: "700",
             transition: "all 0.2s ease-in-out",
@@ -392,7 +385,7 @@ pub fn status_button(
         PillButton {
             label: label.to_string(),
             active: current == this_status,
-            color: status_color(this_status),
+            color: "var(--base07)",
             onclick: move |_| async move {
                 let _ = set_article_status(id, this_status).await;
                 if let Some((_, s, _, _)) = articles
@@ -440,7 +433,7 @@ pub fn CategoryIcon(category: Category) -> Element {
             Icon {
                 width: 12,
                 height: 12,
-                fill: base16::BASE04,
+                fill: "var(--base04)",
                 icon,
             }
         }
@@ -453,11 +446,79 @@ pub fn CategoryIcon(category: Category) -> Element {
         Category::Health => render(fa_solid_icons::FaHeartPulse),
         Category::Entertainment => render(fa_solid_icons::FaFilm),
         Category::Culture => render(fa_solid_icons::FaMasksTheater),
-        Category::Lifestyle => render(fa_solid_icons::FaMugHot),
+        Category::Lifestyle => render(fa_solid_icons::FaHeart),
         Category::Environment => render(fa_solid_icons::FaLeaf),
         Category::Technology => render(fa_solid_icons::FaMicrochip),
         Category::Science => render(fa_solid_icons::FaFlask),
         Category::Education => render(fa_solid_icons::FaGraduationCap),
         Category::Sports => render(fa_solid_icons::FaFutbol),
+    }
+}
+
+#[component]
+pub fn SectionHeader(label: String, count: usize) -> Element {
+    rsx! {
+        div {
+            padding: "0.75rem 1.25rem 0.5rem",
+            display: "flex",
+            justify_content: "space-between",
+            align_items: "center",
+            span {
+                font_size: "0.62rem",
+                font_weight: "700",
+                letter_spacing: "0.1em",
+                text_transform: "uppercase",
+                color: "var(--base04)",
+                "{label}"
+            }
+            span {
+                font_size: "0.62rem",
+                color: "var(--base04)",
+                background_color: "var(--base02)",
+                padding: "0.1rem 0.45rem",
+                border_radius: "9999px",
+                "{count}"
+            }
+        }
+    }
+}
+
+#[component]
+pub fn CategoryGroup(category: Category, children: Element) -> Element {
+    rsx! {
+        div {
+            display: "flex",
+            margin: "0 0.625rem 1rem",
+            border_radius: style::RADIUS_GROUP,
+            overflow: "hidden",
+            background_color: style::GROUP_BG,
+            box_shadow: style::GROUP_SHADOW,
+
+            div {
+                width: "28px",
+                min_width: "28px",
+                background_color: "var(--base02)",
+                div {
+                    position: "sticky",
+                    top: "0",
+                    display: "flex",
+                    flex_direction: "column",
+                    align_items: "center",
+                    padding_top: "0.875rem",
+                    gap: "0.75rem",
+                    CategoryIcon { category }
+                    div {
+                        style: "writing-mode: vertical-rl; transform: rotate(180deg);",
+                        font_size: "0.5rem",
+                        font_weight: "800",
+                        color: "var(--base05)",
+                        text_transform: "uppercase",
+                        letter_spacing: "0.1em",
+                        "{category}"
+                    }
+                }
+            }
+            div { flex: "1", padding: "0.25rem 0", {children} }
+        }
     }
 }

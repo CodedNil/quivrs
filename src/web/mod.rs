@@ -6,11 +6,11 @@ use crate::{
         server_functions::{get_all_item_ratings, get_user_articles},
     },
     web::components::{
-        CategoryIcon, RatingPill, base16, clean_url, rating_button, rating_color, render_section,
-        status_button,
+        CategoryGroup, RatingPill, SectionHeader, clean_url, rating_button, rating_color,
+        render_section, status_button, style,
     },
 };
-use dioxus::{html::base, prelude::*};
+use dioxus::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
@@ -32,29 +32,47 @@ pub fn app() -> Element {
 
     rsx! {
         document::Title { "Quivrs" }
-        document::Style { "body {{ margin: 0; padding: 0; }}" }
+        document::Link {
+            rel: "stylesheet",
+            href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap",
+        }
+        // <https://raw.githubusercontent.com/chriskempson/base16/refs/heads/main/styling.md>
+        // Colours base00 to base07 are typically variations of a shade and run from darkest to lightest. These colours are used for foreground and background, status bars, line highlighting and such. colours base08 to base0F are typically individual colours used for types, operators, names and variables. In order to create a dark theme, colours base00 to base07 should span from dark to light. For a light theme, these colours should span from light to dark.
+        document::Style {
+            ":root {{
+                --base00: #24273a; --base01: #1e2030; --base02: #363a4f; --base03: #494d64;
+                --base04: #5b6078; --base05: #cad3f5; --base06: #f4dbd6; --base07: #b7bdf8;
+                --base08: #ed8796; --base09: #f5a97f; --base0a: #eed49f; --base0b: #a6da95;
+                --base0c: #8bd5ca; --base0d: #8aadf4; --base0e: #c6a0f6; --base0f: #f0c6c6;
+            }}
+            body, button, input, select, textarea {{
+                font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                margin: 0; padding: 0;
+            }}
+            *, *::before, *::after {{ box-sizing: border-box; }}"
+        }
         div {
             display: "flex",
             height: "100vh",
             overflow: "hidden",
-            background_color: base16::BASE00,
-            color: base16::BASE05,
+            background_color: "var(--base00)",
+            color: "var(--base05)",
 
             aside {
                 width: "27rem",
-                border_right: "1px solid {base16::BASE02}",
+                border_right: "1px solid var(--base02)",
                 display: "flex",
                 flex_direction: "column",
-                background_color: base16::BASE01,
+                background_color: style::SIDEBAR_BG,
 
                 div {
                     padding: "1rem 1.25rem",
-                    border_bottom: "1px solid {base16::BASE02}",
+                    border_bottom: "1px solid var(--base02)",
                     h1 {
                         font_size: "0.75rem",
                         font_weight: "700",
                         letter_spacing: "0.1em",
-                        color: base16::BASE05,
+                        color: "var(--base05)",
                         text_transform: "uppercase",
                         margin: "0",
                         "Quivrs"
@@ -66,7 +84,7 @@ pub fn app() -> Element {
                         let data = articles.read();
                         if data.is_empty() {
                             rsx! {
-                                p { padding: "1.25rem", font_size: "0.75rem", color: base16::BASE03, "Loading..." }
+                                p { padding: "1.25rem", font_size: "0.75rem", color: "var(--base05)", "Loading..." }
                             }
                         } else {
                             let mut new_v = Vec::new();
@@ -108,7 +126,7 @@ pub fn app() -> Element {
                                     align_items: "center",
                                     justify_content: "center",
                                     height: "100%",
-                                    color: base16::BASE04,
+                                    color: "var(--base04)",
                                     font_size: "0.875rem",
                                     "Select an article to read"
                                 }
@@ -147,7 +165,6 @@ fn sidebar_section(
 ) -> Element {
     let total_items = items.len();
 
-    // Prepare and render the item content based on grouping rules
     let content = if group_by_category {
         let mut groups: BTreeMap<Category, Vec<_>> = BTreeMap::new();
         for (id, rating, article, entry) in items {
@@ -156,47 +173,16 @@ fn sidebar_section(
                 .or_default()
                 .push((id, rating, article));
         }
-
         rsx! {
             for (category, cat_items) in groups {
-                div { display: "flex", margin_bottom: "1.5rem", background_color: base16::BASE01,
-
-                    div {
-                        width: "24px",
-                        min_width: "24px",
-                        background_color: base16::BASE02,
-                        border_radius: "0.25rem 0 0 0.25rem",
-
-                        div {
-                            position: "sticky",
-                            top: "0",
-                            display: "flex",
-                            flex_direction: "column",
-                            align_items: "center",
-                            padding_top: "0.75rem",
-                            gap: "0.75rem",
-
-                            CategoryIcon { category }
-                            div {
-                                style: "writing-mode: vertical-rl; transform: rotate(180deg);",
-                                font_size: "0.5rem",
-                                font_weight: "800",
-                                color: base16::BASE03,
-                                text_transform: "uppercase",
-                                letter_spacing: "0.1em",
-                                "{category}"
-                            }
-                        }
-                    }
-                    div { flex: "1",
-                        for (id, rating, article) in cat_items {
-                            article_item {
-                                key: "{id}",
-                                id,
-                                rating,
-                                article: article.clone(),
-                                selected,
-                            }
+                CategoryGroup { category,
+                    for (id, rating, article) in cat_items {
+                        article_item {
+                            key: "{id}",
+                            id,
+                            rating,
+                            article: article.clone(),
+                            selected,
                         }
                     }
                 }
@@ -216,30 +202,8 @@ fn sidebar_section(
         }
     };
 
-    // Render the final layout
     rsx! {
-        div {
-            padding: "0.75rem 1.25rem 0.25rem",
-            display: "flex",
-            justify_content: "space-between",
-            align_items: "center",
-            span {
-                font_size: "0.62rem",
-                font_weight: "700",
-                letter_spacing: "0.1em",
-                text_transform: "uppercase",
-                color: base16::BASE03,
-                "{label}"
-            }
-            span {
-                font_size: "0.62rem",
-                color: base16::BASE03,
-                background_color: base16::BASE02,
-                padding: "0.1rem 0.4rem",
-                border_radius: "9999px",
-                "{total_items}"
-            }
-        }
+        SectionHeader { label: label.to_string(), count: total_items }
         {content}
     }
 }
@@ -253,53 +217,94 @@ fn article_item(
 ) -> Element {
     let is_selected = *selected.read() == Some(id);
     let mut hovered = use_signal(|| false);
+    let mut pressed = use_signal(|| false);
 
     let Some(entry) = &article.entry else {
         return rsx! {};
     };
 
-    let dot_color = rating.map_or("transparent", rating_color);
+    let hero_image = article.sources.iter().find_map(|s| s.image.clone());
+
+    let bg = if is_selected {
+        style::CARD_BG_SELECTED
+    } else {
+        style::CARD_BG_IDLE
+    };
+    let shadow = if *pressed.read() {
+        style::CARD_SHADOW_ACTIVE
+    } else if *hovered.read() {
+        style::CARD_SHADOW_HOVER
+    } else if is_selected {
+        style::CARD_SHADOW_SELECTED
+    } else {
+        style::CARD_SHADOW_IDLE
+    };
+    let scale = if *pressed.read() {
+        "scale(0.97)"
+    } else if *hovered.read() {
+        "scale(1.01)"
+    } else {
+        "scale(1)"
+    };
 
     rsx! {
         div {
-            padding: "0.75rem 1.25rem",
-            padding_left: if is_selected { "17px" } else { "1.25rem" },
             cursor: "pointer",
-            border_bottom: "1px solid rgba(39, 39, 42, 0.6)",
-            border_left: if is_selected { "3px solid {base16::BASE0D}" } else { "3px solid transparent" },
-            background_color: if is_selected { "rgba(23, 37, 84, 0.4)" } else if *hovered.read() { "rgba(39, 39, 42, 0.4)" } else { "transparent" },
+            position: "relative",
+            border_radius: style::RADIUS_CARD,
+            margin: "0.375rem 0.5rem",
+            overflow: "hidden",
+            background_color: bg,
+            box_shadow: shadow,
+            transform: scale,
+            transition: style::TRANSITION_CARD,
             onclick: move |_| selected.set(Some(id)),
             onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| hovered.set(false),
-            div {
-                display: "flex",
-                align_items: "center",
-                gap: "0.4rem",
-                margin_bottom: "0.25rem",
-                div {
-                    width: "7px",
-                    height: "7px",
-                    min_width: "7px",
-                    border_radius: "50%",
-                    background_color: dot_color,
-                    opacity: if rating.is_some() { "1" } else { "0" },
+            onmouseleave: move |_| {
+                hovered.set(false);
+                pressed.set(false);
+            },
+            onmousedown: move |_| pressed.set(true),
+            onmouseup: move |_| pressed.set(false),
+
+            if let Some(img_url) = hero_image {
+                img {
+                    src: "{img_url}",
+                    alt: "",
+                    width: "100%",
+                    style: "height: 144px; object-fit: cover; display: block;",
                 }
+            }
+
+            // Rating notch: triangle clipped to top-left corner
+            if let Some(r) = rating {
+                div {
+                    position: "absolute",
+                    top: "0",
+                    left: "0",
+                    width: "24px",
+                    height: "24px",
+                    background_color: rating_color(r),
+                    style: "clip-path: polygon(0 0, 100% 0, 0 100%); z-index: 1; filter: drop-shadow(1px 2px 3px rgba(0,0,0,0.55));",
+                }
+            }
+
+            div { padding: "0.625rem 0.75rem",
                 h3 {
                     font_size: "0.75rem",
                     font_weight: "600",
-                    color: base16::BASE05,
+                    color: "var(--base05)",
                     line_height: "1.375",
-                    margin: "0",
+                    margin: "0 0 0.2rem 0",
                     "{entry.title}"
                 }
-            }
-            p {
-                font_size: "0.68rem",
-                color: base16::BASE05,
-                line_height: "1.625",
-                margin: "0",
-                padding_left: "1.1rem",
-                "{entry.description}"
+                p {
+                    font_size: "0.67rem",
+                    color: "var(--base05)",
+                    line_height: "1.5",
+                    margin: "0",
+                    "{entry.description}"
+                }
             }
         }
     }
@@ -328,7 +333,7 @@ fn article_detail(
                 justify_content: "space-between",
                 padding_bottom: "1rem",
                 margin_bottom: "1.5rem",
-                border_bottom: "1px solid {base16::BASE02}",
+                border_bottom: "1px solid var(--base02)",
                 div { display: "flex", gap: "0.375rem",
                     {status_button("New", ArticleStatus::New, status, id, articles)}
                     {status_button("Store", ArticleStatus::Stored, status, id, articles)}
@@ -348,24 +353,24 @@ fn article_detail(
                     font_size: "1.5rem",
                     font_weight: "700",
                     line_height: "1.25",
-                    color: base16::BASE05,
+                    color: "var(--base05)",
                     margin: "0 0 0.375rem 0",
                     "{entry.title}"
                 }
                 p {
                     font_size: "0.7rem",
-                    color: base16::BASE03,
+                    color: "var(--base05)",
                     margin: "0 0 1rem 0",
                     {article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string()}
                 }
                 p {
                     font_size: "0.875rem",
-                    color: base16::BASE05,
+                    color: "var(--base05)",
                     line_height: "1.625",
                     margin: "0 0 1.25rem 0",
                     font_style: "italic",
                     padding_left: "0.875rem",
-                    border_left: "2px solid {base16::BASE02}",
+                    border_left: "2px solid var(--base02)",
                     "{entry.description}"
                 }
                 div {
@@ -379,9 +384,9 @@ fn article_detail(
                             font_size: "0.62rem",
                             padding: "0.125rem 0.625rem",
                             background_color: "rgba(198,160,246,0.12)",
-                            border: "1px solid {base16::BASE0E}",
+                            border: "1px solid var(--base0e)",
                             border_radius: "9999px",
-                            color: base16::BASE0E,
+                            color: "var(--base0e)",
                             "Sponsored"
                         }
                     }
@@ -416,7 +421,7 @@ fn article_detail(
             } else {
                 p {
                     font_size: "0.875rem",
-                    color: base16::BASE04,
+                    color: "var(--base05)",
                     font_style: "italic",
                     "Article content is being generated..."
                 }
