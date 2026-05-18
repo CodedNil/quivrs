@@ -10,7 +10,7 @@ use crate::{
         status_button,
     },
 };
-use dioxus::prelude::*;
+use dioxus::{html::base, prelude::*};
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
@@ -159,28 +159,33 @@ fn sidebar_section(
 
         rsx! {
             for (category, cat_items) in groups {
-                div { display: "flex", margin_bottom: "1.5rem",
+                div { display: "flex", margin_bottom: "1.5rem", background_color: base16::BASE01,
 
                     div {
                         width: "24px",
                         min_width: "24px",
                         background_color: base16::BASE02,
-                        display: "flex",
-                        flex_direction: "column",
-                        align_items: "center",
-                        padding_top: "0.75rem",
-                        gap: "0.75rem",
                         border_radius: "0.25rem 0 0 0.25rem",
 
-                        CategoryIcon { category }
                         div {
-                            style: "writing-mode: vertical-rl; transform: rotate(180deg);",
-                            font_size: "0.5rem",
-                            font_weight: "800",
-                            color: base16::BASE03,
-                            text_transform: "uppercase",
-                            letter_spacing: "0.1em",
-                            "{category}"
+                            position: "sticky",
+                            top: "0",
+                            display: "flex",
+                            flex_direction: "column",
+                            align_items: "center",
+                            padding_top: "0.75rem",
+                            gap: "0.75rem",
+
+                            CategoryIcon { category }
+                            div {
+                                style: "writing-mode: vertical-rl; transform: rotate(180deg);",
+                                font_size: "0.5rem",
+                                font_weight: "800",
+                                color: base16::BASE03,
+                                text_transform: "uppercase",
+                                letter_spacing: "0.1em",
+                                "{category}"
+                            }
                         }
                     }
                     div { flex: "1",

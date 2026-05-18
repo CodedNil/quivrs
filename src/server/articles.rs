@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use chrono::TimeDelta;
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all, stream};
 use itertools::Itertools;
 use std::{
     collections::{HashMap, HashSet},
@@ -116,11 +116,18 @@ pub async fn regenerate_articles() -> Result<()> {
 
     info!("Generating content for {} articles...", targets.len());
 
-    for (id, sources) in targets.iter().take(5) {
-        match generate_article_content(sources).await {
+    // Convert targets into an owned stream and buffer concurrent tasks
+    let mut article_stream = stream::iter(targets)
+        .map(|(id, sources)| async move { (id, generate_article_content(sources).await) })
+        .buffer_unordered(5);
+
+    // Process results as they finish
+    while let Some((id, result)) = article_stream.next().await {
+        match result {
             Ok(entry) => {
-                info!("[GEN SUCCESS] '{}'", entry.title);
-                database::save_article_entry(*id, &entry)?;
+                if let Err(err) = database::save_article_entry(id, &entry) {
+                    warn!(article_id = %id, "Failed to save article to database: {err:#}");
+                }
             }
             Err(err) => {
                 warn!(article_id = %id, "Generation failed: {err:#}");
@@ -131,8 +138,8 @@ pub async fn regenerate_articles() -> Result<()> {
     Ok(())
 }
 
-async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEntry> {
-    let fetches = sources.iter().map(|source| async move {
+async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<ArticleEntry> {
+    let fetches = sources.into_iter().map(|source| async move {
         let content = async {
             let html = HTTP_CLIENT.get(&source.url).send().await?.text().await?;
             let options = rs_trafilatura::Options {

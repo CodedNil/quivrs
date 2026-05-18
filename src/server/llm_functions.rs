@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::{env, error::Error};
 use tap::Tap;
+use tracing::info;
 
 pub async fn run<T>(message: &str) -> Result<T, Box<dyn Error + Send + Sync>>
 where
@@ -86,6 +87,20 @@ where
         .find(|item| item["type"] == "output_text")
         .and_then(|item| item["text"].as_str())
         .ok_or("Failed to extract output_text from response")?;
+
+    // Get cost of the prompt
+    let cost = response_json["usage"]["cost"]
+        .as_f64()
+        .ok_or("Failed to extract cost from response")?;
+    info!(
+        "[GENERATION] '{}' - cost: ${}",
+        inner_text
+            .replace('\n', " ")
+            .chars()
+            .take(40)
+            .collect::<String>(),
+        cost,
+    );
 
     serde_json::from_str(inner_text).map_err(|e| {
         format!(
