@@ -4,4 +4,4 @@
 /.fastembed_cache
 /tmp
 .env
-quivrs.redb
+quivrs.db*

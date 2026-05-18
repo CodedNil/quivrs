@@ -55,7 +55,7 @@ tower-http = { version = "0.6.10", features = [
     "compression-deflate",
     "compression-gzip",
 ] }
-redb = "4.1.0"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 rs-trafilatura = "0.2.2"
 futures = "0.3.32"
 fastembed = "5.13.4"
@@ -72,7 +72,8 @@ unsafe_code = "forbid"
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 too-many-lines = "allow"
-struct_excessive_bools = "allow"
+cast-possible-wrap = "allow"
+cast-possible-truncation = "allow"
 
 [profile.release]
 lto = true

@@ -1,69 +1,34 @@
 use crate::{
     server::{
-        HTTP_CLIENT,
+        HTTP_CLIENT, database,
         embeddings::{cosine_similarity, generate_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
     },
-    shared::{ArticleEntry, ArticleSource, StoredArticle},
+    shared::{ArticleEntry, ArticleSource},
 };
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+use chrono::TimeDelta;
 use futures::future::join_all;
 use itertools::Itertools;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::{
     collections::{HashMap, HashSet},
     env,
-    sync::LazyLock,
 };
 use tokio::fs;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.6;
 
-pub const ARTICLES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("articles");
-
-pub static DB: LazyLock<Database> = LazyLock::new(|| {
-    let url = env::var("DATABASE_URL").unwrap_or_else(|_| "quivrs.redb".to_string());
-    Database::create(url).unwrap()
-});
-
 pub async fn refresh_all_feeds() -> Result<()> {
-    // Load all existing articles for similarity matching
-    let mut articles = if let Ok(table) = DB.begin_read()?.open_table(ARTICLES_TABLE) {
-        table
-            .iter()?
-            .flatten()
-            .filter_map(|(k, v)| {
-                Some((
-                    Uuid::parse_str(k.value()).ok()?,
-                    postcard::from_bytes::<StoredArticle>(v.value()).ok()?,
-                ))
-            })
-            .collect()
-    } else {
-        HashMap::new()
-    };
-    // All existing URLs to avoid duplicates
-    let existing_urls: HashSet<&String> = articles
-        .values()
-        .flat_map(|article| &article.sources)
-        .map(|source| &source.url)
-        .collect();
-
-    // Scan all feeds in parallel, collect new entries
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
     let config_file: HashMap<String, String> =
         ron::from_str(&fs::read_to_string(&config_path).await?)
             .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
-    let feeds: Vec<(String, String)> = config_file.into_iter().collect();
-
-    info!("Scanning {} feeds", feeds.len());
-    let new_entries: HashSet<ArticleSource> =
-        join_all(feeds.into_iter().map(|(id, url)| async move {
+    info!("Scanning {} feeds", config_file.len());
+    let all_entries: HashSet<ArticleSource> =
+        join_all(config_file.into_iter().map(|(id, url)| async move {
             scan_feed(&url).await.unwrap_or_else(|err| {
                 warn!(feed_id = %id, "Feed scan failed: {err:#}");
                 vec![]
@@ -72,7 +37,11 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .await
         .into_iter()
         .flatten()
-        .filter(|entry| !existing_urls.contains(&entry.url))
+        .collect();
+
+    let new_entries: Vec<ArticleSource> = all_entries
+        .into_iter()
+        .filter(|entry| !database::url_exists(&entry.url))
         .collect();
 
     if new_entries.is_empty() {
@@ -80,7 +49,6 @@ pub async fn refresh_all_feeds() -> Result<()> {
         return Ok(());
     }
 
-    // Generate embeddings for all new articles
     info!(
         "Generating embeddings for {} new articles...",
         new_entries.len()
@@ -88,94 +56,48 @@ pub async fn refresh_all_feeds() -> Result<()> {
     let embeddings = generate_embeddings(
         &new_entries
             .iter()
-            .map(|source| format!("{} {}", source.title, source.summary))
+            .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
             .collect::<Vec<_>>(),
     )
     .await
     .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
-    // Assign each new entry to an existing article (if similar) or create a new one
     for (source, embedding) in new_entries.into_iter().zip(embeddings) {
         if embedding.is_empty() {
-            warn!(
-                "Skipping article due to empty embedding vector for: {}",
-                source.title
-            );
+            warn!("Skipping article due to empty embedding: {}", source.title);
             continue;
         }
 
         // Find the highest similarity match
-        let highest_match = articles
-            .values()
-            .filter(|a| !a.embedding.is_empty())
-            .filter(|a| {
-                (source.published - a.sources[0].published).abs() <= chrono::TimeDelta::days(2)
-            })
-            .map(|a| {
-                (
-                    a.id,
-                    &a.sources[0].title,
-                    cosine_similarity(&embedding, &a.embedding),
-                )
-            })
+        let candidates = database::get_embedding_candidates(
+            (source.published - TimeDelta::days(2)).timestamp(),
+            (source.published + TimeDelta::days(2)).timestamp(),
+        )?;
+        let highest_match = candidates
+            .iter()
+            .filter(|c| !c.embedding.is_empty())
+            .map(|c| (c.id, &c.title, cosine_similarity(&embedding, &c.embedding)))
             .max_by(|a, b| a.2.total_cmp(&b.2));
 
-        let write_txn = DB.begin_write()?;
+        if let Some((article_id, existing_title, sim)) =
+            highest_match.filter(|m| m.2 >= SIMILARITY_THRESHOLD)
         {
-            let mut table = write_txn.open_table(ARTICLES_TABLE)?;
-
-            if let Some(&(article_id, existing_title, sim)) = highest_match
-                .as_ref()
-                .filter(|m| m.2 >= SIMILARITY_THRESHOLD)
-            {
+            info!(
+                "[MERGE] '{}' → '{}' (sim {sim:.2})",
+                source.title, existing_title
+            );
+            database::merge_into_article(article_id, source, &embedding)?;
+        } else {
+            if let Some((_, closest_title, sim)) = &highest_match {
                 info!(
-                    "[MERGE] '{}' → '{}' (sim {sim:.2})",
-                    source.title, existing_title
+                    "[NEW] '{}' - Highest {sim:.2} '{}'",
+                    source.title, closest_title
                 );
-
-                if let Some(article) = articles.get_mut(&article_id) {
-                    article.sources.push(source);
-                    article.updated_at = Utc::now();
-                    article.entry = None; // Reset entry so regeneration targets it
-
-                    table.insert(
-                        &article_id.to_string().as_str(),
-                        postcard::to_allocvec(article)?.as_slice(),
-                    )?;
-                }
             } else {
-                let id = Uuid::new_v4();
-
-                // Print the runner-up similarity
-                if let Some((_, closest_title, sim)) = &highest_match {
-                    info!(
-                        "[NEW] '{}' - Highest {sim:.2} '{}'",
-                        source.title, closest_title
-                    );
-                } else {
-                    info!("[NEW] '{}'", source.title);
-                }
-
-                let new_article = StoredArticle {
-                    id,
-                    sources: vec![source],
-                    estimated_liked: 0.0,
-                    entry: None,
-                    embedding,
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
-                };
-
-                table.insert(
-                    &id.to_string().as_str(),
-                    postcard::to_allocvec(&new_article)?.as_slice(),
-                )?;
-
-                // Track internally so upcoming iterations can match against it
-                articles.insert(id, new_article);
+                info!("[NEW] '{}'", source.title);
             }
+            database::insert_article(&source, &embedding)?;
         }
-        write_txn.commit()?;
     }
 
     Ok(())
@@ -187,44 +109,18 @@ pub async fn regenerate_articles() -> Result<()> {
         return Ok(());
     }
 
-    let targets: Vec<(Uuid, StoredArticle)> =
-        if let Ok(table) = DB.begin_read()?.open_table(ARTICLES_TABLE) {
-            table
-                .iter()?
-                .flatten()
-                .filter_map(|(k, v)| {
-                    let article = postcard::from_bytes::<StoredArticle>(v.value()).ok()?;
-                    let id = Uuid::parse_str(k.value()).ok()?;
-                    (article.entry.is_none() && article.sources.len() > 1).then_some((id, article))
-                })
-                .collect()
-        } else {
-            return Ok(());
-        };
-
+    let targets = database::get_regeneration_targets()?;
     if targets.is_empty() {
         return Ok(());
     }
 
     info!("Generating content for {} articles...", targets.len());
 
-    for (id, mut article) in targets {
-        // Long running await out of any DB transaction locks
-        match generate_article_content(&article.sources).await {
+    for (id, sources) in targets {
+        match generate_article_content(&sources).await {
             Ok(entry) => {
                 info!("[GEN SUCCESS] '{}'", entry.title);
-                article.entry = Some(entry);
-                article.updated_at = Utc::now();
-
-                let write_txn = DB.begin_write()?;
-                {
-                    let mut table = write_txn.open_table(ARTICLES_TABLE)?;
-                    table.insert(
-                        &id.to_string().as_str(),
-                        postcard::to_allocvec(&article)?.as_slice(),
-                    )?;
-                }
-                write_txn.commit()?;
+                database::save_article_entry(id, &entry)?;
             }
             Err(err) => {
                 warn!(article_id = %id, "Generation failed: {err:#}");
@@ -269,6 +165,7 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
         .await
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
+
     let articles_content = successful_fetches
         .into_iter()
         .enumerate()
@@ -311,7 +208,9 @@ async fn generate_article_content(sources: &[ArticleSource]) -> Result<ArticleEn
         .join("\n");
 
     let context = format!(
-        "Synthesise all sources into a single cohesive article in the output json_schema. Use a few web searchs for the title of each source to gather the latest information. EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.\n\n{articles_content}"
+        "Synthesise all sources into a single cohesive article in the output json_schema. \
+         Use a few web searches for the title of each source to gather the latest information. \
+         EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.\n\n{articles_content}"
     );
 
     run::<ArticleEntry>(&context)

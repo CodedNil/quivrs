@@ -8,12 +8,17 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct StoredArticle {
     pub id: Uuid,
+    /// List of sources used to generate the article.
     pub sources: Vec<ArticleSource>,
     /// Estimated user interest 0.0-1.0
     pub estimated_liked: f32,
+    /// Generated content for the article
     pub entry: Option<ArticleEntry>,
+    /// Embedding vector representing the title and description of the article.
     pub embedding: Vec<f32>,
-    pub created_at: DateTime<Utc>,
+    /// Timestamp when the first source was published.
+    pub published: DateTime<Utc>,
+    /// Timestamp when the article was last updated.
     pub updated_at: DateTime<Utc>,
 }
 

@@ -1,4 +1,5 @@
 pub mod articles;
+pub mod database;
 mod embeddings;
 mod llm_functions;
 mod parse_feed;
