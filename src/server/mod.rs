@@ -19,6 +19,10 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 
 pub fn start() {
     tokio::spawn(async move {
+        if let Err(err) = database::regenerate_stale_embeddings().await {
+            error!("Stale embedding regeneration failed: {err}");
+        }
+
         let mut ticker = interval(DEFAULT_REFRESH_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         info!("Feed refresh scheduler started (interval: {DEFAULT_REFRESH_INTERVAL:?})");
@@ -27,9 +31,9 @@ pub fn start() {
             if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }
-            if let Err(err) = articles::regenerate_articles().await {
-                error!("Article regeneration failed: {err}");
-            }
+            // if let Err(err) = articles::regenerate_articles().await {
+            //     error!("Article regeneration failed: {err}");
+            // }
             if let Err(err) = database::cleanup_binned(7) {
                 error!("Cleanup failed: {err}");
             }

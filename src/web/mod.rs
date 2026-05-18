@@ -1,5 +1,5 @@
 use crate::shared::{
-    ArticleData, ArticleEntry, ArticleStatus, Category, Rating, Section, StoredArticle,
+    ArticleData, ArticleStatus, Category, Rating, Section, StoredArticle,
     server_functions::{
         get_all_item_ratings, get_user_articles, set_article_status, set_item_rating, set_rating,
     },
@@ -119,18 +119,10 @@ pub fn app() -> Element {
                             let mut stored_v = Vec::new();
                             let mut binned_v = Vec::new();
                             for (id, status, rating, article) in data.iter() {
-                                if let Some(entry) = &article.entry {
-                                    match status {
-                                        ArticleStatus::New => {
-                                            new_v.push((*id, *rating, article, entry));
-                                        }
-                                        ArticleStatus::Stored => {
-                                            stored_v.push((*id, *rating, article, entry));
-                                        }
-                                        ArticleStatus::Binned => {
-                                            binned_v.push((*id, *rating, article, entry));
-                                        }
-                                    }
+                                match status {
+                                    ArticleStatus::New => new_v.push((*id, *rating, article)),
+                                    ArticleStatus::Stored => stored_v.push((*id, *rating, article)),
+                                    ArticleStatus::Binned => binned_v.push((*id, *rating, article)),
                                 }
                             }
                             rsx! {
@@ -187,7 +179,7 @@ pub fn app() -> Element {
 
 fn sidebar_section(
     label: &str,
-    items: Vec<(Uuid, Option<Rating>, &StoredArticle, &ArticleEntry)>,
+    items: Vec<(Uuid, Option<Rating>, &StoredArticle)>,
     selected: Signal<Option<Uuid>>,
     group_by_category: bool,
 ) -> Element {
@@ -195,9 +187,9 @@ fn sidebar_section(
 
     let content = if group_by_category {
         let mut groups: BTreeMap<Category, Vec<_>> = BTreeMap::new();
-        for (id, rating, article, entry) in items {
+        for (id, rating, article) in items {
             groups
-                .entry(entry.category)
+                .entry(article.category)
                 .or_default()
                 .push((id, rating, article));
         }
@@ -218,7 +210,7 @@ fn sidebar_section(
         }
     } else {
         rsx! {
-            for (id, rating, article, _) in items {
+            for (id, rating, article) in items {
                 article_item {
                     key: "{id}",
                     id,
@@ -247,9 +239,23 @@ fn article_item(
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
 
-    let Some(entry) = &article.entry else {
-        return rsx! {};
-    };
+    let first_source = article.sources.first();
+    let title = article.entry.as_ref().map_or_else(
+        || first_source.map_or("", |s| s.title.as_str()),
+        |e| e.title.as_str(),
+    );
+    let description = article.entry.as_ref().map_or_else(
+        || {
+            first_source.map_or("", |s| {
+                let summary = s.summary.as_str();
+                match summary.char_indices().nth(200) {
+                    Some((idx, _)) => &summary[..idx],
+                    None => summary,
+                }
+            })
+        },
+        |e| e.description.as_str(),
+    );
 
     let hero_image = article.sources.iter().find_map(|s| s.image.clone());
 
@@ -334,14 +340,14 @@ fn article_item(
                     color: "var(--base05)",
                     line_height: "1.375",
                     margin: "0 0 0.2rem 0",
-                    "{entry.title}"
+                    "{title}"
                 }
                 p {
                     font_size: "0.67rem",
                     color: "var(--base05)",
                     line_height: "1.5",
                     margin: "0",
-                    "{entry.description}"
+                    "{description}"
                 }
             }
         }
@@ -357,6 +363,24 @@ fn article_detail(
     item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
     let id = article.id;
+
+    let first_source = article.sources.first();
+    let title = article.entry.as_ref().map_or_else(
+        || first_source.map_or("", |s| s.title.as_str()),
+        |e| e.title.as_str(),
+    );
+    let description = article.entry.as_ref().map_or_else(
+        || {
+            first_source.map_or("", |s| {
+                let summary = s.summary.as_str();
+                match summary.char_indices().nth(200) {
+                    Some((idx, _)) => &summary[..idx],
+                    None => summary,
+                }
+            })
+        },
+        |e| e.description.as_str(),
+    );
 
     rsx! {
         article {
@@ -386,74 +410,68 @@ fn article_detail(
                 }
             }
 
-            if let Some(entry) = &article.entry {
-                h1 {
-                    font_size: "1.5rem",
-                    font_weight: "700",
-                    line_height: "1.25",
-                    color: "var(--base05)",
-                    margin: "0 0 0.375rem 0",
-                    "{entry.title}"
+            h1 {
+                font_size: "1.5rem",
+                font_weight: "700",
+                line_height: "1.25",
+                color: "var(--base05)",
+                margin: "0 0 0.375rem 0",
+                "{title}"
+            }
+            p {
+                font_size: "0.7rem",
+                color: "var(--base05)",
+                margin: "0 0 1rem 0",
+                {article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string()}
+            }
+            p {
+                font_size: "0.875rem",
+                color: "var(--base05)",
+                line_height: "1.625",
+                margin: "0 0 1.25rem 0",
+                font_style: "italic",
+                padding_left: "0.875rem",
+                border_left: "2px solid var(--base02)",
+                "{description}"
+            }
+            div {
+                display: "flex",
+                flex_wrap: "wrap",
+                gap: "0.5rem",
+                align_items: "center",
+                margin_bottom: "1.75rem",
+                RatingPill {
+                    label: article.article_type.to_string(),
+                    item_key: format!("article_type:{}", article.article_type),
+                    item_ratings,
                 }
-                p {
-                    font_size: "0.7rem",
-                    color: "var(--base05)",
-                    margin: "0 0 1rem 0",
-                    {article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string()}
+                RatingPill {
+                    label: article.category.to_string(),
+                    item_key: format!("category:{}", article.category),
+                    item_ratings,
                 }
-                p {
-                    font_size: "0.875rem",
-                    color: "var(--base05)",
-                    line_height: "1.625",
-                    margin: "0 0 1.25rem 0",
-                    font_style: "italic",
-                    padding_left: "0.875rem",
-                    border_left: "2px solid var(--base02)",
-                    "{entry.description}"
-                }
-                div {
-                    display: "flex",
-                    flex_wrap: "wrap",
-                    gap: "0.5rem",
-                    align_items: "center",
-                    margin_bottom: "1.75rem",
-                    RatingPill {
-                        label: entry.article_type.to_string(),
-                        item_key: format!("article_type:{}", entry.article_type),
-                        item_ratings,
-                    }
-                    RatingPill {
-                        label: entry.category.to_string(),
-                        item_key: format!("category:{}", entry.category),
-                        item_ratings,
-                    }
-                    for source in &article.sources {
-                        {
-                            let domain = clean_url(&source.url);
-                            rsx! {
-                                RatingPill {
-                                    key: "{source.url}",
-                                    label: domain.clone(),
-                                    item_key: format!("source:{}", domain),
-                                    item_ratings,
-                                    url: Some(source.url.clone()),
-                                }
+                for source in &article.sources {
+                    {
+                        let domain = clean_url(&source.url);
+                        rsx! {
+                            RatingPill {
+                                key: "{source.url}",
+                                label: domain.clone(),
+                                item_key: format!("source:{}", domain),
+                                item_ratings,
+                                url: Some(source.url.clone()),
                             }
                         }
                     }
                 }
+            }
+            if let Some(entry) = &article.entry {
                 for section in &entry.sections {
                     {render_section(section)}
                 }
             } else {
-                p {
-                    font_size: "0.875rem",
-                    color: "var(--base05)",
-                    font_style: "italic",
-                    "Article content is being generated..."
-                }
+                "Generating..."
             }
-
         }
     }
 }

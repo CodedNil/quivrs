@@ -4,7 +4,7 @@ pub mod server_functions;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumString};
+use strum::{Display, EnumCount, EnumIter, EnumString};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -14,10 +14,13 @@ pub struct StoredArticle {
     pub sources: Vec<ArticleSource>,
     /// Estimated user interest 0.0-1.0
     pub estimated_liked: f32,
+
     /// Generated content for the article
     pub entry: Option<ArticleEntry>,
-    /// Embedding vector representing the title and description of the article.
-    pub embedding: Vec<f32>,
+
+    pub article_type: ArticleType,
+    pub category: Category,
+
     /// Timestamp when the first source was published.
     pub published: DateTime<Utc>,
     /// Timestamp when the article was last updated.
@@ -65,9 +68,6 @@ pub struct ArticleEntry {
     /// You can and should use sections multiple times throughout the article, multiple paragraphs and multiple images.
     /// Often include Highlights and Perspectives (Boxes with Header)
     pub sections: Vec<Section>,
-
-    pub article_type: ArticleType,
-    pub category: Category,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone)]
@@ -104,61 +104,48 @@ pub enum Section {
     ColumnBoxes(Vec<String>),
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
+#[derive(Serialize, Deserialize, Clone, Copy, Display, EnumCount, EnumIter, EnumString)]
 pub enum ArticleType {
-    /// News article that is important in the moment.
     BreakingNews,
-    /// Regular news article.
     News,
-    /// Opinion piece.
     Opinion,
-
-    /// Promotional content, such as a marketing campaign or highlight a sale.
     Marketing,
-    /// Review of a product or service.
     Review,
-    /// Q&A session, transcript, or profile conversation with a specific person.
     Interview,
-    /// Step-by-step tutorial, instructional content, or how-to documentation.
     Guide,
-
-    /// An individuals blog post, highlighting a personal perspective or thought. Dev logs for products etc.
+    Feature,
     Blog,
-    /// A more corporate blog piece, for larger projects or company announcements.
     Newsletter,
-    /// Video is the primary content.
     Video,
-    /// Social media post.
     Post,
 }
 
 #[derive(
-    Serialize, Deserialize, JsonSchema, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Display,
+    EnumCount,
+    EnumIter,
+    EnumString,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
 )]
 pub enum Category {
-    /// Corporate, economy, finance, commerce, and startups.
     Business,
-    /// Government, elections, public policy, and geopolitics.
     Politics,
-    /// Court cases, legislation, legal systems, crime, and civil rights.
     Law,
-    /// Medicine, healthcare, fitness, and mental wellness.
     Health,
-    /// Movies, TV, music, gaming, and celebrity news.
     Entertainment,
-    /// Arts, literature, history, philosophy, and societal traditions.
     Culture,
-    /// Travel, fashion, food, home, hobbies, and daily living.
     Lifestyle,
-    /// Climate, conservation, sustainability, and wildlife.
     Environment,
-    /// Software, AI, hardware, gadgets, and cybersecurity.
     Technology,
-    /// Space, physics, biology, and academic scientific research.
     Science,
-    /// Schools, universities, teaching, and educational policy.
     Education,
-    /// Teams, athletes, tournaments, and live athletic events.
     Sports,
 }
 

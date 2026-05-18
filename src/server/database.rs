@@ -1,5 +1,9 @@
-use crate::shared::{
-    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Rating, StoredArticle,
+use crate::{
+    server::embeddings::{MODEL_NAME, generate_embeddings},
+    shared::{
+        ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
+        StoredArticle,
+    },
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -10,6 +14,7 @@ use std::{
     env,
     sync::{LazyLock, Mutex},
 };
+use tracing::{error, info};
 use uuid::Uuid;
 
 /// Global database connection pool
@@ -25,14 +30,17 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
 
          -- Core article data
          CREATE TABLE IF NOT EXISTS articles (
-             id              TEXT PRIMARY KEY,
-             title           TEXT NOT NULL,
-             sources         BLOB NOT NULL,
-             estimated_liked REAL NOT NULL DEFAULT 0.0,
-             entry           BLOB,
-             embedding       BLOB NOT NULL,
-             published       INTEGER NOT NULL,
-             updated_at      INTEGER NOT NULL
+             id               TEXT PRIMARY KEY,
+             title            TEXT NOT NULL,
+             sources          BLOB NOT NULL,
+             estimated_liked  REAL NOT NULL DEFAULT 0.0,
+             entry            BLOB,
+             embedding        BLOB NOT NULL,
+             embedding_model  TEXT NOT NULL DEFAULT '',
+             article_type     TEXT NOT NULL DEFAULT 'News',
+             category         TEXT NOT NULL DEFAULT 'Technology',
+             published        INTEGER NOT NULL,
+             updated_at       INTEGER NOT NULL
          );
          CREATE INDEX IF NOT EXISTS published ON articles(published);
 
@@ -62,6 +70,7 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
          );",
     )
     .expect("Failed to initialize database schema");
+
     Mutex::new(conn)
 });
 
@@ -90,12 +99,12 @@ pub fn get_embedding_candidates(
 ) -> Result<Vec<EmbeddingCandidate>> {
     let conn = DB.lock().unwrap();
     let mut stmt = conn.prepare_cached(
-        "SELECT id, title, embedding FROM articles WHERE published BETWEEN ? AND ?",
+        "SELECT id, title, embedding FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?",
     )?;
 
     let candidates = stmt
         .query_and_then(
-            params![window_start, window_end],
+            params![window_start, window_end, MODEL_NAME],
             |row| -> Result<EmbeddingCandidate> {
                 let id_str: String = row.get(0)?;
                 let title: String = row.get(1)?;
@@ -113,22 +122,30 @@ pub fn get_embedding_candidates(
 }
 
 /// Inserts a new article and its initial metadata.
-pub fn insert_article(source: &ArticleSource, embedding: &[f32]) -> Result<()> {
+pub fn insert_article(
+    source: &ArticleSource,
+    embedding: &[f32],
+    article_type: ArticleType,
+    category: Category,
+) -> Result<()> {
     let id_str = Uuid::new_v4().to_string();
     let mut conn = DB.lock().unwrap();
     let tx = conn.transaction()?;
 
     // Insert the master article track
     tx.execute(
-        "INSERT INTO articles (id, title, sources, estimated_liked, entry, embedding, published, updated_at)
-        VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?)",
+        "INSERT INTO articles (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, article_type, category)
+        VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?)",
         params![
             id_str,
             source.title,
             to_allocvec(std::slice::from_ref(source))?,
             to_allocvec(embedding)?,
+            MODEL_NAME,
             source.published.timestamp(),
             Utc::now().timestamp(),
+            article_type.to_string(),
+            category.to_string(),
         ],
     )?;
 
@@ -179,10 +196,11 @@ pub fn merge_into_article(
 
     // Update article data
     tx.execute(
-        "UPDATE articles SET sources = ?, embedding = ?, entry = NULL, updated_at = ? WHERE id = ?",
+        "UPDATE articles SET sources = ?, embedding = ?, embedding_model = ?, entry = NULL, updated_at = ? WHERE id = ?",
         params![
             to_allocvec(&sources)?,
             to_allocvec(&merged_emb)?,
+            MODEL_NAME,
             Utc::now().timestamp(),
             id_str
         ],
@@ -195,6 +213,57 @@ pub fn merge_into_article(
     )?;
 
     tx.commit()?;
+    Ok(())
+}
+
+/// Embeddings generated with an older model will be regenerated.
+pub async fn regenerate_stale_embeddings() -> Result<()> {
+    let stale = {
+        let conn = DB.lock().unwrap();
+        conn.prepare_cached("SELECT id, sources FROM articles WHERE embedding_model != ?")?
+            .query_and_then(
+                params![MODEL_NAME],
+                |row| -> Result<(Uuid, Vec<ArticleSource>)> {
+                    let id_str: String = row.get(0)?;
+                    let sources_bytes: Vec<u8> = row.get(1)?;
+                    Ok((Uuid::parse_str(&id_str)?, from_bytes(&sources_bytes)?))
+                },
+            )?
+            .collect::<Result<Vec<_>>>()
+    }?;
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    info!("Re-embedding {} articles for new model...", stale.len());
+
+    let texts: Vec<String> = stale
+        .iter()
+        .map(|(_, sources)| {
+            sources
+                .iter()
+                .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+
+    let embeddings = generate_embeddings(&texts)
+        .await
+        .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
+
+    for ((id, _), embedding) in stale.iter().zip(embeddings) {
+        DB.lock().unwrap().execute(
+            "UPDATE articles SET embedding = ?, embedding_model = ?, updated_at = ? WHERE id = ?",
+            params![
+                to_allocvec(&embedding)?,
+                MODEL_NAME,
+                Utc::now().timestamp(),
+                id.to_string(),
+            ],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -253,7 +322,7 @@ pub fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
 pub fn get_user_articles() -> Result<Vec<ArticleData>> {
     let conn = DB.lock().unwrap();
     conn.prepare_cached(
-        "SELECT ua.article_id, ua.status, ar.rating, a.sources, a.estimated_liked, a.entry, a.published, a.updated_at
+        "SELECT ua.article_id, ua.status, ar.rating, a.sources, a.estimated_liked, a.entry, a.published, a.updated_at, a.article_type, a.category
          FROM user_articles ua
          JOIN articles a ON ua.article_id = a.id
          LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
@@ -270,6 +339,14 @@ pub fn get_user_articles() -> Result<Vec<ArticleData>> {
             .map(|s| s.parse())
             .transpose()
             .map_err(|e| anyhow!("{e}"))?;
+        let article_type = row
+            .get::<_, String>(8)?
+            .parse()
+            .unwrap_or(ArticleType::News);
+        let category = row
+            .get::<_, String>(9)?
+            .parse()
+            .unwrap_or(Category::Technology);
 
         let art = StoredArticle {
             id,
@@ -279,9 +356,10 @@ pub fn get_user_articles() -> Result<Vec<ArticleData>> {
                 .get::<_, Option<Vec<u8>>>(5)?
                 .map(|b| from_bytes(&b))
                 .transpose().unwrap_or_default(),
-            embedding: vec![],
             published: DateTime::from_timestamp(row.get::<_, i64>(6)?, 0).unwrap_or_default(),
             updated_at: DateTime::from_timestamp(row.get::<_, i64>(7)?, 0).unwrap_or_default(),
+            article_type,
+            category,
         };
         Ok((id, status, rating, art))
     })?

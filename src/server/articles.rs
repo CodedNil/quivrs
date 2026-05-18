@@ -1,12 +1,13 @@
 use crate::{
     server::{
         HTTP_CLIENT, database,
-        embeddings::{cosine_similarity, generate_embeddings},
+        embeddings::{classify, cosine_similarity, generate_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
     },
     shared::{ArticleEntry, ArticleSource},
 };
+
 use anyhow::{Result, anyhow};
 use chrono::TimeDelta;
 use futures::{StreamExt, future::join_all, stream};
@@ -96,7 +97,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
             } else {
                 info!("[NEW] '{}'", source.title);
             }
-            database::insert_article(&source, &embedding)?;
+            if let Ok((article_type, category)) = classify(&embedding).await {
+                database::insert_article(&source, &embedding, article_type, category)?;
+            }
         }
     }
 
