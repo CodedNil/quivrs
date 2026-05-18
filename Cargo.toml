@@ -75,6 +75,7 @@ nursery = { level = "warn", priority = -1 }
 too-many-lines = "allow"
 cast-possible-wrap = "allow"
 cast-possible-truncation = "allow"
+significant_drop_tightening = "allow"
 
 [profile.release]
 lto = true

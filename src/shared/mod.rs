@@ -107,7 +107,6 @@ pub enum Section {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
-#[strum(serialize_all = "title_case")]
 pub enum ArticleType {
     BreakingNews,
     News,
@@ -124,7 +123,6 @@ pub enum ArticleType {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
-#[strum(serialize_all = "title_case")]
 pub enum Category {
     World,
     Business,

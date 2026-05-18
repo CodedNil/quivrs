@@ -86,7 +86,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 "[MERGE] '{}' → '{}' (sim {sim:.2})",
                 source.title, existing_title
             );
-            database::merge_into_article(article_id, source, &embedding)?;
+            database::merge_into_article(article_id, &source, &embedding)?;
         } else {
             if let Some((_, closest_title, sim)) = &highest_match {
                 info!(
@@ -116,11 +116,11 @@ pub async fn regenerate_articles() -> Result<()> {
 
     info!("Generating content for {} articles...", targets.len());
 
-    for (id, sources) in targets {
-        match generate_article_content(&sources).await {
+    for (id, sources) in targets.iter().take(5) {
+        match generate_article_content(sources).await {
             Ok(entry) => {
                 info!("[GEN SUCCESS] '{}'", entry.title);
-                database::save_article_entry(id, &entry)?;
+                database::save_article_entry(*id, &entry)?;
             }
             Err(err) => {
                 warn!(article_id = %id, "Generation failed: {err:#}");
