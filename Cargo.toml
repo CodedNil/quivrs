@@ -50,7 +50,7 @@ axum = { version = "0.8.9", default-features = false, features = [
     "tracing",
     "http1",
 ] }
-tower-http = { version = "0.6.10", features = [
+tower-http = { version = "0.6.11", features = [
     "fs",
     "async-compression",
     "compression-deflate",
@@ -76,6 +76,7 @@ too-many-lines = "allow"
 cast-possible-wrap = "allow"
 cast-possible-truncation = "allow"
 significant_drop_tightening = "allow"
+type_complexity = "allow"
 
 [profile.release]
 lto = true

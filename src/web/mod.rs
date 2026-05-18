@@ -2,15 +2,16 @@ mod components;
 
 use crate::{
     shared::{
-        ArticleData, ArticleStatus, Rating, StoredArticle,
+        ArticleData, ArticleEntry, ArticleStatus, Category, Rating, StoredArticle,
         server_functions::{get_all_item_ratings, get_user_articles},
     },
     web::components::{
-        RatingPill, base16, clean_url, rating_button, rating_color, render_section, status_button,
+        CategoryIcon, RatingPill, base16, clean_url, rating_button, rating_color, render_section,
+        status_button,
     },
 };
 use dioxus::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 pub fn app() -> Element {
@@ -40,7 +41,7 @@ pub fn app() -> Element {
             color: base16::BASE05,
 
             aside {
-                width: "18rem",
+                width: "27rem",
                 border_right: "1px solid {base16::BASE02}",
                 display: "flex",
                 flex_direction: "column",
@@ -71,23 +72,25 @@ pub fn app() -> Element {
                             let mut new_v = Vec::new();
                             let mut stored_v = Vec::new();
                             let mut binned_v = Vec::new();
-                            for (id, status, rating, art) in data.iter() {
-                                match status {
-                                    ArticleStatus::New => {
-                                        new_v.push((*id, *status, *rating, art.clone()));
-                                    }
-                                    ArticleStatus::Stored => {
-                                        stored_v.push((*id, *status, *rating, art.clone()));
-                                    }
-                                    ArticleStatus::Binned => {
-                                        binned_v.push((*id, *status, *rating, art.clone()));
+                            for (id, status, rating, article) in data.iter() {
+                                if let Some(entry) = &article.entry {
+                                    match status {
+                                        ArticleStatus::New => {
+                                            new_v.push((*id, *rating, article, entry));
+                                        }
+                                        ArticleStatus::Stored => {
+                                            stored_v.push((*id, *rating, article, entry));
+                                        }
+                                        ArticleStatus::Binned => {
+                                            binned_v.push((*id, *rating, article, entry));
+                                        }
                                     }
                                 }
                             }
                             rsx! {
-                                {sidebar_section("New", new_v, selected)}
-                                {sidebar_section("Stored", stored_v, selected)}
-                                {sidebar_section("Binned", binned_v, selected)}
+                                {sidebar_section("New", new_v, selected, true)}
+                                {sidebar_section("Stored", stored_v, selected, false)}
+                                {sidebar_section("Binned", binned_v, selected, false)}
                             }
                         }
                     }
@@ -138,9 +141,77 @@ pub fn app() -> Element {
 
 fn sidebar_section(
     label: &str,
-    items: Vec<ArticleData>,
+    items: Vec<(Uuid, Option<Rating>, &StoredArticle, &ArticleEntry)>,
     selected: Signal<Option<Uuid>>,
+    group_by_category: bool,
 ) -> Element {
+    let total_items = items.len();
+
+    // Prepare and render the item content based on grouping rules
+    let content = if group_by_category {
+        let mut groups: BTreeMap<Category, Vec<_>> = BTreeMap::new();
+        for (id, rating, article, entry) in items {
+            groups
+                .entry(entry.category)
+                .or_default()
+                .push((id, rating, article));
+        }
+
+        rsx! {
+            for (category, cat_items) in groups {
+                div { display: "flex", margin_bottom: "1.5rem",
+
+                    div {
+                        width: "24px",
+                        min_width: "24px",
+                        background_color: base16::BASE02,
+                        display: "flex",
+                        flex_direction: "column",
+                        align_items: "center",
+                        padding_top: "0.75rem",
+                        gap: "0.75rem",
+                        border_radius: "0.25rem 0 0 0.25rem",
+
+                        CategoryIcon { category }
+                        div {
+                            style: "writing-mode: vertical-rl; transform: rotate(180deg);",
+                            font_size: "0.5rem",
+                            font_weight: "800",
+                            color: base16::BASE03,
+                            text_transform: "uppercase",
+                            letter_spacing: "0.1em",
+                            "{category}"
+                        }
+                    }
+                    div { flex: "1",
+                        for (id, rating, article) in cat_items {
+                            article_item {
+                                key: "{id}",
+                                id,
+                                rating,
+                                article: article.clone(),
+                                selected,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        rsx! {
+            for (id, rating, article, _) in items {
+                article_item {
+                    key: "{id}",
+                    id,
+                    rating,
+                    article: article.clone(),
+                    selected,
+                }
+            }
+        }
+    };
+
+    // Render the final layout
     rsx! {
         div {
             padding: "0.75rem 1.25rem 0.25rem",
@@ -161,18 +232,10 @@ fn sidebar_section(
                 background_color: base16::BASE02,
                 padding: "0.1rem 0.4rem",
                 border_radius: "9999px",
-                "{items.len()}"
+                "{total_items}"
             }
         }
-        for (id, _, rating, art) in items {
-            article_item {
-                key: "{id}",
-                id,
-                rating,
-                article: art,
-                selected,
-            }
-        }
+        {content}
     }
 }
 

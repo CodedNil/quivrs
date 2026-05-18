@@ -1,12 +1,9 @@
 use crate::shared::{
-    ArticleData, ArticleStatus, Rating, Section,
+    ArticleData, ArticleStatus, Category, Rating, Section,
     server_functions::{set_article_status, set_item_rating, set_rating},
 };
 use dioxus::prelude::*;
-use dioxus_free_icons::{
-    Icon, IconShape,
-    icons::fa_solid_icons::{FaAngleLeft, FaAngleRight, FaAnglesLeft, FaAnglesRight},
-};
+use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -291,14 +288,14 @@ pub fn RatingPill(
                 transition: "all 0.2s ease-in-out",
                 overflow: "hidden",
                 RatingPillBtn {
-                    icon: FaAnglesLeft,
+                    icon: fa_solid_icons::FaAnglesLeft,
                     target: Rating::Hated,
                     current,
                     item_key: item_key.clone(),
                     item_ratings,
                 }
                 RatingPillBtn {
-                    icon: FaAngleLeft,
+                    icon: fa_solid_icons::FaAngleLeft,
                     target: Rating::Disliked,
                     current,
                     item_key: item_key.clone(),
@@ -331,14 +328,14 @@ pub fn RatingPill(
                 transition: "all 0.2s ease-in-out",
                 overflow: "hidden",
                 RatingPillBtn {
-                    icon: FaAngleRight,
+                    icon: fa_solid_icons::FaAngleRight,
                     target: Rating::Liked,
                     current,
                     item_key: item_key.clone(),
                     item_ratings,
                 }
                 RatingPillBtn {
-                    icon: FaAnglesRight,
+                    icon: fa_solid_icons::FaAnglesRight,
                     target: Rating::Loved,
                     current,
                     item_key,
@@ -433,5 +430,34 @@ pub fn rating_button(
                 }
             },
         }
+    }
+}
+
+#[component]
+pub fn CategoryIcon(category: Category) -> Element {
+    fn render<T: dioxus_free_icons::IconShape + Copy + PartialEq + 'static>(icon: T) -> Element {
+        rsx! {
+            Icon {
+                width: 12,
+                height: 12,
+                fill: base16::BASE04,
+                icon,
+            }
+        }
+    }
+
+    match category {
+        Category::World => render(fa_solid_icons::FaGlobe),
+        Category::Business => render(fa_solid_icons::FaBriefcase),
+        Category::Politics => render(fa_solid_icons::FaGavel),
+        Category::Health => render(fa_solid_icons::FaHeartPulse),
+        Category::Entertainment => render(fa_solid_icons::FaFilm),
+        Category::Culture => render(fa_solid_icons::FaMasksTheater),
+        Category::Lifestyle => render(fa_solid_icons::FaMugHot),
+        Category::Environment => render(fa_solid_icons::FaLeaf),
+        Category::Technology => render(fa_solid_icons::FaMicrochip),
+        Category::Science => render(fa_solid_icons::FaFlask),
+        Category::Education => render(fa_solid_icons::FaGraduationCap),
+        Category::Sports => render(fa_solid_icons::FaFutbol),
     }
 }

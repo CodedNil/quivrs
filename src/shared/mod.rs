@@ -122,18 +122,22 @@ pub enum ArticleType {
     Post,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
+#[derive(
+    Serialize, Deserialize, JsonSchema, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub enum Category {
     World,
     Business,
-    Culture,
     Politics,
     Health,
+    Entertainment,
+    Culture,
+    Lifestyle,
+    Environment,
     Technology,
     Science,
     Education,
     Sports,
-    Gaming,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
