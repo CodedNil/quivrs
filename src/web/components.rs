@@ -3,6 +3,10 @@ use crate::shared::{
     server_functions::{set_article_status, set_item_rating, set_rating},
 };
 use dioxus::prelude::*;
+use dioxus_free_icons::{
+    Icon, IconShape,
+    icons::fa_solid_icons::{FaAngleLeft, FaAngleRight, FaAnglesLeft, FaAnglesRight},
+};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -253,134 +257,129 @@ fn PillButton(
     }
 }
 
-// Floating rating popup shared by rated_tag and source_pill.
+// A pill that shows a label and inline rating buttons
 #[component]
-fn RatingPopup(item_key: String, item_ratings: Signal<HashMap<String, Rating>>) -> Element {
+pub fn RatingPill(
+    label: String,
+    item_key: String,
+    item_ratings: Signal<HashMap<String, Rating>>,
+    url: Option<String>,
+) -> Element {
     let current = item_ratings.read().get(&item_key).copied();
+    let bg_color = current.map_or(base16::BASE02, rating_color);
+    let mut is_hovered = use_signal(|| false);
+
     rsx! {
         div {
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: "0",
-            z_index: "10",
-            background_color: base16::BASE01,
-            border: "1px solid {base16::BASE02}",
-            border_radius: "0.5rem",
-            padding: "0.25rem 0.375rem",
-            display: "flex",
-            gap: "0.25rem",
-            for (label, r) in [
-                ("Hate", Rating::Hated),
-                ("Dislike", Rating::Disliked),
-                ("Neutral", Rating::Neutral),
-                ("Like", Rating::Liked),
-                ("Love", Rating::Loved),
-            ]
-            {
-                PillButton {
-                    label: label.to_string(),
-                    active: current == Some(r),
-                    color: rating_color(r),
-                    onclick: {
-                        let k = item_key.clone();
-                        move |_| {
-                            let k = k.clone(); // clone per-call so closure stays FnMut
-                            let mut ir = item_ratings;
-                            async move {
-                                let _ = set_item_rating(k.clone(), r).await;
-                                ir.write().insert(k, r);
-                            }
-                        }
-                    },
+            display: "inline-flex",
+            align_items: "center",
+            background_color: bg_color,
+            border_radius: "9999px",
+            overflow: "hidden",
+            color: base16::BASE01,
+            font_size: "0.62rem",
+            font_weight: "700",
+            transition: "all 0.2s ease-in-out",
+            onmouseenter: move |_| is_hovered.set(true),
+            onmouseleave: move |_| is_hovered.set(false),
+
+            div {
+                display: "flex",
+                align_items: "center",
+                max_width: if is_hovered() { "100px" } else { "0" },
+                opacity: if is_hovered() { "1" } else { "0" },
+                transition: "all 0.2s ease-in-out",
+                overflow: "hidden",
+                RatingPillBtn {
+                    icon: FaAnglesLeft,
+                    target: Rating::Hated,
+                    current,
+                    item_key: item_key.clone(),
+                    item_ratings,
+                }
+                RatingPillBtn {
+                    icon: FaAngleLeft,
+                    target: Rating::Disliked,
+                    current,
+                    item_key: item_key.clone(),
+                    item_ratings,
+                }
+            }
+
+            div {
+                padding: "0.125rem 0.625rem",
+                background_color: "rgba(255, 255, 255, 0.1)",
+                if let Some(href) = url {
+                    a {
+                        href: "{href}",
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                        color: "inherit",
+                        text_decoration: "none",
+                        "{label}"
+                    }
+                } else {
+                    span { "{label}" }
+                }
+            }
+
+            div {
+                display: "flex",
+                align_items: "center",
+                max_width: if is_hovered() { "100px" } else { "0" },
+                opacity: if is_hovered() { "1" } else { "0" },
+                transition: "all 0.2s ease-in-out",
+                overflow: "hidden",
+                RatingPillBtn {
+                    icon: FaAngleRight,
+                    target: Rating::Liked,
+                    current,
+                    item_key: item_key.clone(),
+                    item_ratings,
+                }
+                RatingPillBtn {
+                    icon: FaAnglesRight,
+                    target: Rating::Loved,
+                    current,
+                    item_key,
+                    item_ratings,
                 }
             }
         }
     }
 }
 
-// Tag with a rating dot and hover popup.
 #[component]
-pub fn rated_tag(
-    label: String,
+fn RatingPillBtn<T: IconShape + Clone + PartialEq + 'static>(
+    icon: T,
+    target: Rating,
+    current: Option<Rating>,
     item_key: String,
-    tag_color: &'static str,
-    item_ratings: Signal<HashMap<String, Rating>>,
+    mut item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
-    let mut hovered = use_signal(|| false);
-    let rating = item_ratings.read().get(&item_key).copied();
-    let dot = rating.map_or("transparent", rating_color);
-
     rsx! {
-        div {
-            position: "relative",
-            display: "inline-flex",
+        button {
+            padding: "0.125rem 0.375rem",
+            background_color: "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: "inherit",
+            display: "flex",
             align_items: "center",
-            gap: "0.3rem",
-            font_size: "0.62rem",
-            padding: "0.125rem 0.625rem",
-            background_color: "rgba(0,0,0,0.15)",
-            border: "1px solid {tag_color}",
-            border_radius: "9999px",
-            color: tag_color,
-            onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| hovered.set(false),
-            div {
-                width: "5px",
-                height: "5px",
-                min_width: "5px",
-                border_radius: "50%",
-                background_color: dot,
-                opacity: if rating.is_some() { "1" } else { "0" },
-            }
-            span { "{label}" }
-            if *hovered.read() {
-                RatingPopup { item_key, item_ratings }
-            }
-        }
-    }
-}
-
-// Source link with a rating dot and hover popup.
-#[component]
-pub fn source_pill(url: String, item_ratings: Signal<HashMap<String, Rating>>) -> Element {
-    let mut hovered = use_signal(|| false);
-    let domain = clean_url(&url);
-    let item_key = format!("source:{domain}");
-    let rating = item_ratings.read().get(&item_key).copied();
-    let dot = rating.map_or("transparent", rating_color);
-
-    rsx! {
-        div {
-            position: "relative",
-            display: "inline-flex",
-            align_items: "center",
-            gap: "0.3rem",
-            font_size: "0.75rem",
-            padding: "0.25rem 0.75rem",
-            background_color: base16::BASE02,
-            border: "1px solid {base16::BASE02}",
-            border_radius: "9999px",
-            onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| hovered.set(false),
-            div {
-                width: "5px",
-                height: "5px",
-                min_width: "5px",
-                border_radius: "50%",
-                background_color: dot,
-                opacity: if rating.is_some() { "1" } else { "0" },
-            }
-            a {
-                href: "{url}",
-                target: "_blank",
-                rel: "noopener noreferrer",
-                color: base16::BASE05,
-                text_decoration: "none",
-                "{domain}"
-            }
-            if *hovered.read() {
-                RatingPopup { item_key, item_ratings }
-            }
+            justify_content: "center",
+            onclick: move |_| {
+                let k = item_key.clone();
+                async move {
+                    let new_rating = if current == Some(target) {
+                        Rating::Neutral
+                    } else {
+                        target
+                    };
+                    let _ = set_item_rating(k.clone(), new_rating).await;
+                    item_ratings.write().insert(k, new_rating);
+                }
+            },
+            Icon { icon, width: 12, height: 12 }
         }
     }
 }

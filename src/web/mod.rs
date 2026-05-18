@@ -6,7 +6,7 @@ use crate::{
         server_functions::{get_all_item_ratings, get_user_articles},
     },
     web::components::{
-        base16, rated_tag, rating_button, rating_color, render_section, source_pill, status_button,
+        RatingPill, base16, clean_url, rating_button, rating_color, render_section, status_button,
     },
 };
 use dioxus::prelude::*;
@@ -31,6 +31,7 @@ pub fn app() -> Element {
 
     rsx! {
         document::Title { "Quivrs" }
+        document::Style { "body {{ margin: 0; padding: 0; }}" }
         div {
             display: "flex",
             height: "100vh",
@@ -302,7 +303,7 @@ fn article_detail(
                 div {
                     display: "flex",
                     flex_wrap: "wrap",
-                    gap: "0.375rem",
+                    gap: "0.5rem",
                     align_items: "center",
                     margin_bottom: "1.75rem",
                     if entry.sponsored {
@@ -316,17 +317,29 @@ fn article_detail(
                             "Sponsored"
                         }
                     }
-                    rated_tag {
+                    RatingPill {
                         label: entry.article_type.to_string(),
                         item_key: format!("article_type:{}", entry.article_type),
-                        tag_color: base16::BASE0E,
                         item_ratings,
                     }
-                    rated_tag {
+                    RatingPill {
                         label: entry.category.to_string(),
                         item_key: format!("category:{}", entry.category),
-                        tag_color: base16::BASE0B,
                         item_ratings,
+                    }
+                    for source in &article.sources {
+                        {
+                            let domain = clean_url(&source.url);
+                            rsx! {
+                                RatingPill {
+                                    key: "{source.url}",
+                                    label: domain.clone(),
+                                    item_key: format!("source:{}", domain),
+                                    item_ratings,
+                                    url: Some(source.url.clone()),
+                                }
+                            }
+                        }
                     }
                 }
                 for section in &entry.sections {
@@ -341,23 +354,6 @@ fn article_detail(
                 }
             }
 
-            div {
-                padding_top: "1.25rem",
-                border_top: "1px solid {base16::BASE02}",
-                h4 {
-                    font_size: "0.62rem",
-                    color: base16::BASE03,
-                    text_transform: "uppercase",
-                    letter_spacing: "0.1em",
-                    margin: "0 0 0.625rem 0",
-                    "Original Sources"
-                }
-                div { display: "flex", flex_wrap: "wrap", gap: "0.5rem",
-                    for source in &article.sources {
-                        source_pill { url: source.url.clone(), item_ratings }
-                    }
-                }
-            }
         }
     }
 }
