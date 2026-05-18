@@ -1,15 +1,10 @@
-use super::{ArticleStatus, Rating, StoredArticle, UserArticle};
+use super::{ArticleData, ArticleStatus, Rating};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
 #[server]
-pub async fn get_articles() -> Result<Vec<StoredArticle>, ServerFnError> {
-    crate::server::database::get_all_articles().map_err(|e| ServerFnError::new(e.to_string()))
-}
-
-#[server]
-pub async fn get_user_articles() -> Result<Vec<UserArticle>, ServerFnError> {
+pub async fn get_user_articles() -> Result<Vec<ArticleData>, ServerFnError> {
     crate::server::database::get_user_articles().map_err(|e| ServerFnError::new(e.to_string()))
 }
 

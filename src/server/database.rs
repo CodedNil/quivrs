@@ -1,5 +1,5 @@
 use crate::shared::{
-    ArticleEntry, ArticleSource, ArticleStatus, Rating, StoredArticle, UserArticle,
+    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Rating, StoredArticle,
 };
 use anyhow::{Result, anyhow};
 use chrono::DateTime;
@@ -209,34 +209,6 @@ pub fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> 
     Ok(())
 }
 
-pub fn get_all_articles() -> Result<Vec<StoredArticle>> {
-    let conn = DB.lock().unwrap();
-    let mut stmt = conn.prepare(
-        "SELECT id, sources, estimated_liked, entry, embedding, published, updated_at
-         FROM articles ORDER BY updated_at DESC",
-    )?;
-    let articles = stmt
-        .query_and_then([], |row| -> Result<StoredArticle> {
-            Ok(StoredArticle {
-                id: Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| anyhow!("{e}"))?,
-                sources: decode(&row.get::<_, Vec<u8>>(1)?)?,
-                #[allow(clippy::cast_possible_truncation)]
-                estimated_liked: row.get::<_, f64>(2)? as f32,
-                entry: row
-                    .get::<_, Option<Vec<u8>>>(3)?
-                    .and_then(|b| decode(&b).ok()),
-                embedding: decode(&row.get::<_, Vec<u8>>(4)?)?,
-                published: DateTime::from_timestamp(row.get::<_, i64>(5)?, 0).unwrap_or_default(),
-                updated_at: DateTime::from_timestamp(row.get::<_, i64>(6)?, 0).unwrap_or_default(),
-            })
-        })?
-        .filter_map(Result::ok)
-        .collect();
-    drop(stmt);
-    drop(conn);
-    Ok(articles)
-}
-
 pub fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
     let binned_at: Option<i64> = if status == ArticleStatus::Binned {
         Some(chrono::Utc::now().timestamp())
@@ -264,25 +236,32 @@ pub fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
     Ok(())
 }
 
-pub fn get_user_articles() -> Result<Vec<UserArticle>> {
+pub fn get_user_articles() -> Result<Vec<ArticleData>> {
     let conn = DB.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT ua.article_id, ua.status, ar.rating
+        "SELECT ua.article_id, ua.status, ar.rating,
+                a.sources, a.estimated_liked, a.entry, a.published, a.updated_at
          FROM user_articles ua
+         JOIN articles a ON ua.article_id = a.id
          LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
-         LEFT JOIN articles a ON ua.article_id = a.id
          ORDER BY a.published DESC",
     )?;
     let result = stmt
-        .query_and_then([], |row| -> Result<UserArticle> {
-            let id_str: String = row.get(0)?;
-            let status_str: String = row.get(1)?;
-            let rating_str: Option<String> = row.get(2)?;
-            Ok(UserArticle {
-                article_id: Uuid::parse_str(&id_str).map_err(|e| anyhow!("{e}"))?,
-                status: status_str.parse().map_err(|e| anyhow!("{e}"))?,
-                rating: rating_str.as_deref().and_then(|s| s.parse().ok()),
-            })
+        .query_and_then([], |row| -> Result<ArticleData> {
+            let id = Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| anyhow!("{e}"))?;
+            let status = row.get::<_, String>(1)?.parse().map_err(|e| anyhow!("{e}"))?;
+            let rating = row.get::<_, Option<String>>(2)?.as_deref().and_then(|s| s.parse().ok());
+            let art = StoredArticle {
+                id,
+                sources: decode(&row.get::<_, Vec<u8>>(3)?)?,
+                #[allow(clippy::cast_possible_truncation)]
+                estimated_liked: row.get::<_, f64>(4)? as f32,
+                entry: row.get::<_, Option<Vec<u8>>>(5)?.and_then(|b| decode(&b).ok()),
+                embedding: vec![], // not needed for UI
+                published: DateTime::from_timestamp(row.get::<_, i64>(6)?, 0).unwrap_or_default(),
+                updated_at: DateTime::from_timestamp(row.get::<_, i64>(7)?, 0).unwrap_or_default(),
+            };
+            Ok((id, status, rating, art))
         })?
         .filter_map(Result::ok)
         .collect();

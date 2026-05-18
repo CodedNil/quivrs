@@ -154,9 +154,4 @@ pub enum Rating {
     Loved,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct UserArticle {
-    pub article_id: Uuid,
-    pub status: ArticleStatus,
-    pub rating: Option<Rating>,
-}
+pub type ArticleData = (Uuid, ArticleStatus, Option<Rating>, StoredArticle);

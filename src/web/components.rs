@@ -1,8 +1,9 @@
 use crate::shared::{
-    ArticleStatus, Rating,
+    ArticleData, ArticleStatus, Rating, Section,
     server_functions::{set_article_status, set_item_rating, set_rating},
 };
 use dioxus::prelude::*;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[allow(dead_code)]
@@ -43,28 +44,6 @@ pub const fn status_color(s: ArticleStatus) -> &'static str {
     }
 }
 
-#[component]
-pub fn image_figure(url: String, caption: String, margin: String) -> Element {
-    rsx! {
-        figure { margin,
-            img {
-                src: "{url}",
-                alt: "{caption}",
-                width: "100%",
-                border_radius: "0.375rem",
-                display: "block",
-            }
-            figcaption {
-                font_size: "0.7rem",
-                color: base16::BASE03,
-                margin_top: "0.375rem",
-                text_align: "center",
-                "{caption}"
-            }
-        }
-    }
-}
-
 pub fn clean_url(url: &str) -> String {
     let s = url
         .strip_prefix("https://")
@@ -74,7 +53,7 @@ pub fn clean_url(url: &str) -> String {
     s.split('/').next().unwrap_or(s).to_string()
 }
 
-pub fn source_parts(s: &str) -> (&str, &str) {
+fn source_parts(s: &str) -> (&str, &str) {
     s.split_once('~').unwrap_or(("", s))
 }
 
@@ -112,21 +91,18 @@ pub fn render_inline(text: &str) -> Element {
         }
         i += 1;
     }
-
     if plain_start < bytes.len() {
         let s = text[plain_start..].to_string();
         elements.push(rsx! {
             span { "{s}" }
         });
     }
-
     rsx! {
         {elements.into_iter()}
-
     }
 }
 
-pub fn render_box_item(item: &str) -> Element {
+fn render_box_item(item: &str) -> Element {
     rsx! {
         div {
             background_color: base16::BASE01,
@@ -161,54 +137,178 @@ pub fn render_box_item(item: &str) -> Element {
     }
 }
 
-pub fn item_rating_btn(
-    label: &'static str,
-    btn_rating: Rating,
-    current_rating: Option<Rating>,
-    item_key: String,
-    mut ir_rev: Signal<u32>,
+pub fn render_section(section: &Section) -> Element {
+    match section {
+        Section::Header(header) => rsx! {
+            h2 {
+                font_size: "0.62rem",
+                font_weight: "700",
+                color: base16::BASE03,
+                text_transform: "uppercase",
+                letter_spacing: "0.1em",
+                margin: "1.75rem 0 0.375rem 0",
+                "{header}"
+            }
+        },
+        Section::Paragraph(text) => rsx! {
+            p {
+                font_size: "0.875rem",
+                color: base16::BASE05,
+                line_height: "1.75",
+                margin: "0 0 1rem 0",
+                {render_inline(text)}
+            }
+        },
+        Section::Image(raw) => {
+            let (url, caption) = source_parts(raw);
+            rsx! {
+                figure { margin: "1.25rem 0",
+                    img {
+                        src: "{url}",
+                        alt: "{caption}",
+                        width: "100%",
+                        border_radius: "0.375rem",
+                        display: "block",
+                    }
+                    figcaption {
+                        font_size: "0.7rem",
+                        color: base16::BASE03,
+                        margin_top: "0.375rem",
+                        text_align: "center",
+                        "{caption}"
+                    }
+                }
+            }
+        }
+        Section::List(items) => rsx! {
+            ul {
+                margin: "0 0 1.25rem 0",
+                padding_left: "1.25rem",
+                display: "flex",
+                flex_direction: "column",
+                gap: "0.375rem",
+                for item in items {
+                    li {
+                        font_size: "0.875rem",
+                        color: base16::BASE05,
+                        line_height: "1.6",
+                        if let Some((header, text)) = item.split_once('~') {
+                            span { font_weight: "700", "{header}" }
+                            " "
+                            {render_inline(text)}
+                        } else {
+                            {render_inline(item)}
+                        }
+                    }
+                }
+            }
+        },
+        Section::RowBoxes(items) => rsx! {
+            div {
+                display: "flex",
+                flex_direction: "column",
+                gap: "0.5rem",
+                margin: "0 0 1.25rem 0",
+                for item in items {
+                    {render_box_item(item)}
+                }
+            }
+        },
+        Section::ColumnBoxes(items) => rsx! {
+            div {
+                display: "flex",
+                flex_wrap: "wrap",
+                gap: "0.5rem",
+                margin: "0 0 1.25rem 0",
+                for item in items {
+                    div { flex: "1", min_width: "0", {render_box_item(item)} }
+                }
+            }
+        },
+    }
+}
+
+// Shared pill-shaped button used for all status/rating controls.
+#[component]
+fn PillButton(
+    label: String,
+    active: bool,
+    color: &'static str,
+    onclick: EventHandler<MouseEvent>,
 ) -> Element {
-    let active = current_rating == Some(btn_rating);
-    let color = rating_color(btn_rating);
-    let bg = if active { color } else { "transparent" };
-    let text_col = if active {
-        base16::BASE01
-    } else {
-        base16::BASE04
-    };
-    let border = format!("1px solid {}", if active { color } else { base16::BASE02 });
+    let border_color = if active { color } else { base16::BASE02 };
     rsx! {
         button {
-            font_size: "0.6rem",
-            padding: "0.15rem 0.5rem",
+            font_size: "0.62rem",
+            font_weight: if active { "600" } else { "400" },
+            padding: "0.2rem 0.625rem",
             border_radius: "9999px",
-            background_color: bg,
-            color: text_col,
-            border,
+            background_color: if active { color } else { "transparent" },
+            color: if active { base16::BASE01 } else { base16::BASE04 },
+            border: "1px solid {border_color}",
             cursor: "pointer",
-            onclick: move |_| {
-                let k = item_key.clone();
-                spawn(async move {
-                    let _ = set_item_rating(k, btn_rating).await;
-                    *ir_rev.write() += 1;
-                });
-            },
+            onclick,
             "{label}"
         }
     }
 }
 
+// Floating rating popup shared by rated_tag and source_pill.
+#[component]
+fn RatingPopup(item_key: String, item_ratings: Signal<HashMap<String, Rating>>) -> Element {
+    let current = item_ratings.read().get(&item_key).copied();
+    rsx! {
+        div {
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: "0",
+            z_index: "10",
+            background_color: base16::BASE01,
+            border: "1px solid {base16::BASE02}",
+            border_radius: "0.5rem",
+            padding: "0.25rem 0.375rem",
+            display: "flex",
+            gap: "0.25rem",
+            for (label, r) in [
+                ("Hate", Rating::Hated),
+                ("Dislike", Rating::Disliked),
+                ("Neutral", Rating::Neutral),
+                ("Like", Rating::Liked),
+                ("Love", Rating::Loved),
+            ]
+            {
+                PillButton {
+                    label: label.to_string(),
+                    active: current == Some(r),
+                    color: rating_color(r),
+                    onclick: {
+                        let k = item_key.clone();
+                        move |_| {
+                            let k = k.clone(); // clone per-call so closure stays FnMut
+                            let mut ir = item_ratings;
+                            async move {
+                                let _ = set_item_rating(k.clone(), r).await;
+                                ir.write().insert(k, r);
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+// Tag with a rating dot and hover popup.
 #[component]
 pub fn rated_tag(
     label: String,
     item_key: String,
-    rating: Option<Rating>,
     tag_color: &'static str,
-    ir_rev: Signal<u32>,
+    item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
     let mut hovered = use_signal(|| false);
-    let dot_color = rating.map_or("transparent", rating_color);
-    let border = format!("1px solid {tag_color}");
+    let rating = item_ratings.read().get(&item_key).copied();
+    let dot = rating.map_or("transparent", rating_color);
 
     rsx! {
         div {
@@ -219,7 +319,7 @@ pub fn rated_tag(
             font_size: "0.62rem",
             padding: "0.125rem 0.625rem",
             background_color: "rgba(0,0,0,0.15)",
-            border,
+            border: "1px solid {tag_color}",
             border_radius: "9999px",
             color: tag_color,
             onmouseenter: move |_| hovered.set(true),
@@ -229,39 +329,25 @@ pub fn rated_tag(
                 height: "5px",
                 min_width: "5px",
                 border_radius: "50%",
-                background_color: dot_color,
+                background_color: dot,
                 opacity: if rating.is_some() { "1" } else { "0" },
             }
             span { "{label}" }
             if *hovered.read() {
-                div {
-                    position: "absolute",
-                    top: "calc(100% + 4px)",
-                    left: "0",
-                    z_index: "10",
-                    background_color: base16::BASE01,
-                    border: "1px solid {base16::BASE02}",
-                    border_radius: "0.5rem",
-                    padding: "0.25rem 0.375rem",
-                    display: "flex",
-                    gap: "0.25rem",
-                    {item_rating_btn("Hate", Rating::Hated, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Dislike", Rating::Disliked, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Neutral", Rating::Neutral, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Like", Rating::Liked, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Love", Rating::Loved, rating, item_key, ir_rev)}
-                }
+                RatingPopup { item_key, item_ratings }
             }
         }
     }
 }
 
+// Source link with a rating dot and hover popup.
 #[component]
-pub fn source_pill(url: String, rating: Option<Rating>, ir_rev: Signal<u32>) -> Element {
+pub fn source_pill(url: String, item_ratings: Signal<HashMap<String, Rating>>) -> Element {
     let mut hovered = use_signal(|| false);
     let domain = clean_url(&url);
     let item_key = format!("source:{domain}");
-    let dot_color = rating.map_or("transparent", rating_color);
+    let rating = item_ratings.read().get(&item_key).copied();
+    let dot = rating.map_or("transparent", rating_color);
 
     rsx! {
         div {
@@ -281,7 +367,7 @@ pub fn source_pill(url: String, rating: Option<Rating>, ir_rev: Signal<u32>) -> 
                 height: "5px",
                 min_width: "5px",
                 border_radius: "50%",
-                background_color: dot_color,
+                background_color: dot,
                 opacity: if rating.is_some() { "1" } else { "0" },
             }
             a {
@@ -293,23 +379,7 @@ pub fn source_pill(url: String, rating: Option<Rating>, ir_rev: Signal<u32>) -> 
                 "{domain}"
             }
             if *hovered.read() {
-                div {
-                    position: "absolute",
-                    top: "calc(100% + 4px)",
-                    left: "0",
-                    z_index: "10",
-                    background_color: base16::BASE01,
-                    border: "1px solid {base16::BASE02}",
-                    border_radius: "0.5rem",
-                    padding: "0.25rem 0.375rem",
-                    display: "flex",
-                    gap: "0.25rem",
-                    {item_rating_btn("Hate", Rating::Hated, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Dislike", Rating::Disliked, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Neutral", Rating::Neutral, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Like", Rating::Liked, rating, item_key.clone(), ir_rev)}
-                    {item_rating_btn("Love", Rating::Loved, rating, item_key, ir_rev)}
-                }
+                RatingPopup { item_key, item_ratings }
             }
         }
     }
@@ -320,34 +390,23 @@ pub fn status_button(
     this_status: ArticleStatus,
     current: ArticleStatus,
     id: Uuid,
-    mut ua_rev: Signal<u32>,
+    mut articles: Signal<Vec<ArticleData>>,
 ) -> Element {
-    let active = current == this_status;
-    let color = status_color(this_status);
-    let bg = if active { color } else { "transparent" };
-    let text_col = if active {
-        base16::BASE01
-    } else {
-        base16::BASE04
-    };
-    let border = format!("1px solid {}", if active { color } else { base16::BASE02 });
     rsx! {
-        button {
-            font_size: "0.62rem",
-            font_weight: if active { "600" } else { "400" },
-            padding: "0.2rem 0.625rem",
-            border_radius: "9999px",
-            background_color: bg,
-            color: text_col,
-            border,
-            cursor: "pointer",
-            onclick: move |_| {
-                spawn(async move {
-                    let _ = set_article_status(id, this_status).await;
-                    *ua_rev.write() += 1;
-                });
+        PillButton {
+            label: label.to_string(),
+            active: current == this_status,
+            color: status_color(this_status),
+            onclick: move |_| async move {
+                let _ = set_article_status(id, this_status).await;
+                if let Some((_, s, _, _)) = articles
+                    .write()
+                    .iter_mut()
+                    .find(|(i, _, _, _)| *i == id)
+                {
+                    *s = this_status;
+                }
             },
-            "{label}"
         }
     }
 }
@@ -357,34 +416,23 @@ pub fn rating_button(
     this_rating: Rating,
     current: Option<Rating>,
     id: Uuid,
-    mut ua_rev: Signal<u32>,
+    mut articles: Signal<Vec<ArticleData>>,
 ) -> Element {
-    let active = current == Some(this_rating);
-    let color = rating_color(this_rating);
-    let bg = if active { color } else { "transparent" };
-    let text_col = if active {
-        base16::BASE01
-    } else {
-        base16::BASE04
-    };
-    let border = format!("1px solid {}", if active { color } else { base16::BASE02 });
     rsx! {
-        button {
-            font_size: "0.62rem",
-            font_weight: if active { "600" } else { "400" },
-            padding: "0.2rem 0.625rem",
-            border_radius: "9999px",
-            background_color: bg,
-            color: text_col,
-            border,
-            cursor: "pointer",
-            onclick: move |_| {
-                spawn(async move {
-                    let _ = set_rating(id, this_rating).await;
-                    *ua_rev.write() += 1;
-                });
+        PillButton {
+            label: label.to_string(),
+            active: current == Some(this_rating),
+            color: rating_color(this_rating),
+            onclick: move |_| async move {
+                let _ = set_rating(id, this_rating).await;
+                if let Some((_, _, r, _)) = articles
+                    .write()
+                    .iter_mut()
+                    .find(|(i, _, _, _)| *i == id)
+                {
+                    *r = Some(this_rating);
+                }
             },
-            "{label}"
         }
     }
 }
