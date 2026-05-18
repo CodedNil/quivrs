@@ -1,4 +1,3 @@
-add categories like tech news etc
 
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
@@ -6,8 +5,16 @@ better ground with citations embedded
 two column list for pros/cons
 images grid 2x1
 
-split into for sure loved which is the main feed, this includes sources you want 100% of the videos from like youtube videos
-then a feed for explore which is ones you might like, 0.7-0.9
-then another feed for ones that are meh, for if you are bored, 0.5-0.7
+
+liked sources, categories
+can set verge to loved which automatically pushes up the estimated_liked for anything from the verge so that 100% of its articles are pushed to the main feed
+or dislike the category sports so its much less likely to be shown
+
+new feed should show all the 100% estimated liked articles always as a dropdown
+then it has a button called explore which pops out another 10 of the top estimated_liked articles (the generate button also shows as Generate 70% when we are currently showing 0.7 estimated_liked)
+
+estimate the like by comparing the embedding against the average hated, disliked, neutral, liked and loved
+then we get the number by similarity to those
+
 
 support youtube feeds, twitter user posts, subreddits as sources

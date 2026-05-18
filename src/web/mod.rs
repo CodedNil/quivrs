@@ -1,14 +1,31 @@
 mod components;
 
-use crate::shared::{
-    ArticleType, Category, Section, StoredArticle, server_functions::get_articles,
+use crate::{
+    shared::{
+        ArticleStatus, Rating, Section, StoredArticle, UserArticle,
+        server_functions::{get_all_item_ratings, get_articles, get_user_articles},
+    },
+    web::components::{
+        base16, clean_url, image_figure, rated_tag, rating_button, rating_color, render_box_item,
+        render_inline, source_parts, source_pill, status_button,
+    },
 };
-use components::{base16, image_figure};
 use dioxus::prelude::*;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub fn app() -> Element {
     let articles = use_resource(get_articles);
+    let ua_rev = use_signal(|| 0u32);
+    let user_articles = use_resource(move || {
+        let _rev = ua_rev();
+        get_user_articles()
+    });
+    let ir_rev = use_signal(|| 0u32);
+    let item_ratings = use_resource(move || {
+        let _rev = ir_rev();
+        get_all_item_ratings()
+    });
     let selected = use_signal(|| Option::<Uuid>::None);
 
     rsx! {
@@ -40,30 +57,71 @@ pub fn app() -> Element {
                     }
                 }
                 div { overflow_y: "auto", flex: "1",
-                    match &*articles.read_unchecked() {
-                        Some(Ok(list)) => rsx! {
-                            for article in list {
-                                article_item { key: "{article.id}", article: article.clone(), selected }
+                    {
+                        match (&*articles.read_unchecked(), &*user_articles.read_unchecked()) {
+                            (Some(Ok(arts)), Some(Ok(uas))) => {
+                                let art_map =
+                                    arts.iter().map(|a| (a.id, a)).collect::<HashMap<_, _>>();
+                                let mut new_v = Vec::new();
+                                let mut stored_v = Vec::new();
+                                let mut binned_v = Vec::new();
+                                for ua in uas {
+                                    if let Some(&art) = art_map.get(&ua.article_id) {
+                                        match ua.status {
+                                            ArticleStatus::New => {
+                                                new_v.push((art.clone(), ua.clone()));
+                                            }
+                                            ArticleStatus::Stored => {
+                                                stored_v.push((art.clone(), ua.clone()));
+                                            }
+                                            ArticleStatus::Binned => {
+                                                binned_v.push((art.clone(), ua.clone()));
+                                            }
+                                        }
+                                    }
+                                }
+                                rsx! {
+                                    {sidebar_section("New", new_v, selected)}
+                                    {sidebar_section("Stored", stored_v, selected)}
+                                    {sidebar_section("Binned", binned_v, selected)}
+                                }
                             }
-                        },
-                        Some(Err(e)) => rsx! {
-                            p { padding: "1.25rem", font_size: "0.75rem", color: base16::BASE08, "Error: {e}" }
-                        },
-                        None => rsx! {
-                            p { padding: "1.25rem", font_size: "0.75rem", color: base16::BASE03, "Loading..." }
-                        },
+                            (Some(Err(e)), _) | (_, Some(Err(e))) => rsx! {
+                                p { padding: "1.25rem", font_size: "0.75rem", color: base16::BASE08, "Error: {e}" }
+                            },
+                            _ => rsx! {
+                                p { padding: "1.25rem", font_size: "0.75rem", color: base16::BASE03, "Loading..." }
+                            },
+                        }
                     }
                 }
             }
             main { flex: "1", overflow_y: "auto",
                 {
-                    match (*selected.read(), &*articles.read_unchecked()) {
-                        (Some(id), Some(Ok(list))) => {
-                            list.iter()
-                                .find(|a| a.id == id)
-                                .map_or_else(|| rsx! {}, |article| rsx! {
-                                    article_detail { article: article.clone() }
-                                })
+                    let ir_map = match &*item_ratings.read_unchecked() {
+                        Some(Ok(m)) => m.clone(),
+                        _ => HashMap::new(),
+                    };
+                    match (
+                        *selected.read(),
+                        &*articles.read_unchecked(),
+                        &*user_articles.read_unchecked(),
+                    ) {
+                        (Some(id), Some(Ok(arts)), Some(Ok(uas))) => {
+                            let art = arts.iter().find(|a| a.id == id);
+                            let ua = uas.iter().find(|ua| ua.article_id == id);
+                            match (art, ua) {
+                                (Some(art), Some(ua)) => rsx! {
+                                    article_detail {
+                                        article: art.clone(),
+                                        user_article: ua.clone(),
+                                        ua_rev,
+                                        item_ratings: ir_map,
+                                        ir_rev,
+                                    }
+                                },
+                                _ => rsx! {},
+                            }
                         }
                         _ => rsx! {
                             div {
@@ -71,7 +129,7 @@ pub fn app() -> Element {
                                 align_items: "center",
                                 justify_content: "center",
                                 height: "100%",
-                                color: base16::BASE05,
+                                color: base16::BASE04,
                                 font_size: "0.875rem",
                                 "Select an article to read"
                             }
@@ -83,98 +141,57 @@ pub fn app() -> Element {
     }
 }
 
-fn source_parts(s: &str) -> (&str, &str) {
-    s.split_once('~').unwrap_or(("", s))
-}
-
-fn render_inline(text: &str) -> Element {
-    let mut elements: Vec<Element> = Vec::new();
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    let mut plain_start = 0;
-
-    while i < bytes.len() {
-        let b = bytes[i];
-        if (b == b'*' || b == b'_')
-            && let Some(rel_end) = bytes[i + 1..].iter().position(|&x| x == b)
-        {
-            let end = rel_end + i + 1;
-            if i > plain_start {
-                let s = text[plain_start..i].to_string();
-                elements.push(rsx! {
-                    span { "{s}" }
-                });
-            }
-            let s = text[i + 1..end].to_string();
-            if b == b'*' {
-                elements.push(rsx! {
-                    span { font_weight: "700", "{s}" }
-                });
-            } else {
-                elements.push(rsx! {
-                    span { font_style: "italic", "{s}" }
-                });
-            }
-            i = end + 1;
-            plain_start = i;
-            continue;
-        }
-        i += 1;
-    }
-
-    if plain_start < bytes.len() {
-        let s = text[plain_start..].to_string();
-        elements.push(rsx! {
-            span { "{s}" }
-        });
-    }
-
+fn sidebar_section(
+    label: &str,
+    items: Vec<(StoredArticle, UserArticle)>,
+    selected: Signal<Option<Uuid>>,
+) -> Element {
     rsx! {
-        {elements.into_iter()}
-
-    }
-}
-
-const fn article_type_label(t: &ArticleType) -> &'static str {
-    match t {
-        ArticleType::BreakingNews => "Breaking News",
-        ArticleType::News => "News",
-        ArticleType::Opinion => "Opinion",
-        ArticleType::Marketing => "Marketing",
-        ArticleType::Sale => "Sale",
-        ArticleType::Review => "Review",
-        ArticleType::Blog => "Blog",
-        ArticleType::Newsletter => "Newsletter",
-        ArticleType::Video => "Video",
-        ArticleType::Post => "Post",
-    }
-}
-
-const fn category_label(c: &Category) -> &'static str {
-    match c {
-        Category::World => "World",
-        Category::Business => "Business",
-        Category::Culture => "Culture",
-        Category::Politics => "Politics",
-        Category::Health => "Health",
-        Category::Technology => "Technology",
-        Category::Science => "Science",
-        Category::Education => "Education",
-        Category::Sports => "Sports",
-        Category::Gaming => "Gaming",
+        div {
+            padding: "0.75rem 1.25rem 0.25rem",
+            display: "flex",
+            justify_content: "space-between",
+            align_items: "center",
+            span {
+                font_size: "0.62rem",
+                font_weight: "700",
+                letter_spacing: "0.1em",
+                text_transform: "uppercase",
+                color: base16::BASE03,
+                "{label}"
+            }
+            span {
+                font_size: "0.62rem",
+                color: base16::BASE03,
+                background_color: base16::BASE02,
+                padding: "0.1rem 0.4rem",
+                border_radius: "9999px",
+                "{items.len()}"
+            }
+        }
+        for (art, ua) in items {
+            article_item {
+                key: "{art.id}",
+                article: art,
+                user_article: ua,
+                selected,
+            }
+        }
     }
 }
 
 #[component]
-fn article_item(article: StoredArticle, mut selected: Signal<Option<Uuid>>) -> Element {
+fn article_item(
+    article: StoredArticle,
+    user_article: UserArticle,
+    mut selected: Signal<Option<Uuid>>,
+) -> Element {
     let is_selected = *selected.read() == Some(article.id);
     let mut hovered = use_signal(|| false);
 
     let Some(entry) = &article.entry else {
         return rsx! {};
     };
-
-    let (title, description) = (entry.title.as_str(), entry.description.as_str());
 
     let bg = if is_selected {
         "rgba(23, 37, 84, 0.4)"
@@ -189,11 +206,12 @@ fn article_item(article: StoredArticle, mut selected: Signal<Option<Uuid>>) -> E
         "3px solid transparent".to_string()
     };
     let pl = if is_selected { "17px" } else { "1.25rem" };
+    let dot_color = user_article.rating.map_or("transparent", rating_color);
 
     rsx! {
         div {
-            padding_top: "0.875rem",
-            padding_bottom: "0.875rem",
+            padding_top: "0.75rem",
+            padding_bottom: "0.75rem",
             padding_right: "1.25rem",
             padding_left: pl,
             cursor: "pointer",
@@ -203,55 +221,35 @@ fn article_item(article: StoredArticle, mut selected: Signal<Option<Uuid>>) -> E
             onclick: move |_| selected.set(Some(article.id)),
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
-            h3 {
-                font_size: "0.75rem",
-                font_weight: "600",
-                color: base16::BASE05,
-                line_height: "1.375",
-                margin: "0 0 0.25rem 0",
-                "{title}"
+            div {
+                display: "flex",
+                align_items: "center",
+                gap: "0.4rem",
+                margin_bottom: "0.25rem",
+                div {
+                    width: "7px",
+                    height: "7px",
+                    min_width: "7px",
+                    border_radius: "50%",
+                    background_color: dot_color,
+                    opacity: if user_article.rating.is_some() { "1" } else { "0" },
+                }
+                h3 {
+                    font_size: "0.75rem",
+                    font_weight: "600",
+                    color: base16::BASE05,
+                    line_height: "1.375",
+                    margin: "0",
+                    "{entry.title}"
+                }
             }
             p {
                 font_size: "0.68rem",
                 color: base16::BASE05,
                 line_height: "1.625",
                 margin: "0",
-                "{description}"
-            }
-        }
-    }
-}
-
-fn render_box_item(item: &str) -> Element {
-    rsx! {
-        div {
-            background_color: base16::BASE01,
-            border: "1px solid {base16::BASE02}",
-            border_radius: "0.375rem",
-            padding: "0.625rem 0.875rem",
-            if let Some((header, text)) = item.split_once('~') {
-                div {
-                    font_size: "0.62rem",
-                    font_weight: "700",
-                    color: base16::BASE03,
-                    text_transform: "uppercase",
-                    letter_spacing: "0.08em",
-                    margin_bottom: "0.25rem",
-                    "{header}"
-                }
-                div {
-                    font_size: "0.875rem",
-                    color: base16::BASE05,
-                    line_height: "1.5",
-                    {render_inline(text)}
-                }
-            } else {
-                div {
-                    font_size: "0.875rem",
-                    color: base16::BASE05,
-                    line_height: "1.5",
-                    {render_inline(item)}
-                }
+                padding_left: "1.1rem",
+                "{entry.description}"
             }
         }
     }
@@ -270,17 +268,15 @@ fn render_section(section: &Section) -> Element {
                 "{header}"
             }
         },
-        Section::Paragraph(text) => {
-            rsx! {
-                p {
-                    font_size: "0.875rem",
-                    color: base16::BASE05,
-                    line_height: "1.75",
-                    margin: "0 0 1rem 0",
-                    {render_inline(text)}
-                }
+        Section::Paragraph(text) => rsx! {
+            p {
+                font_size: "0.875rem",
+                color: base16::BASE05,
+                line_height: "1.75",
+                margin: "0 0 1rem 0",
+                {render_inline(text)}
             }
-        }
+        },
         Section::Image(raw) => {
             let (url, caption) = source_parts(raw);
             rsx! {
@@ -345,11 +341,16 @@ fn render_section(section: &Section) -> Element {
 }
 
 #[component]
-fn article_detail(article: StoredArticle) -> Element {
-    let updated = article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string();
-    let Some(entry) = &article.entry else {
-        return rsx! {};
-    };
+fn article_detail(
+    article: StoredArticle,
+    user_article: UserArticle,
+    ua_rev: Signal<u32>,
+    item_ratings: HashMap<String, Rating>,
+    ir_rev: Signal<u32>,
+) -> Element {
+    let id = article.id;
+    let status = user_article.status;
+    let rating = user_article.rating;
 
     rsx! {
         article {
@@ -358,84 +359,97 @@ fn article_detail(article: StoredArticle) -> Element {
             margin_right: "auto",
             padding_left: "2.5rem",
             padding_right: "2.5rem",
-            padding_top: "3rem",
+            padding_top: "2rem",
             padding_bottom: "5rem",
 
-            h1 {
-                font_size: "1.5rem",
-                font_weight: "700",
-                line_height: "1.25",
-                color: base16::BASE05,
-                margin: "0 0 0.375rem 0",
-                "{entry.title}"
-            }
-            p {
-                font_size: "0.7rem",
-                color: base16::BASE03,
-                margin: "0 0 1rem 0",
-                "{updated}"
-            }
-            p {
-                font_size: "0.875rem",
-                color: base16::BASE05,
-                line_height: "1.625",
-                margin: "0 0 1.25rem 0",
-                font_style: "italic",
-                padding_left: "0.875rem",
-                border_left: "2px solid {base16::BASE02}",
-                "{entry.description}"
-            }
             div {
                 display: "flex",
-                flex_wrap: "wrap",
-                gap: "0.375rem",
-                margin_bottom: "0.75rem",
-                for tag in &entry.tags {
-                    span {
-                        font_size: "0.62rem",
-                        padding: "0.125rem 0.625rem",
-                        background_color: base16::BASE02,
-                        border: "1px solid {base16::BASE02}",
-                        border_radius: "9999px",
-                        color: base16::BASE05,
-                        "{tag}"
-                    }
+                align_items: "center",
+                justify_content: "space-between",
+                padding_bottom: "1rem",
+                margin_bottom: "1.5rem",
+                border_bottom: "1px solid {base16::BASE02}",
+                div { display: "flex", gap: "0.375rem",
+                    {status_button("New", ArticleStatus::New, status, id, ua_rev)}
+                    {status_button("Store", ArticleStatus::Stored, status, id, ua_rev)}
+                    {status_button("Bin", ArticleStatus::Binned, status, id, ua_rev)}
                 }
-            }
-            div { display: "flex", gap: "0.5rem", margin_bottom: "1.75rem",
-                if entry.sponsored {
-                    span {
-                        font_size: "0.62rem",
-                        padding: "0.125rem 0.625rem",
-                        background_color: "rgba(198,160,246,0.12)",
-                        border: "1px solid {base16::BASE0E}",
-                        border_radius: "9999px",
-                        color: base16::BASE0E,
-                        "Sponsored"
-                    }
-                }
-                span {
-                    font_size: "0.62rem",
-                    padding: "0.125rem 0.625rem",
-                    background_color: "rgba(198,160,246,0.12)",
-                    border: "1px solid {base16::BASE0E}",
-                    border_radius: "9999px",
-                    color: base16::BASE0E,
-                    {article_type_label(&entry.article_type)}
-                }
-                span {
-                    font_size: "0.62rem",
-                    padding: "0.125rem 0.625rem",
-                    background_color: "rgba(166,218,149,0.12)",
-                    border: "1px solid {base16::BASE0B}",
-                    border_radius: "9999px",
-                    color: base16::BASE0B,
-                    {category_label(&entry.category)}
+                div { display: "flex", gap: "0.25rem",
+                    {rating_button("Hate", Rating::Hated, rating, id, ua_rev)}
+                    {rating_button("Dislike", Rating::Disliked, rating, id, ua_rev)}
+                    {rating_button("Neutral", Rating::Neutral, rating, id, ua_rev)}
+                    {rating_button("Like", Rating::Liked, rating, id, ua_rev)}
+                    {rating_button("Love", Rating::Loved, rating, id, ua_rev)}
                 }
             }
 
-            for section in &entry.sections {
-                {render_section(section)}
+            if let Some(entry) = &article.entry {
+                h1 {
+                    font_size: "1.5rem",
+                    font_weight: "700",
+                    line_height: "1.25",
+                    color: base16::BASE05,
+                    margin: "0 0 0.375rem 0",
+                    "{entry.title}"
+                }
+                p {
+                    font_size: "0.7rem",
+                    color: base16::BASE03,
+                    margin: "0 0 1rem 0",
+                    {article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string()}
+                }
+                p {
+                    font_size: "0.875rem",
+                    color: base16::BASE05,
+                    line_height: "1.625",
+                    margin: "0 0 1.25rem 0",
+                    font_style: "italic",
+                    padding_left: "0.875rem",
+                    border_left: "2px solid {base16::BASE02}",
+                    "{entry.description}"
+                }
+                div {
+                    display: "flex",
+                    flex_wrap: "wrap",
+                    gap: "0.375rem",
+                    align_items: "center",
+                    margin_bottom: "1.75rem",
+                    if entry.sponsored {
+                        span {
+                            font_size: "0.62rem",
+                            padding: "0.125rem 0.625rem",
+                            background_color: "rgba(198,160,246,0.12)",
+                            border: "1px solid {base16::BASE0E}",
+                            border_radius: "9999px",
+                            color: base16::BASE0E,
+                            "Sponsored"
+                        }
+                    }
+                    rated_tag {
+                        label: entry.article_type.to_string(),
+                        item_key: format!("article_type:{}", entry.article_type),
+                        rating: item_ratings.get(&format!("article_type:{}", entry.article_type)).copied(),
+                        tag_color: base16::BASE0E,
+                        ir_rev,
+                    }
+                    rated_tag {
+                        label: entry.category.to_string(),
+                        item_key: format!("category:{}", entry.category),
+                        rating: item_ratings.get(&format!("category:{}", entry.category)).copied(),
+                        tag_color: base16::BASE0B,
+                        ir_rev,
+                    }
+                }
+                for section in &entry.sections {
+                    {render_section(section)}
+                }
+            } else {
+                p {
+                    font_size: "0.875rem",
+                    color: base16::BASE04,
+                    font_style: "italic",
+                    "Article content is being generated..."
+                }
             }
 
             div {
@@ -449,20 +463,15 @@ fn article_detail(article: StoredArticle) -> Element {
                     margin: "0 0 0.625rem 0",
                     "Original Sources"
                 }
-                for source in &article.sources {
-                    a {
-                        display: "block",
-                        font_size: "0.75rem",
-                        color: base16::BASE05,
-                        text_decoration: "none",
-                        margin_bottom: "0.375rem",
-                        overflow: "hidden",
-                        text_overflow: "ellipsis",
-                        white_space: "nowrap",
-                        href: "{source.url}",
-                        target: "_blank",
-                        rel: "noopener noreferrer",
-                        "{source.title}"
+                div { display: "flex", flex_wrap: "wrap", gap: "0.5rem",
+                    for source in &article.sources {
+                        source_pill {
+                            url: source.url.clone(),
+                            rating: item_ratings
+                                                                                        .get(&format!("source:{}", clean_url(&source.url)))
+                                                                                        .copied(),
+                            ir_rev,
+                        }
                     }
                 }
             }

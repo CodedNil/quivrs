@@ -1,9 +1,12 @@
-use crate::shared::{ArticleEntry, ArticleSource, StoredArticle};
+use crate::shared::{
+    ArticleEntry, ArticleSource, ArticleStatus, Rating, StoredArticle, UserArticle,
+};
 use anyhow::{Result, anyhow};
 use chrono::DateTime;
 use rusqlite::{Connection, params};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
+    collections::HashMap,
     env,
     sync::{LazyLock, Mutex},
 };
@@ -31,6 +34,19 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
          CREATE TABLE IF NOT EXISTS article_urls (
              url        TEXT PRIMARY KEY,
              article_id TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS user_articles (
+             article_id TEXT PRIMARY KEY,
+             status     TEXT NOT NULL DEFAULT 'new',
+             binned_at  INTEGER
+         );
+         CREATE TABLE IF NOT EXISTS article_ratings (
+             article_id TEXT PRIMARY KEY,
+             rating     TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS item_ratings (
+             key    TEXT PRIMARY KEY,
+             rating TEXT NOT NULL
          );",
     )
     .expect("Failed to initialize database schema");
@@ -111,6 +127,10 @@ pub fn insert_article(source: &ArticleSource, embedding: &[f32]) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO article_urls (url, article_id) VALUES (?1, ?2)",
         params![url, id.to_string()],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO user_articles (article_id, status) VALUES (?1, 'new')",
+        params![id.to_string()],
     )?;
     drop(conn);
     Ok(())
@@ -215,4 +235,95 @@ pub fn get_all_articles() -> Result<Vec<StoredArticle>> {
     drop(stmt);
     drop(conn);
     Ok(articles)
+}
+
+pub fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
+    let binned_at: Option<i64> = if status == ArticleStatus::Binned {
+        Some(chrono::Utc::now().timestamp())
+    } else {
+        None
+    };
+    let conn = DB.lock().unwrap();
+    conn.execute(
+        "INSERT INTO user_articles (article_id, status, binned_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(article_id) DO UPDATE SET status = excluded.status, binned_at = excluded.binned_at",
+        params![article_id.to_string(), status.to_string(), binned_at],
+    )?;
+    drop(conn);
+    Ok(())
+}
+
+pub fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
+    let conn = DB.lock().unwrap();
+    conn.execute(
+        "INSERT INTO article_ratings (article_id, rating) VALUES (?1, ?2)
+         ON CONFLICT(article_id) DO UPDATE SET rating = excluded.rating",
+        params![article_id.to_string(), rating.to_string()],
+    )?;
+    drop(conn);
+    Ok(())
+}
+
+pub fn get_user_articles() -> Result<Vec<UserArticle>> {
+    let conn = DB.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT ua.article_id, ua.status, ar.rating
+         FROM user_articles ua
+         LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
+         LEFT JOIN articles a ON ua.article_id = a.id
+         ORDER BY a.published DESC",
+    )?;
+    let result = stmt
+        .query_and_then([], |row| -> Result<UserArticle> {
+            let id_str: String = row.get(0)?;
+            let status_str: String = row.get(1)?;
+            let rating_str: Option<String> = row.get(2)?;
+            Ok(UserArticle {
+                article_id: Uuid::parse_str(&id_str).map_err(|e| anyhow!("{e}"))?,
+                status: status_str.parse().map_err(|e| anyhow!("{e}"))?,
+                rating: rating_str.as_deref().and_then(|s| s.parse().ok()),
+            })
+        })?
+        .filter_map(Result::ok)
+        .collect();
+    drop(stmt);
+    drop(conn);
+    Ok(result)
+}
+
+pub fn cleanup_binned(days: i64) -> Result<()> {
+    let cutoff = chrono::Utc::now().timestamp() - days * 86_400;
+    let conn = DB.lock().unwrap();
+    conn.execute(
+        "DELETE FROM user_articles WHERE status = 'binned' AND binned_at < ?1",
+        params![cutoff],
+    )?;
+    drop(conn);
+    Ok(())
+}
+
+pub fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
+    let conn = DB.lock().unwrap();
+    conn.execute(
+        "INSERT INTO item_ratings (key, rating) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET rating = excluded.rating",
+        params![key, rating.to_string()],
+    )?;
+    drop(conn);
+    Ok(())
+}
+
+pub fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
+    let conn = DB.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT key, rating FROM item_ratings")?;
+    let ratings = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .filter_map(Result::ok)
+        .filter_map(|(key, rating_str)| Some((key, rating_str.parse::<Rating>().ok()?)))
+        .collect();
+    drop(stmt);
+    drop(conn);
+    Ok(ratings)
 }

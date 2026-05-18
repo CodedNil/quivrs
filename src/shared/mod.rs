@@ -1,8 +1,10 @@
+#[allow(clippy::unused_async)]
 pub mod server_functions;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -28,7 +30,7 @@ impl PartialEq for StoredArticle {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Eq)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ArticleSource {
     pub url: String,
     pub title: String,
@@ -43,7 +45,7 @@ impl PartialEq for ArticleSource {
         self.url == other.url
     }
 }
-
+impl Eq for ArticleSource {}
 impl std::hash::Hash for ArticleSource {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.url.hash(state);
@@ -63,9 +65,6 @@ pub struct ArticleEntry {
     /// You can and should use sections multiple times throughout the article, multiple paragraphs and multiple images.
     /// Often include Highlights and Perspectives (Boxes with Header)
     pub sections: Vec<Section>,
-
-    /// Descriptive tags, lowercase and hyphen-separated (e.g. technology, ai, machine-learning).
-    pub tags: Vec<String>,
 
     pub article_type: ArticleType,
     pub category: Category,
@@ -107,7 +106,8 @@ pub enum Section {
     ColumnBoxes(Vec<String>),
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
+#[strum(serialize_all = "title_case")]
 pub enum ArticleType {
     BreakingNews,
     News,
@@ -123,7 +123,8 @@ pub enum ArticleType {
     Post,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
+#[strum(serialize_all = "title_case")]
 pub enum Category {
     World,
     Business,
@@ -135,4 +136,27 @@ pub enum Category {
     Education,
     Sports,
     Gaming,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+pub enum ArticleStatus {
+    New,
+    Stored,
+    Binned,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+pub enum Rating {
+    Hated,
+    Disliked,
+    Neutral,
+    Liked,
+    Loved,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct UserArticle {
+    pub article_id: Uuid,
+    pub status: ArticleStatus,
+    pub rating: Option<Rating>,
 }

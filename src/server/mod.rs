@@ -30,6 +30,9 @@ pub fn start() {
             if let Err(err) = articles::regenerate_articles().await {
                 error!("Article regeneration failed: {err}");
             }
+            if let Err(err) = database::cleanup_binned(7) {
+                error!("Cleanup failed: {err}");
+            }
         }
     });
 }
