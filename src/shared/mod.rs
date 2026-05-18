@@ -68,8 +68,6 @@ pub struct ArticleEntry {
 
     pub article_type: ArticleType,
     pub category: Category,
-    /// Whether the article is sponsored and the authors are receiving compensation. Including if the article is heavily associated with affiliate links.
-    pub sponsored: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone)]
@@ -82,7 +80,7 @@ pub enum Section {
     Paragraph(String),
 
     /// Full width image with caption. "url~caption", include multiple of these throughout the article.
-    /// Try to include all the images available.
+    /// Try to include all the images available. Favour the highest resolution images available.
     Image(String),
 
     /// Simple bulleted list of items. Can have a title if written as "title~text" or just text.
@@ -108,17 +106,29 @@ pub enum Section {
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Display)]
 pub enum ArticleType {
+    /// News article that is important in the moment.
     BreakingNews,
+    /// Regular news article.
     News,
+    /// Opinion piece.
     Opinion,
 
+    /// Promotional content, such as a marketing campaign or highlight a sale.
     Marketing,
-    Sale,
+    /// Review of a product or service.
     Review,
+    /// Q&A session, transcript, or profile conversation with a specific person.
+    Interview,
+    /// Step-by-step tutorial, instructional content, or how-to documentation.
+    Guide,
 
+    /// An individuals blog post, highlighting a personal perspective or thought. Dev logs for products etc.
     Blog,
+    /// A more corporate blog piece, for larger projects or company announcements.
     Newsletter,
+    /// Video is the primary content.
     Video,
+    /// Social media post.
     Post,
 }
 
@@ -126,17 +136,29 @@ pub enum ArticleType {
     Serialize, Deserialize, JsonSchema, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub enum Category {
-    World,
+    /// Corporate, economy, finance, commerce, and startups.
     Business,
+    /// Government, elections, public policy, and geopolitics.
     Politics,
+    /// Court cases, legislation, legal systems, crime, and civil rights.
+    Law,
+    /// Medicine, healthcare, fitness, and mental wellness.
     Health,
+    /// Movies, TV, music, gaming, and celebrity news.
     Entertainment,
+    /// Arts, literature, history, philosophy, and societal traditions.
     Culture,
+    /// Travel, fashion, food, home, hobbies, and daily living.
     Lifestyle,
+    /// Climate, conservation, sustainability, and wildlife.
     Environment,
+    /// Software, AI, hardware, gadgets, and cybersecurity.
     Technology,
+    /// Space, physics, biology, and academic scientific research.
     Science,
+    /// Schools, universities, teaching, and educational policy.
     Education,
+    /// Teams, athletes, tournaments, and live athletic events.
     Sports,
 }
 

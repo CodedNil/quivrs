@@ -278,7 +278,7 @@ pub fn get_user_articles() -> Result<Vec<ArticleData>> {
             entry: row
                 .get::<_, Option<Vec<u8>>>(5)?
                 .map(|b| from_bytes(&b))
-                .transpose()?,
+                .transpose().unwrap_or_default(),
             embedding: vec![],
             published: DateTime::from_timestamp(row.get::<_, i64>(6)?, 0).unwrap_or_default(),
             updated_at: DateTime::from_timestamp(row.get::<_, i64>(7)?, 0).unwrap_or_default(),
