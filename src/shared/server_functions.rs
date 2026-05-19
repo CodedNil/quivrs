@@ -37,3 +37,10 @@ pub async fn set_item_rating(key: String, rating: Rating) -> Result<(), ServerFn
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
+
+#[server]
+pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<(), ServerFnError> {
+    crate::server::database::reclassify_articles(ids)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}

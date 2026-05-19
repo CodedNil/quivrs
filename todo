@@ -8,6 +8,7 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
 better ground with citations embedded
+rewrite sections to not be so hardcoded, let it generate html & css based on template components
 two column list for pros/cons
 images grid 2x1
 let it format paragraphs, text in boxes etc as markdown

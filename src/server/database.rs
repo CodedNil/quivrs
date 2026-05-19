@@ -1,13 +1,10 @@
-use crate::{
-    server::embeddings::{MODEL_NAME, generate_article_embeddings},
-    shared::{
-        ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
-        StoredArticle,
-    },
+use crate::server::embeddings::{MODEL_NAME, generate_article_embeddings};
+use crate::shared::{
+    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
+    StoredArticle,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
-use itertools::Itertools;
 use postcard::{from_bytes, to_allocvec};
 use sqlx::{
     QueryBuilder, Row, SqlitePool,
@@ -219,6 +216,66 @@ pub async fn merge_into_article(
         .bind(article_id)
         .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Rerun the classification on articles
+pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut builder = QueryBuilder::new("SELECT id, sources FROM articles WHERE id IN (");
+    let mut separated = builder.separated(", ");
+    for id in &ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(")");
+
+    let targets: Vec<(Uuid, Vec<u8>)> = builder
+        .build_query_as::<(Uuid, Vec<u8>)>()
+        .fetch_all(&*DB)
+        .await?;
+
+    if targets.is_empty() {
+        return Ok(());
+    }
+
+    info!("Re-classifying {} articles...", targets.len());
+
+    let first_sources: Vec<ArticleSource> = targets
+        .iter()
+        .map(|(_, sources_bytes)| -> Result<ArticleSource> {
+            let sources: Vec<ArticleSource> = from_bytes(sources_bytes)?;
+            sources
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("Article has no sources"))
+        })
+        .collect::<Result<_>>()?;
+
+    // Batch generate embeddings
+    let embeddings = generate_article_embeddings(&first_sources)
+        .await
+        .inspect_err(|e| error!("Re-classification embedding generation failed: {e}"))?;
+
+    let mut tx = DB.begin().await?;
+    for ((id, _), embedding) in targets.iter().zip(embeddings) {
+        let (article_type, category) = crate::server::embeddings::classify(&embedding).await?;
+
+        sqlx::query(
+            "UPDATE articles SET embedding = ?, embedding_model = ?, article_type = ?, category = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(to_allocvec(&embedding)?)
+        .bind(MODEL_NAME)
+        .bind(article_type.to_string())
+        .bind(category.to_string())
+        .bind(Utc::now().timestamp())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
     Ok(())
 }

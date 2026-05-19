@@ -1,7 +1,8 @@
 use crate::shared::{
     ArticleData, ArticleStatus, Category, Rating, Section, StoredArticle,
     server_functions::{
-        get_all_item_ratings, get_user_articles, set_article_status, set_item_rating, set_rating,
+        get_all_item_ratings, get_user_articles, reclassify_articles, set_article_status,
+        set_item_rating, set_rating,
     },
 };
 use dioxus::prelude::*;
@@ -60,10 +61,71 @@ fn AppHead() -> Element {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Routable)]
+enum Route {
+    #[layout(MainLayout)]
+    #[route("/")]
+    Home {},
+    #[route("/entry/:id")]
+    Article { id: Uuid },
+}
+
+#[component]
+fn Home() -> Element {
+    rsx! {
+        div {
+            display: "flex",
+            align_items: "center",
+            justify_content: "center",
+            height: "100%",
+            color: "var(--base04)",
+            font_size: "0.875rem",
+            "Select an article to read"
+        }
+    }
+}
+
+#[component]
+fn Article(id: Uuid) -> Element {
+    let articles = use_context::<Signal<Vec<ArticleData>>>();
+    let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
+
+    let found = articles
+        .read()
+        .iter()
+        .find(|(i, _, _, _)| *i == id)
+        .map(|(_, s, r, a)| (*s, *r, a.clone()));
+
+    match found {
+        Some((status, rating, art)) => rsx! {
+            article_detail {
+                article: art,
+                status,
+                rating,
+                articles,
+                item_ratings,
+            }
+        },
+        None => rsx! {
+            div {
+                display: "flex",
+                align_items: "center",
+                justify_content: "center",
+                height: "100%",
+                color: "var(--base04)",
+                font_size: "0.875rem",
+                "Article not found"
+            }
+        },
+    }
+}
+
 pub fn app() -> Element {
     let mut articles: Signal<Vec<ArticleData>> = use_signal(Vec::new);
     let mut item_ratings: Signal<HashMap<String, Rating>> = use_signal(HashMap::new);
-    let selected: Signal<Option<Uuid>> = use_signal(|| None);
+
+    use_context_provider(|| articles);
+    use_context_provider(|| item_ratings);
 
     use_resource(move || async move {
         if let Ok(data) = get_user_articles().await {
@@ -73,6 +135,40 @@ pub fn app() -> Element {
     use_resource(move || async move {
         if let Ok(data) = get_all_item_ratings().await {
             *item_ratings.write() = data;
+        }
+    });
+
+    rsx! {
+        Router::<Route> {}
+    }
+}
+#[component]
+fn MainLayout() -> Element {
+    let mut articles: Signal<Vec<ArticleData>> = use_context();
+    let _item_ratings: Signal<HashMap<String, Rating>> = use_context();
+    let route = use_route::<Route>();
+
+    let selected_id = match route {
+        Route::Article { id } => Some(id),
+        Route::Home {} => None,
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        if let Some(target_id) = selected_id {
+            // Scroll to the selected article in the sidebar
+            spawn(async move {
+                use wasm_bindgen::JsCast;
+                let window = web_sys::window().unwrap();
+                let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+                let document = window.document().unwrap();
+                if let Some(element) = document.get_element_by_id(&format!("article-{}", target_id))
+                {
+                    if let Ok(html_element) = element.dyn_into::<web_sys::HtmlElement>() {
+                        html_element.scroll_into_view();
+                    }
+                }
+            });
         }
     });
 
@@ -96,6 +192,9 @@ pub fn app() -> Element {
                 div {
                     padding: "1rem 1.25rem",
                     border_bottom: "1px solid var(--base02)",
+                    display: "flex",
+                    justify_content: "space-between",
+                    align_items: "center",
                     h1 {
                         font_size: "0.75rem",
                         font_weight: "700",
@@ -104,6 +203,19 @@ pub fn app() -> Element {
                         text_transform: "uppercase",
                         margin: "0",
                         "Quivrs"
+                    }
+                    button {
+                        class: "pill-button",
+                        onclick: move |_| async move {
+                            let ids = articles.read().iter().map(|(id, _, _, _)| *id).collect();
+                            if reclassify_articles(ids).await.is_ok()
+                                && let Ok(new_articles) = get_user_articles().await
+                            {
+                                articles.set(new_articles);
+                            }
+                        },
+                        title: "Re-classify all articles",
+                        "↻"
                     }
                 }
 
@@ -126,53 +238,16 @@ pub fn app() -> Element {
                                 }
                             }
                             rsx! {
-                                {sidebar_section("New", new_v, selected, true)}
-                                {sidebar_section("Stored", stored_v, selected, false)}
-                                {sidebar_section("Binned", binned_v, selected, false)}
+                                {sidebar_section("New", new_v, selected_id, true)}
+                                {sidebar_section("Stored", stored_v, selected_id, false)}
+                                {sidebar_section("Binned", binned_v, selected_id, false)}
                             }
                         }
                     }
                 }
             }
 
-            main { flex: "1", overflow_y: "auto",
-                {
-                    selected
-                        .read()
-                        .map_or_else(
-                            || rsx! {
-                                div {
-                                    display: "flex",
-                                    align_items: "center",
-                                    justify_content: "center",
-                                    height: "100%",
-                                    color: "var(--base04)",
-                                    font_size: "0.875rem",
-                                    "Select an article to read"
-                                }
-                            },
-                            |id| {
-                                let found = articles
-                                    .read()
-                                    .iter()
-                                    .find(|(i, _, _, _)| *i == id)
-                                    .map(|(_, s, r, a)| (*s, *r, a.clone()));
-                                match found {
-                                    Some((status, rating, art)) => rsx! {
-                                        article_detail {
-                                            article: art,
-                                            status,
-                                            rating,
-                                            articles,
-                                            item_ratings,
-                                        }
-                                    },
-                                    None => rsx! {},
-                                }
-                            },
-                        )
-                }
-            }
+            main { flex: "1", overflow_y: "auto", Outlet::<Route> {} }
         }
     }
 }
@@ -180,7 +255,7 @@ pub fn app() -> Element {
 fn sidebar_section(
     label: &str,
     items: Vec<(Uuid, Option<Rating>, &StoredArticle)>,
-    selected: Signal<Option<Uuid>>,
+    selected: Option<Uuid>,
     group_by_category: bool,
 ) -> Element {
     let total_items = items.len();
@@ -233,9 +308,9 @@ fn article_item(
     id: Uuid,
     rating: Option<Rating>,
     article: StoredArticle,
-    mut selected: Signal<Option<Uuid>>,
+    selected: Option<Uuid>,
 ) -> Element {
-    let is_selected = *selected.read() == Some(id);
+    let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
 
@@ -289,6 +364,7 @@ fn article_item(
 
     rsx! {
         div {
+            id: "article-{id}",
             cursor: "pointer",
             position: "relative",
             border_radius: style::RADIUS_CARD,
@@ -298,14 +374,16 @@ fn article_item(
             box_shadow: shadow,
             transform: scale,
             transition: style::TRANSITION_CARD,
-            onclick: move |_| selected.set(Some(id)),
-            onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
                 pressed.set(false);
             },
             onmousedown: move |_| pressed.set(true),
             onmouseup: move |_| pressed.set(false),
+            onclick: move |_| {
+                use_navigator().push(Route::Article { id });
+            },
+            onmouseenter: move |_| hovered.set(true),
 
             if let Some(img_url) = hero_image {
                 img {
@@ -400,6 +478,18 @@ fn article_detail(
                     {status_button("Bin", ArticleStatus::Binned, status, id, articles)}
                 }
                 div { display: "flex", gap: "0.25rem",
+                    button {
+                        class: "pill-button",
+                        onclick: move |_| async move {
+                            if reclassify_articles(vec![id]).await.is_ok()
+                                && let Ok(new_articles) = get_user_articles().await
+                            {
+                                articles.set(new_articles);
+                            }
+                        },
+                        title: "Refresh classification",
+                        "↻"
+                    }
                     {rating_button("Hate", Rating::Hated, rating, id, articles)}
                     {rating_button("Dislike", Rating::Disliked, rating, id, articles)}
                     {rating_button("Neutral", Rating::Neutral, rating, id, articles)}

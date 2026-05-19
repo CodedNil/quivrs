@@ -22,10 +22,10 @@ async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 }
 
 pub async fn generate_article_embeddings(articles: &[ArticleSource]) -> Result<Vec<Vec<f32>>> {
-    let texts: Vec<String> = articles
+    let texts = articles
         .iter()
-        .flat_map(|s| [format!("{} {}", s.url, s.title), s.summary.clone()])
-        .collect();
+        .flat_map(|s| [s.title.clone(), s.summary.clone()])
+        .collect::<Vec<_>>();
 
     Ok(generate_embeddings(&texts)
         .await?
@@ -60,14 +60,14 @@ const fn category_label(category: Category) -> (&'static str, &'static str) {
     match category {
         Category::Business => (
             "Business. Corporate finance, economic trends, startup growth, market investments, earnings reports.",
-            "Consumer shopping guides, retail sale deals, personal lifestyle, leisure, hobbies, sports matches, fictional entertainment.",
+            "Consumer shopping guides, retail sale deals, personal lifestyle, leisure, hobbies, sports matches, fictional entertainment, technology, ai, llm.",
         ),
         Category::Politics => (
-            "Politics. Government legislation, election cycles, public policy, geopolitics, foreign affairs, HMRC, the government says, refugee.",
-            "Technology gadgets, software programming tutorials, developer content, legal regulatory compliance, product reviews, individual scientific discoveries.",
+            "Politics. Government legislation, election, policy, geopolitics, foreign-affairs, HMRC, refugee.",
+            "Technology gadgets, software programming tutorials, developer content, legal regulatory compliance, crime allegations, product reviews, individual scientific discoveries.",
         ),
         Category::Law => (
-            "Law. Court litigation, legal systems, criminal justice, regulatory compliance, content regulation, hate crime law, civil rights violations, stolen, thieves, victims, emergency services, police, murder.",
+            "Law. Court litigation, legal systems, criminal justice, regulatory compliance, content regulation, hate crime law, civil rights violations, stolen, thieves, victims, emergency services, police, murder, violence, assault, theft.",
             "Entertainment news, celebrity, fashion trends, food recipes, travel.",
         ),
         Category::Health => (
@@ -75,11 +75,11 @@ const fn category_label(category: Category) -> (&'static str, &'static str) {
             "Politics, government spending, corporate business, technology hardware, software.",
         ),
         Category::Entertainment => (
-            "Entertainment. Movies, TV shows, games, gaming, pop culture, celebrity.",
+            "Entertainment. Movies, TV shows, games, gaming, pop culture, celebrity, netflix, disney, thriller, fantasy.",
             "Serious news, political policy, academic research, legal litigation, corporate finance, physical hardware.",
         ),
         Category::Culture => (
-            "Culture. Philosophy, societal history, traditional arts, heritage, museum exhibitions.",
+            "Culture. Philosophy, societal history, traditional arts, heritage, museum exhibitions, royal visits.",
             "Current events, immediate breaking news, product marketing, shopping guides, software.",
         ),
         Category::Lifestyle => (
@@ -100,7 +100,7 @@ const fn category_label(category: Category) -> (&'static str, &'static str) {
         ),
         Category::Education => (
             "Education. University research, teaching methods, student curriculum, educational policy.",
-            "Breaking disaster news, commercial advertisements, video game releases, personal blog posts.",
+            "Breaking disaster news, commercial advertisements, game, personal blog posts.",
         ),
         Category::Sports => (
             "Sports. Professional athletic teams, tournament matches, league competitions, sporting events.",
