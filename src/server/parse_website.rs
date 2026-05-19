@@ -3,9 +3,11 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use itertools::Itertools;
 use std::collections::HashSet;
+use url::Url;
 
 /// Downloads the full webpage and parses title, summary, content, and images on the source.
 pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
+    let base_url = Url::parse(&url).ok();
     let html = HTTP_CLIENT.get(&url).send().await?.text().await?;
     let options = rs_trafilatura::Options {
         include_comments: false,
@@ -22,15 +24,21 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
         rs_trafilatura::extract_with_options(&html, &options).map_err(|e| anyhow!("{e}"))?;
 
     let mut seen_images = HashSet::new();
+    let resolve_url = |img_url: &str| {
+        let resolved = base_url.as_ref().map_or_else(
+            || img_url.to_string(),
+            |base| {
+                base.join(img_url)
+                    .map_or_else(|_| img_url.to_string(), |u| u.to_string())
+            },
+        );
+        resolved.split('?').next().unwrap_or("").to_string()
+    };
+
     let images = extracted
         .metadata
         .image
-        .map(|url| {
-            (
-                url.split('?').next().unwrap_or("").to_string(),
-                String::new(),
-            )
-        })
+        .map(|img_url| (resolve_url(&img_url), String::new()))
         .into_iter()
         .chain(
             extracted
@@ -39,7 +47,7 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
                 .sorted_by_key(|img| !img.is_hero)
                 .map(|img| {
                     (
-                        img.src.split('?').next().unwrap_or("").to_string(),
+                        resolve_url(&img.src),
                         img.caption
                             .as_deref()
                             .or(img.alt.as_deref())

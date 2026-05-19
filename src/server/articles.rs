@@ -1,7 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{classify, cosine_similarity, generate_embeddings},
+        embeddings::{classify, cosine_similarity, generate_article_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
         parse_website::fetch_source_content,
@@ -55,7 +55,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
     let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched
         .into_iter()
-        .partition(|s| !s.title.is_empty() && !s.summary.is_empty());
+        .partition(|s| !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary);
     let dismissed_urls: Vec<String> = dismissed.into_iter().map(|s| s.url).collect();
     database::mark_urls_dismissed(&dismissed_urls).await?;
 
@@ -67,14 +67,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let embeddings = generate_embeddings(
-        &new_entries
-            .iter()
-            .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
-            .collect::<Vec<_>>(),
-    )
-    .await
-    .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
+    let embeddings = generate_article_embeddings(&new_entries)
+        .await
+        .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
     for (source, embedding) in new_entries.into_iter().zip(embeddings) {
         if embedding.is_empty() {

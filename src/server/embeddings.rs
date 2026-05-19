@@ -1,4 +1,4 @@
-use crate::shared::{ArticleType, Category};
+use crate::shared::{ArticleSource, ArticleType, Category};
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::sync::LazyLock;
@@ -8,6 +8,8 @@ use tokio::sync::{Mutex, OnceCell};
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const MODEL_NAME: &str = "EmbeddingGemma300M";
 
+const EMBEDDING_TITLE_WEIGHT: f32 = 0.75;
+
 static STATE: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
     Mutex::new(
         TextEmbedding::try_new(InitOptions::new(MODEL).with_show_download_progress(true))
@@ -15,8 +17,35 @@ static STATE: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
     )
 });
 
-pub async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     STATE.lock().await.embed(texts, None)
+}
+
+pub async fn generate_article_embeddings(articles: &[ArticleSource]) -> Result<Vec<Vec<f32>>> {
+    let texts: Vec<String> = articles
+        .iter()
+        .flat_map(|s| [format!("{} {}", s.url, s.title), s.summary.clone()])
+        .collect();
+
+    Ok(generate_embeddings(&texts)
+        .await?
+        .chunks_exact(2)
+        .map(|pair| {
+            let (t, s) = (&pair[0], &pair[1]);
+            let mut combined: Vec<f32> = t
+                .iter()
+                .zip(s)
+                .map(|(a, b)| EMBEDDING_TITLE_WEIGHT * a + (1.0 - EMBEDDING_TITLE_WEIGHT) * b)
+                .collect();
+            let norm: f32 = combined.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for x in &mut combined {
+                    *x /= norm;
+                }
+            }
+            combined
+        })
+        .collect())
 }
 
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -30,52 +59,52 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 const fn category_label(category: Category) -> (&'static str, &'static str) {
     match category {
         Category::Business => (
-            "Corporate finance, economic trends, startup growth, market investments, earnings reports.",
-            "Personal lifestyle, leisure, hobbies, sports matches, fictional entertainment.",
+            "Business. Corporate finance, economic trends, startup growth, market investments, earnings reports.",
+            "Consumer shopping guides, retail sale deals, personal lifestyle, leisure, hobbies, sports matches, fictional entertainment.",
         ),
         Category::Politics => (
-            "Government legislation, election cycles, public policy, geopolitics, foreign affairs.",
-            "Technology gadgets, software updates, product reviews, individual scientific discoveries.",
+            "Politics. Government legislation, election cycles, public policy, geopolitics, foreign affairs, HMRC, the government says, refugee.",
+            "Technology gadgets, software programming tutorials, developer content, legal regulatory compliance, product reviews, individual scientific discoveries.",
         ),
         Category::Law => (
-            "Court litigation, legal systems, criminal justice, lawsuits, civil rights violations.",
-            "Entertainment news, celebrity culture, fashion trends, food recipes, travel.",
+            "Law. Court litigation, legal systems, criminal justice, regulatory compliance, content regulation, hate crime law, civil rights violations, stolen, thieves, victims, emergency services, police, murder.",
+            "Entertainment news, celebrity, fashion trends, food recipes, travel.",
         ),
         Category::Health => (
-            "Medical research, healthcare systems, mental wellness, disease prevention, clinical treatments.",
+            "Health. Medical research, healthcare systems, mental wellness, disease prevention, clinical treatments, meningitis, infection spread, virus, bacteria, covid-19, epidemic, pandemic, hospital, ambulance.",
             "Politics, government spending, corporate business, technology hardware, software.",
         ),
         Category::Entertainment => (
-            "Movies, TV shows, video games, gaming consoles, pop culture, celebrity interviews.",
-            "Serious news, political policy, academic research, legal litigation, corporate finance.",
+            "Entertainment. Movies, TV shows, games, gaming, pop culture, celebrity.",
+            "Serious news, political policy, academic research, legal litigation, corporate finance, physical hardware.",
         ),
         Category::Culture => (
-            "Philosophy, societal history, traditional arts, heritage, museum exhibitions.",
+            "Culture. Philosophy, societal history, traditional arts, heritage, museum exhibitions.",
             "Current events, immediate breaking news, product marketing, shopping guides, software.",
         ),
         Category::Lifestyle => (
-            "Travel experiences, fashion trends, food recipes, cooking techniques, personal leisure.",
-            "Industrial hardware, cybersecurity, political policy, legal cases, medical diagnostics.",
+            "Lifestyle. Travel experiences, fashion trends, food recipes, home and garden, outdoor living, personal leisure.",
+            "Industrial hardware, cybersecurity, software tools, digital applications, political policy, legal cases, medical diagnostics, celebrity, technology gadgets.",
         ),
         Category::Environment => (
-            "Climate change, ecological conservation, wildlife protection, environmental sustainability.",
+            "Environment. Climate change, ecological conservation, wildlife protection, environmental sustainability.",
             "Stock market updates, gaming reviews, video streaming, fashion trends, corporate earnings.",
         ),
         Category::Technology => (
-            "Artificial intelligence, software programming, cybersecurity, hardware gadgets, telecommunications.",
+            "Technology. Artificial intelligence, software programming, cybersecurity, hardware gadgets, creative software tools, digital art applications, 3D modeling, telecommunications, operating system, python, javascript, robot, llm, ai.",
             "Artistic expression, culinary recipes, sports competitions, political history, societal traditions.",
         ),
         Category::Science => (
-            "Space physics, biological research, academic experiments, scientific discovery.",
-            "Corporate sales, marketing promotions, opinion editorials, gaming news, lifestyle tips.",
+            "Science. Space physics, biological research, academic experiments, scientific discovery.",
+            "Corporate sales, marketing promotions, opinion editorials, gaming news, lifestyle tips, crime.",
         ),
         Category::Education => (
-            "University research, teaching methods, student curriculum, educational policy.",
+            "Education. University research, teaching methods, student curriculum, educational policy.",
             "Breaking disaster news, commercial advertisements, video game releases, personal blog posts.",
         ),
         Category::Sports => (
-            "Professional athletic teams, tournament matches, league competitions, sporting events.",
-            "Corporate mergers, political legislation, software development, medical research, fine arts.",
+            "Sports. Professional athletic teams, tournament matches, league competitions, sporting events.",
+            "Corporate mergers, political legislation, software development, medical research, fine arts, thieves.",
         ),
     }
 }
@@ -84,40 +113,40 @@ const fn category_label(category: Category) -> (&'static str, &'static str) {
 const fn article_type_label(article_type: ArticleType) -> (&'static str, &'static str) {
     match article_type {
         ArticleType::BreakingNews => (
-            "Urgent real-time reporting, immediate emergency updates, disaster coverage.",
-            "Long-form analysis, historical perspective, personal opinion, product evaluation.",
+            "Live emergency alert, immediate breaking news flash, disaster or crisis happening right now, important vital news.",
+            "Video content, watch articles, long-form analysis, historical perspective, personal opinion, product evaluation, humorous, unimportant trivial news.",
         ),
         ArticleType::News => (
-            "Factual journalistic reporting, current event coverage, company announcements, industry updates.",
+            "Neutral factual reporting on current events, political developments, official announcements, crime and court case updates, journalistic coverage with attributed sources.",
             "Subjective critique, hands-on product testing, marketing sales promotion, personal blog diary.",
         ),
         ArticleType::Opinion => (
-            "Editorial commentary, subjective viewpoint, personal perspective, persuasive argument.",
-            "Objective reporting, breaking news facts, technical instruction, company press release.",
+            "Editorial opinion piece, columnist subjective viewpoint, first-person argument.",
+            "Balanced neutral reporting, narrative cultural travel writing, descriptive long-form prose, factual political coverage with multiple perspectives, objective news article, breaking news facts, technical instruction, press release.",
         ),
         ArticleType::Marketing => (
-            "Product recommendations, gift guides, affiliate sales links, promotional deals, advertisement.",
+            "Product recommendations, gift guides, affiliate sales links, promotional deals, advertisement, sponsored content.",
             "Hard news, investigative reporting, academic research, emergency update, neutral observation.",
         ),
         ArticleType::Review => (
-            "Critical assessment, hands-on product evaluation, performance rating, service critique.",
+            "Critical assessment, hands-on product evaluation, performance rating, service critique, new product review.",
             "Press release, news announcement, factual update, corporate overview, non-tested speculation.",
         ),
         ArticleType::Interview => (
-            "One-on-one conversation, Q&A transcript, personal exclusive profile, spoken dialogue.",
-            "Summary report, third-party observation, marketing copy, tutorial instructions.",
+            "Journalist questions followed by subject answers in Q&A format, one-on-one exclusive interview transcript.",
+            "News report quoting officials, article with attributed third-party statements, marketing copy, tutorial instructions.",
         ),
         ArticleType::Guide => (
             "Technical tutorial, step-by-step instructions, how-to walkthrough, setup explainer.",
             "Subjective opinion, argumentative piece, breaking news event, entertainment review.",
         ),
         ArticleType::Feature => (
-            "Long-form investigative research, historical context, in-depth exploration, magazine piece.",
-            "Brief update, breaking news headline, sales advertisement, short social media post.",
+            "Long-form magazine journalism, comprehensive investigative deep dive, analytical piece, narrative cultural travel writing, Sunday long read.",
+            "Brief factual news report, current-event update, breaking headline, sales advertisement, social media post.",
         ),
         ArticleType::Blog => (
-            "Individual perspective, personal developer diary, casual commentary, subjective narrative.",
-            "Formal news report, corporate announcement, scientific research, official policy document.",
+            "Personal amateur blog post, non-professional individual writing, personal website dev-diary.",
+            "Formal news report, large corporation, professional journalist, scientific research, official policy document.",
         ),
         ArticleType::Newsletter => (
             "Direct email subscription, digest mailing list, corporate publication update.",
@@ -125,11 +154,11 @@ const fn article_type_label(article_type: ArticleType) -> (&'static str, &'stati
         ),
         ArticleType::Video => (
             "YouTube visual media, video essay, film documentary, online streaming content.",
-            "Text-based news article, formal editorial, technical whitepaper, email newsletter.",
+            "Written text article listing shows or episodes to watch, streaming content guide, formal editorial, technical whitepaper, email newsletter.",
         ),
         ArticleType::Post => (
-            "Social media status update, short message, Twitter thread, user-generated micro-blog.",
-            "Professional journalism, magazine feature, academic research, corporate whitepaper.",
+            "Social media post on Twitter, Facebook status update, Instagram caption, Reddit submission, short user-generated content on a social platform.",
+            "News article, journalistic report, official political announcement, magazine feature, academic research, corporate whitepaper.",
         ),
     }
 }

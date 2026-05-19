@@ -43,6 +43,7 @@ reqwest = { version = "0.13.3", default-features = false, features = [
     "json",
     "brotli",
 ] }
+url = "2.5.8"
 url-normalize = "0.1.1"
 tokio = { version = "1.52.3", features = ["fs", "rt-multi-thread"] }
 axum = { version = "0.8.9", default-features = false, features = [
@@ -56,7 +57,12 @@ tower-http = { version = "0.6.11", features = [
     "compression-deflate",
     "compression-gzip",
 ] }
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "uuid", "derive"] }
+sqlx = { version = "0.8", features = [
+    "sqlite",
+    "runtime-tokio",
+    "uuid",
+    "derive",
+] }
 rs-trafilatura = "0.2.2"
 futures = "0.3.32"
 fastembed = "5.13.4"

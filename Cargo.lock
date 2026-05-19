@@ -4174,6 +4174,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
+ "url",
  "url-normalize",
  "uuid",
  "wasm-bindgen",

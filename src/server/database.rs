@@ -1,5 +1,5 @@
 use crate::{
-    server::embeddings::{MODEL_NAME, generate_embeddings},
+    server::embeddings::{MODEL_NAME, generate_article_embeddings},
     shared::{
         ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
         StoredArticle,
@@ -237,18 +237,18 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
 
     info!("Re-embedding {} articles for new model...", stale.len());
 
-    let texts: Vec<String> = stale
+    let first_sources: Vec<ArticleSource> = stale
         .iter()
-        .map(|(_, sources_bytes)| -> Result<String> {
+        .map(|(_, sources_bytes)| -> Result<ArticleSource> {
             let sources: Vec<ArticleSource> = from_bytes(sources_bytes)?;
-            Ok(sources
-                .iter()
-                .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
-                .join(" "))
+            sources
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("Article has no sources"))
         })
         .collect::<Result<_>>()?;
 
-    let embeddings = generate_embeddings(&texts)
+    let embeddings = generate_article_embeddings(&first_sources)
         .await
         .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
 
