@@ -7,9 +7,10 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
+use itertools::Itertools;
 use postcard::{from_bytes, to_allocvec};
 use sqlx::{
-    Row, SqlitePool,
+    QueryBuilder, Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use std::{
@@ -81,23 +82,33 @@ pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
     if urls.is_empty() {
         return Ok(vec![]);
     }
-    let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-    let query_str = format!("SELECT url FROM article_urls WHERE url IN ({placeholders})");
-    let mut q = sqlx::query(&query_str);
+    let mut builder = QueryBuilder::new("SELECT url FROM article_urls WHERE url IN (");
+    let mut separated = builder.separated(", ");
     for url in urls {
-        q = q.bind(url);
+        separated.push_bind(url);
     }
-    let existing: HashSet<String> = q
+    separated.push_unseparated(")");
+    let existing: HashSet<String> = builder
+        .build()
         .fetch_all(&*DB)
         .await?
         .into_iter()
         .map(|row| row.get(0))
         .collect();
-    Ok(urls
-        .iter()
-        .filter(|u| !existing.contains(*u))
-        .cloned()
-        .collect())
+    Ok(urls.difference(&existing).cloned().collect())
+}
+
+/// Records URLs as permanently skipped so they are never re-fetched.
+pub async fn mark_urls_dismissed(urls: &[String]) -> Result<()> {
+    if urls.is_empty() {
+        return Ok(());
+    }
+    let mut builder = QueryBuilder::new("INSERT OR IGNORE INTO article_urls (url, article_id) ");
+    builder.push_values(urls.iter(), |mut b, url| {
+        b.push_bind(url).push_bind(Uuid::nil());
+    });
+    builder.build().execute(&*DB).await?;
+    Ok(())
 }
 
 /// Retrieves articles within a time window for similarity comparison.
@@ -233,7 +244,6 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
             Ok(sources
                 .iter()
                 .map(|s| format!("{} {} {}", s.url, s.title, s.summary))
-                .collect::<Vec<_>>()
                 .join(" "))
         })
         .collect::<Result<_>>()?;
@@ -242,6 +252,7 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
         .await
         .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
 
+    let mut tx = DB.begin().await?;
     for ((id, _), embedding) in stale.iter().zip(embeddings) {
         sqlx::query(
             "UPDATE articles SET embedding = ?, embedding_model = ?, updated_at = ? WHERE id = ?",
@@ -250,10 +261,10 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
         .bind(MODEL_NAME)
         .bind(Utc::now().timestamp())
         .bind(id)
-        .execute(&*DB)
+        .execute(&mut *tx)
         .await?;
     }
-
+    tx.commit().await?;
     Ok(())
 }
 

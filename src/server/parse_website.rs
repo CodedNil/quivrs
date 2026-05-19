@@ -56,14 +56,8 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
 
     Ok(ArticleSource {
         url: url.clone(),
-        title: extracted
-            .metadata
-            .title
-            .ok_or_else(|| anyhow!("No title found"))?,
-        summary: extracted
-            .metadata
-            .description
-            .ok_or_else(|| anyhow!("No description found"))?,
+        title: extracted.metadata.title.unwrap_or_default(),
+        summary: extracted.metadata.description.unwrap_or_default(),
         content: extracted.content_text,
         images,
         published: extracted.metadata.date.unwrap_or_else(Utc::now),

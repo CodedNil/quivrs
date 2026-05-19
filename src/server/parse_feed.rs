@@ -24,7 +24,7 @@ pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
                 || url.contains("bbc.co.uk/sounds")
                 || (url.contains("reddit.com") && url.contains("/comments"))
                 || url.contains("v.redd.it/")
-                || url.ends_with(".pdf"))
+                || url.ends_with("pdf"))
         })
         .collect())
 }

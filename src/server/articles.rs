@@ -47,11 +47,21 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
 
     info!("Fetching content for {} new articles...", new_urls.len());
-    let new_entries: Vec<ArticleSource> = join_all(new_urls.into_iter().map(fetch_source_content))
+    let fetched: Vec<ArticleSource> = join_all(new_urls.into_iter().map(fetch_source_content))
         .await
         .into_iter()
         .filter_map(|r| r.map_err(|e| warn!("Failed to fetch article: {e:#}")).ok())
         .collect();
+
+    let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched
+        .into_iter()
+        .partition(|s| !s.title.is_empty() && !s.summary.is_empty());
+    let dismissed_urls: Vec<String> = dismissed.into_iter().map(|s| s.url).collect();
+    database::mark_urls_dismissed(&dismissed_urls).await?;
+
+    if new_entries.is_empty() {
+        return Ok(());
+    }
 
     info!(
         "Generating embeddings for {} new articles...",
