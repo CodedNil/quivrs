@@ -1,3 +1,4 @@
+dont use any data from the rss for title summary and images, get it all from the scraped content
 
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article

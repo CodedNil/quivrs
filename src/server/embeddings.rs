@@ -26,115 +26,174 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-const fn category_label(category: Category) -> &'static str {
+/// Positive and negative labels for each category
+const fn category_label(category: Category) -> (&'static str, &'static str) {
     match category {
-        Category::Business => {
-            "Corporate business economy finance commerce startups markets companies investments earnings"
-        }
-        Category::Politics => {
-            "Government elections public policy geopolitics politicians democracy foreign affairs public sector spending government decisions ministry"
-        }
-        Category::Law => {
-            "Court cases legislation legal systems crime civil rights justice lawyers lawsuits criminal fined penalty"
-        }
-        Category::Health => {
-            "Medicine healthcare fitness mental wellness hospitals doctors disease treatments medical"
-        }
-        Category::Entertainment => {
-            "Movies TV shows music video games gaming PlayStation Xbox Nintendo consoles celebrity entertainment films actors artists pop culture"
-        }
-        Category::Culture => {
-            "Arts literature history philosophy societal traditions culture museums heritage"
-        }
-        Category::Lifestyle => {
-            "Travel fashion food hobbies daily living recipes cooking personal leisure lifestyle"
-        }
-        Category::Environment => {
-            "Climate conservation sustainability wildlife ecology nature environment emissions"
-        }
-        Category::Technology => {
-            "Software AI hardware gadgets cybersecurity computers programming technology industry telecommunications satellite internet"
-        }
-        Category::Science => {
-            "Space physics biology academic scientific research experiments discoveries"
-        }
-        Category::Education => {
-            "Schools universities teaching educational policy learning students curriculum"
-        }
-        Category::Sports => {
-            "Teams athletes tournaments live sporting events competitions matches leagues professional sports"
-        }
+        Category::Business => (
+            "Corporate finance, economic trends, startup growth, market investments, earnings reports.",
+            "Personal lifestyle, leisure, hobbies, sports matches, fictional entertainment.",
+        ),
+        Category::Politics => (
+            "Government legislation, election cycles, public policy, geopolitics, foreign affairs.",
+            "Technology gadgets, software updates, product reviews, individual scientific discoveries.",
+        ),
+        Category::Law => (
+            "Court litigation, legal systems, criminal justice, lawsuits, civil rights violations.",
+            "Entertainment news, celebrity culture, fashion trends, food recipes, travel.",
+        ),
+        Category::Health => (
+            "Medical research, healthcare systems, mental wellness, disease prevention, clinical treatments.",
+            "Politics, government spending, corporate business, technology hardware, software.",
+        ),
+        Category::Entertainment => (
+            "Movies, TV shows, video games, gaming consoles, pop culture, celebrity interviews.",
+            "Serious news, political policy, academic research, legal litigation, corporate finance.",
+        ),
+        Category::Culture => (
+            "Philosophy, societal history, traditional arts, heritage, museum exhibitions.",
+            "Current events, immediate breaking news, product marketing, shopping guides, software.",
+        ),
+        Category::Lifestyle => (
+            "Travel experiences, fashion trends, food recipes, cooking techniques, personal leisure.",
+            "Industrial hardware, cybersecurity, political policy, legal cases, medical diagnostics.",
+        ),
+        Category::Environment => (
+            "Climate change, ecological conservation, wildlife protection, environmental sustainability.",
+            "Stock market updates, gaming reviews, video streaming, fashion trends, corporate earnings.",
+        ),
+        Category::Technology => (
+            "Artificial intelligence, software programming, cybersecurity, hardware gadgets, telecommunications.",
+            "Artistic expression, culinary recipes, sports competitions, political history, societal traditions.",
+        ),
+        Category::Science => (
+            "Space physics, biological research, academic experiments, scientific discovery.",
+            "Corporate sales, marketing promotions, opinion editorials, gaming news, lifestyle tips.",
+        ),
+        Category::Education => (
+            "University research, teaching methods, student curriculum, educational policy.",
+            "Breaking disaster news, commercial advertisements, video game releases, personal blog posts.",
+        ),
+        Category::Sports => (
+            "Professional athletic teams, tournament matches, league competitions, sporting events.",
+            "Corporate mergers, political legislation, software development, medical research, fine arts.",
+        ),
     }
 }
 
-const fn article_type_label(article_type: ArticleType) -> &'static str {
+/// Positive and negative labels for each article type
+const fn article_type_label(article_type: ArticleType) -> (&'static str, &'static str) {
     match article_type {
-        ArticleType::BreakingNews => {
-            "Breaking news live emergency disaster crisis unfolding right now urgent real-time"
-        }
-        ArticleType::News => {
-            "News article journalism coverage report story update announcement published by news media outlet press"
-        }
-        ArticleType::Opinion => "Opinion editorial commentary viewpoint perspective argument",
-        ArticleType::Marketing => {
-            "Gift guide buying guide product recommendations affiliate shopping best picks sponsored deals promotional advertisement marketing campaign sale roundup"
-        }
-        ArticleType::Review => "Review product service evaluation rating hands-on assessment",
-        ArticleType::Interview => {
-            "One-on-one human interview Q&A journalist celebrity exclusive profile spoken conversation transcript sit-down"
-        }
-        ArticleType::Guide => {
-            "Tutorial how-to step-by-step technical instructions walkthrough setup explainer"
-        }
-        ArticleType::Feature => {
-            "Long-form magazine feature investigative reported piece exploring a topic with background historical context"
-        }
-        ArticleType::Blog => {
-            "Personal blog post dev log developer diary podcast audio show individual perspective"
-        }
-        ArticleType::Newsletter => {
-            "Email newsletter subscription substack mailing list company blog direct to subscribers corporate publication"
-        }
-        ArticleType::Video => {
-            "YouTube video essay streaming watch online documentary film visual media embed player"
-        }
-        ArticleType::Post => {
-            "Tweet Twitter X Reddit Instagram TikTok Facebook user-generated status update short message social media account"
-        }
+        ArticleType::BreakingNews => (
+            "Urgent real-time reporting, immediate emergency updates, disaster coverage.",
+            "Long-form analysis, historical perspective, personal opinion, product evaluation.",
+        ),
+        ArticleType::News => (
+            "Factual journalistic reporting, current event coverage, company announcements, industry updates.",
+            "Subjective critique, hands-on product testing, marketing sales promotion, personal blog diary.",
+        ),
+        ArticleType::Opinion => (
+            "Editorial commentary, subjective viewpoint, personal perspective, persuasive argument.",
+            "Objective reporting, breaking news facts, technical instruction, company press release.",
+        ),
+        ArticleType::Marketing => (
+            "Product recommendations, gift guides, affiliate sales links, promotional deals, advertisement.",
+            "Hard news, investigative reporting, academic research, emergency update, neutral observation.",
+        ),
+        ArticleType::Review => (
+            "Critical assessment, hands-on product evaluation, performance rating, service critique.",
+            "Press release, news announcement, factual update, corporate overview, non-tested speculation.",
+        ),
+        ArticleType::Interview => (
+            "One-on-one conversation, Q&A transcript, personal exclusive profile, spoken dialogue.",
+            "Summary report, third-party observation, marketing copy, tutorial instructions.",
+        ),
+        ArticleType::Guide => (
+            "Technical tutorial, step-by-step instructions, how-to walkthrough, setup explainer.",
+            "Subjective opinion, argumentative piece, breaking news event, entertainment review.",
+        ),
+        ArticleType::Feature => (
+            "Long-form investigative research, historical context, in-depth exploration, magazine piece.",
+            "Brief update, breaking news headline, sales advertisement, short social media post.",
+        ),
+        ArticleType::Blog => (
+            "Individual perspective, personal developer diary, casual commentary, subjective narrative.",
+            "Formal news report, corporate announcement, scientific research, official policy document.",
+        ),
+        ArticleType::Newsletter => (
+            "Direct email subscription, digest mailing list, corporate publication update.",
+            "Real-time breaking news, social media status, singular video essay, individual post.",
+        ),
+        ArticleType::Video => (
+            "YouTube visual media, video essay, film documentary, online streaming content.",
+            "Text-based news article, formal editorial, technical whitepaper, email newsletter.",
+        ),
+        ArticleType::Post => (
+            "Social media status update, short message, Twitter thread, user-generated micro-blog.",
+            "Professional journalism, magazine feature, academic research, corporate whitepaper.",
+        ),
     }
 }
 
-static LABEL_EMBEDDINGS: OnceCell<Vec<Vec<f32>>> = OnceCell::const_new();
+struct LabelEmbeddings {
+    cat_pos: Vec<Vec<f32>>,
+    cat_neg: Vec<Vec<f32>>,
+    type_pos: Vec<Vec<f32>>,
+    type_neg: Vec<Vec<f32>>,
+}
+
+static LABEL_EMBEDDINGS: OnceCell<LabelEmbeddings> = OnceCell::const_new();
 
 pub async fn classify(embedding: &[f32]) -> Result<(ArticleType, Category)> {
-    // Initialize or retrieve cached raw embeddings
-    let embs = LABEL_EMBEDDINGS
+    let labels = LABEL_EMBEDDINGS
         .get_or_try_init(|| async {
-            let texts: Vec<String> = Category::iter()
-                .map(|c| category_label(c).to_string())
-                .chain(ArticleType::iter().map(|a| article_type_label(a).to_string()))
-                .collect();
-            generate_embeddings(&texts).await
+            let mut all_texts = Vec::with_capacity((Category::COUNT + ArticleType::COUNT) * 2);
+
+            for c in Category::iter() {
+                all_texts.push(category_label(c).0.to_string());
+            }
+            for c in Category::iter() {
+                all_texts.push(category_label(c).1.to_string());
+            }
+            for a in ArticleType::iter() {
+                all_texts.push(article_type_label(a).0.to_string());
+            }
+            for a in ArticleType::iter() {
+                all_texts.push(article_type_label(a).1.to_string());
+            }
+
+            let mut embs = generate_embeddings(&all_texts).await?;
+
+            let type_neg = embs.split_off(embs.len() - ArticleType::COUNT);
+            let type_pos = embs.split_off(embs.len() - ArticleType::COUNT);
+            let cat_neg = embs.split_off(embs.len() - Category::COUNT);
+            let cat_pos = embs;
+
+            anyhow::Ok(LabelEmbeddings {
+                cat_pos,
+                cat_neg,
+                type_pos,
+                type_neg,
+            })
         })
         .await?;
 
-    let (cat_embs, type_embs) = embs.split_at(Category::COUNT);
+    let score = |pos: &[f32], neg: &[f32]| {
+        cosine_similarity(embedding, pos) - cosine_similarity(embedding, neg)
+    };
 
-    //  Zip directly with the iterators to find the best match
-    let category = Category::iter()
-        .zip(cat_embs)
-        .max_by(|a, b| {
-            cosine_similarity(embedding, a.1).total_cmp(&cosine_similarity(embedding, b.1))
-        })
+    let best_cat = Category::iter()
+        .zip(labels.cat_pos.iter().zip(&labels.cat_neg))
+        .map(|(variant, (pos, neg))| (variant, score(pos, neg)))
+        .max_by(|(_, s1), (_, s2)| s1.total_cmp(s2))
         .map(|(c, _)| c)
         .unwrap();
 
-    let article_type = ArticleType::iter()
-        .zip(type_embs)
-        .max_by(|a, b| {
-            cosine_similarity(embedding, a.1).total_cmp(&cosine_similarity(embedding, b.1))
-        })
+    let best_type = ArticleType::iter()
+        .zip(labels.type_pos.iter().zip(&labels.type_neg))
+        .map(|(variant, (pos, neg))| (variant, score(pos, neg)))
+        .max_by(|(_, s1), (_, s2)| s1.total_cmp(s2))
         .map(|(t, _)| t)
         .unwrap();
-    Ok((article_type, category))
+
+    Ok((best_type, best_cat))
 }

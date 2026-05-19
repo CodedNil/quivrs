@@ -29,7 +29,9 @@ async fn server_run() {
     #[cfg(debug_assertions)]
     dotenvy::dotenv().ok();
 
-    dioxus::logger::initialize_default();
+    if !tracing::dispatcher::has_been_set() {
+        dioxus::logger::init(tracing::Level::INFO).unwrap();
+    }
 
     server::start();
 
