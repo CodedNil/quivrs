@@ -1,7 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{classify, cosine_similarity, generate_article_embeddings},
+        embeddings::{classify, generate_article_embeddings, merge_similarity},
         llm_functions::run,
         parse_feed::scan_feed,
         parse_website::fetch_source_content,
@@ -53,9 +53,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .filter_map(|r| r.map_err(|e| warn!("Failed to fetch article: {e:#}")).ok())
         .collect();
 
-    let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched
-        .into_iter()
-        .partition(|s| !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary);
+    let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched.into_iter().partition(|s| {
+        !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary && s.summary.len() > 20
+    });
     let dismissed_urls: Vec<String> = dismissed.into_iter().map(|s| s.url).collect();
     database::mark_urls_dismissed(&dismissed_urls).await?;
 
@@ -83,22 +83,27 @@ pub async fn refresh_all_feeds() -> Result<()> {
             (source.published + TimeDelta::days(2)).timestamp(),
         )
         .await?;
-        let highest_match = candidates
-            .iter()
-            .filter(|c| !c.embedding.is_empty())
-            .map(|c| (c.id, &c.title, cosine_similarity(&embedding, &c.embedding)))
-            .max_by(|a, b| a.2.total_cmp(&b.2));
 
-        if let Some((article_id, existing_title, sim)) =
-            highest_match.filter(|m| m.2 >= SIMILARITY_THRESHOLD)
-        {
+        let mut best: Option<(uuid::Uuid, &str, f32)> = None;
+        let mut highest: Option<(&str, f32)> = None;
+        for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
+            let score = merge_similarity(&embedding, &c.embedding).await;
+            if highest.is_none_or(|(_, s)| score > s) {
+                highest = Some((&c.title, score));
+            }
+            if score >= SIMILARITY_THRESHOLD && best.is_none_or(|(_, _, s)| score > s) {
+                best = Some((c.id, &c.title, score));
+            }
+        }
+
+        if let Some((article_id, existing_title, score)) = best {
             info!(
-                "[MERGE] '{}' → '{}' (sim {sim:.2})",
+                "[MERGE] '{}' → '{}' (score {score:.2})",
                 source.title, existing_title
             );
             database::merge_into_article(article_id, &source, &embedding).await?;
         } else {
-            if let Some((_, closest_title, sim)) = &highest_match {
+            if let Some((closest_title, sim)) = highest {
                 info!(
                     "[NEW] '{}' - Highest {sim:.2} '{}'",
                     source.title, closest_title

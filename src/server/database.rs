@@ -226,15 +226,16 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
         return Ok(());
     }
 
-    let mut builder = QueryBuilder::new("SELECT id, sources FROM articles WHERE id IN (");
+    let mut builder =
+        QueryBuilder::new("SELECT id, sources, article_type, category FROM articles WHERE id IN (");
     let mut separated = builder.separated(", ");
     for id in &ids {
         separated.push_bind(id);
     }
     separated.push_unseparated(")");
 
-    let targets: Vec<(Uuid, Vec<u8>)> = builder
-        .build_query_as::<(Uuid, Vec<u8>)>()
+    let targets: Vec<(Uuid, Vec<u8>, String, String)> = builder
+        .build_query_as::<(Uuid, Vec<u8>, String, String)>()
         .fetch_all(&*DB)
         .await?;
 
@@ -246,7 +247,7 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
 
     let first_sources: Vec<ArticleSource> = targets
         .iter()
-        .map(|(_, sources_bytes)| -> Result<ArticleSource> {
+        .map(|(_, sources_bytes, _, _)| -> Result<ArticleSource> {
             let sources: Vec<ArticleSource> = from_bytes(sources_bytes)?;
             sources
                 .into_iter()
@@ -255,22 +256,35 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
         })
         .collect::<Result<_>>()?;
 
-    // Batch generate embeddings
     let embeddings = generate_article_embeddings(&first_sources)
         .await
         .inspect_err(|e| error!("Re-classification embedding generation failed: {e}"))?;
 
     let mut tx = DB.begin().await?;
-    for ((id, _), embedding) in targets.iter().zip(embeddings) {
+    for ((id, _, old_type, old_cat), source, embedding) in targets
+        .iter()
+        .zip(&first_sources)
+        .zip(embeddings)
+        .map(|((a, b), c)| (a, b, c))
+    {
         let (article_type, category) = crate::server::embeddings::classify(&embedding).await?;
+
+        let new_type = article_type.to_string();
+        let new_cat = category.to_string();
+        if new_type != *old_type || new_cat != *old_cat {
+            info!(
+                "[RECLASSIFY] '{}' {}/{} → {}/{}",
+                source.title, old_type, old_cat, new_type, new_cat
+            );
+        }
 
         sqlx::query(
             "UPDATE articles SET embedding = ?, embedding_model = ?, article_type = ?, category = ?, updated_at = ? WHERE id = ?",
         )
         .bind(to_allocvec(&embedding)?)
         .bind(MODEL_NAME)
-        .bind(article_type.to_string())
-        .bind(category.to_string())
+        .bind(new_type)
+        .bind(new_cat)
         .bind(Utc::now().timestamp())
         .bind(id)
         .execute(&mut *tx)

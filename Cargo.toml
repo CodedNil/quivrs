@@ -46,6 +46,7 @@ reqwest = { version = "0.13.3", default-features = false, features = [
 ] }
 url = "2.5.8"
 url-normalize = "0.1.1"
+html-escape = "0.2.13"
 tokio = { version = "1.52.3", features = ["fs", "rt-multi-thread"] }
 axum = { version = "0.8.9", default-features = false, features = [
     "tokio",
@@ -84,6 +85,7 @@ cast-possible-wrap = "allow"
 cast-possible-truncation = "allow"
 significant_drop_tightening = "allow"
 type_complexity = "allow"
+cast_precision_loss = "allow"
 
 [profile.release]
 lto = true

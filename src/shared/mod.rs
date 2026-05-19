@@ -4,7 +4,7 @@ pub mod server_functions;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumCount, EnumIter, EnumString};
+use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -105,20 +105,17 @@ pub enum Section {
     ColumnBoxes(Vec<String>),
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Display, EnumCount, EnumIter, EnumString)]
+#[derive(Serialize, Deserialize, Clone, Copy, Display, EnumIter, EnumString)]
 pub enum ArticleType {
-    BreakingNews,
+    Breaking,
     News,
     Opinion,
     Marketing,
     Review,
-    Interview,
     Guide,
     Feature,
-    Blog,
-    Newsletter,
-    Video,
     Post,
+    Video,
 }
 
 #[derive(
@@ -127,7 +124,6 @@ pub enum ArticleType {
     Clone,
     Copy,
     Display,
-    EnumCount,
     EnumIter,
     EnumString,
     PartialEq,
@@ -140,13 +136,11 @@ pub enum Category {
     Politics,
     Law,
     Health,
-    Entertainment,
     Culture,
     Lifestyle,
     Environment,
     Technology,
     Science,
-    Education,
     Sports,
 }
 

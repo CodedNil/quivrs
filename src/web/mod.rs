@@ -1023,14 +1023,12 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
                             Category::Politics => render_icon(fa_solid_icons::FaLandmark),
                             Category::Law => render_icon(fa_solid_icons::FaGavel),
                             Category::Health => render_icon(fa_solid_icons::FaHeart),
-                            Category::Entertainment => render_icon(fa_solid_icons::FaFilm),
-                            Category::Culture => render_icon(fa_solid_icons::FaMasksTheater),
-                            Category::Lifestyle => render_icon(fa_solid_icons::FaCompass),
+                            Category::Culture => render_icon(fa_solid_icons::FaFilm),
+                            Category::Lifestyle => render_icon(fa_solid_icons::FaHouse),
                             Category::Environment => render_icon(fa_solid_icons::FaLeaf),
                             Category::Technology => render_icon(fa_solid_icons::FaMicrochip),
                             Category::Science => render_icon(fa_solid_icons::FaFlask),
-                            Category::Education => render_icon(fa_solid_icons::FaGraduationCap),
-                            Category::Sports => render_icon(fa_solid_icons::FaFutbol),
+                            Category::Sports => render_icon(fa_solid_icons::FaFootball),
                         }
                     }
                     div {

@@ -3,26 +3,34 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use url_normalize::{Options as NormalizeOptions, RemoveQueryParameters};
 
-const CONTENT_NS: &str = "http://purl.org/rss/1.0/modules/content/";
-
 /// Download and parse the feed and return a list of URLs.
 pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
-    let bytes = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
-    let first_non_ws = bytes
-        .iter()
-        .position(|&b| !b.is_ascii_whitespace())
-        .unwrap_or(0);
-    let urls = if bytes.get(first_non_ws) == Some(&b'{') {
-        parse_json_feed(&bytes)?
+    let urls = if url_rss.contains("reddit.com/r/") {
+        let json_url = url_rss
+            .trim_end_matches('/')
+            .trim_end_matches(".rss")
+            .trim_end_matches(".json")
+            .to_string()
+            + ".json";
+        let bytes = HTTP_CLIENT.get(&json_url).send().await?.bytes().await?;
+        parse_reddit_json(&bytes)?
     } else {
-        parse_xml_feed(&bytes)?
+        let bytes = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
+        let first_non_ws = bytes
+            .iter()
+            .position(|&b| !b.is_ascii_whitespace())
+            .unwrap_or(0);
+        if bytes.get(first_non_ws) == Some(&b'{') {
+            parse_json_feed(&bytes)?
+        } else {
+            parse_xml_feed(&bytes)?
+        }
     };
     Ok(urls
         .into_iter()
         .filter(|url| {
             !(url.contains("bbc.co.uk/iplayer")
                 || url.contains("bbc.co.uk/sounds")
-                || (url.contains("reddit.com") && url.contains("/comments"))
                 || url.contains("v.redd.it/")
                 || url.contains("github.com")
                 || url.ends_with("pdf"))
@@ -64,14 +72,7 @@ fn parse_rss_item(item: roxmltree::Node) -> Option<String> {
                 .map(|a| a.value().to_string())
         })?;
 
-    if thread_url.contains("reddit.com/r/") {
-        let html = child_text(item, "encoded", Some(CONTENT_NS))
-            .or_else(|| child_text(item, "description", None))
-            .unwrap_or_default();
-        extract_reddit_url(&html).map(|u| normalize_article_url(&u))
-    } else {
-        Some(normalize_article_url(&thread_url))
-    }
+    Some(normalize_article_url(&thread_url))
 }
 
 fn parse_atom(root: roxmltree::Node) -> Vec<String> {
@@ -95,16 +96,51 @@ fn parse_atom(root: roxmltree::Node) -> Vec<String> {
                 .and_then(|n| n.attribute("href"))
                 .map(str::trim)?;
 
-            if thread_url.contains("reddit.com/r/") {
-                let html = child_text(entry, "content", None)
-                    .or_else(|| child_text(entry, "summary", None))
-                    .unwrap_or_default();
-                extract_reddit_url(&html).map(|u| normalize_article_url(&u))
-            } else {
-                Some(normalize_article_url(thread_url))
-            }
+            Some(normalize_article_url(thread_url))
         })
         .collect()
+}
+
+// Reddit JSON API (reddit.com/r/sub.json)
+#[derive(Deserialize)]
+struct RedditListing {
+    data: RedditListingData,
+}
+
+#[derive(Deserialize)]
+struct RedditListingData {
+    children: Vec<RedditChild>,
+}
+
+#[derive(Deserialize)]
+struct RedditChild {
+    data: RedditPost,
+}
+
+#[derive(Deserialize)]
+struct RedditPost {
+    url: String,
+    score: i32,
+    upvote_ratio: f32,
+}
+
+fn parse_reddit_json(bytes: &[u8]) -> Result<Vec<String>> {
+    let listing: RedditListing = serde_json::from_slice(bytes).map_err(|e| {
+        let preview = std::str::from_utf8(&bytes[..bytes.len().min(200)])
+            .unwrap_or("<invalid utf-8>")
+            .trim();
+        anyhow!("Reddit JSON parse error: {e} — response: {preview}")
+    })?;
+    Ok(listing
+        .data
+        .children
+        .into_iter()
+        .map(|c| c.data)
+        .filter(|p| p.score > 10 && p.upvote_ratio > 0.8)
+        .map(|p| p.url)
+        .filter(|url| !url.contains("reddit.com") && !url.contains("redd.it"))
+        .map(|url| normalize_article_url(&url))
+        .collect())
 }
 
 // JSON Feed (jsonfeed.org)
@@ -137,15 +173,6 @@ fn child_text<'a>(node: roxmltree::Node<'a, 'a>, name: &str, ns: Option<&str>) -
         })
         .and_then(|n| n.text())
         .map(|s| s.trim().to_string())
-}
-
-/// Extract the external article URL from Reddit's `[link]` anchor in feed HTML content.
-/// Returns `None` for self-posts / discussion threads (no external link).
-fn extract_reddit_url(html: &str) -> Option<String> {
-    let link_idx = html.find(">[link]</a>")?;
-    let href_start = html[..link_idx].rfind("href=\"")?;
-    let url = html[href_start + 6..link_idx].trim_end_matches('"');
-    Some(url.to_string())
 }
 
 fn normalize_article_url(url: &str) -> String {

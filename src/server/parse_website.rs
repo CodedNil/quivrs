@@ -17,7 +17,7 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
         include_formatting: false,
         favor_recall: true,
         deduplicate: true,
-        max_extracted_len: 20000,
+        max_extracted_len: 22000,
         ..Default::default()
     };
     let extracted =
@@ -25,14 +25,13 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
 
     let mut seen_images = HashSet::new();
     let resolve_url = |img_url: &str| {
-        let resolved = base_url.as_ref().map_or_else(
+        base_url.as_ref().map_or_else(
             || img_url.to_string(),
             |base| {
                 base.join(img_url)
                     .map_or_else(|_| img_url.to_string(), |u| u.to_string())
             },
-        );
-        resolved.split('?').next().unwrap_or("").to_string()
+        )
     };
 
     let images = extracted
@@ -64,8 +63,12 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
 
     Ok(ArticleSource {
         url: url.clone(),
-        title: extracted.metadata.title.unwrap_or_default(),
-        summary: extracted.metadata.description.unwrap_or_default(),
+        title: html_escape::decode_html_entities(&extracted.metadata.title.unwrap_or_default())
+            .into_owned(),
+        summary: html_escape::decode_html_entities(
+            &extracted.metadata.description.unwrap_or_default(),
+        )
+        .into_owned(),
         content: extracted.content_text,
         images,
         published: extracted.metadata.date.unwrap_or_else(Utc::now),
