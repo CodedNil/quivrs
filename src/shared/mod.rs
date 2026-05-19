@@ -38,8 +38,9 @@ pub struct ArticleSource {
     pub url: String,
     pub title: String,
     pub summary: String,
-    pub image: Option<String>,
-    pub image_description: Option<String>,
+    pub content: String,
+    /// Each entry is `"url|caption"` — split on `|` to get the two parts.
+    pub images: Vec<String>,
     pub published: DateTime<Utc>,
 }
 
@@ -79,28 +80,28 @@ pub enum Section {
     /// Multiple paragraphs are recommended when there is a lot of content, cover it in depth without repeating yourself.
     Paragraph(String),
 
-    /// Full width image with caption. "url~caption", include multiple of these throughout the article.
+    /// Full width image with caption. "url|caption", include multiple of these throughout the article.
     /// Try to include all the images available. Favour the highest resolution images available.
     Image(String),
 
-    /// Simple bulleted list of items. Can have a title if written as "title~text" or just text.
+    /// Simple bulleted list of items. Can have a title if written as "title|text" or just text.
     ///
     /// Example usages:
-    /// - A timeline of events, history leading up to this article. "date~text" where date is the header and is for example "2026" or "January 2026" or "13th January 2026". Text should be max one sentence.
+    /// - A timeline of events, history leading up to this article. "date|text" where date is the header and is for example "2026" or "January 2026" or "13th January 2026". Text should be max one sentence.
     List(Vec<String>),
 
     /// Same as List but each item is rendered inside a bordered box, stacked vertically.
-    /// Items can use "title~text" (title shown as small label above the text) or plain text.
+    /// Items can use "title|text" (title shown as small label above the text) or plain text.
     ///
     /// Example usages:
-    /// - Up to 4 short highlights that give an overview of this article and key details. "title~text"
+    /// - Up to 4 short highlights that give an overview of this article and key details. "title|text"
     RowBoxes(Vec<String>),
 
     /// Same as List but each item is rendered inside a bordered box, laid out horizontally. Max 4 items for readability.
-    /// Items can use "title~text" (title shown as small label above the text) or plain text.
+    /// Items can use "title|text" (title shown as small label above the text) or plain text.
     ///
     /// Example usages:
-    /// - Up to 4 different perspectives on this article. Each formatted as a string "name~text". Name is the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view.
+    /// - Up to 4 different perspectives on this article. Each formatted as a string "name|text". Name is the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view.
     ColumnBoxes(Vec<String>),
 }
 

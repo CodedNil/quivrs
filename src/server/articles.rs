@@ -1,13 +1,13 @@
 use crate::{
     server::{
-        HTTP_CLIENT, database,
+        database,
         embeddings::{classify, cosine_similarity, generate_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
+        parse_website::fetch_source_content,
     },
     shared::{ArticleEntry, ArticleSource},
 };
-
 use anyhow::{Result, anyhow};
 use chrono::TimeDelta;
 use futures::{StreamExt, future::join_all, stream};
@@ -28,7 +28,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
     info!("Scanning {} feeds", config_file.len());
-    let all_entries: HashSet<ArticleSource> =
+    let candidate_urls: HashSet<String> =
         join_all(config_file.into_iter().map(|(id, url)| async move {
             scan_feed(&url).await.unwrap_or_else(|err| {
                 warn!(feed_id = %id, "Feed scan failed: {err:#}");
@@ -40,17 +40,18 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .flatten()
         .collect();
 
-    let mut new_entries = Vec::new();
-    for entry in all_entries {
-        if !database::url_exists(&entry.url).await {
-            new_entries.push(entry);
-        }
-    }
-
-    if new_entries.is_empty() {
+    let new_urls = database::filter_new_urls(&candidate_urls).await?;
+    if new_urls.is_empty() {
         info!("No new entries found");
         return Ok(());
     }
+
+    info!("Fetching content for {} new articles...", new_urls.len());
+    let new_entries: Vec<ArticleSource> = join_all(new_urls.into_iter().map(fetch_source_content))
+        .await
+        .into_iter()
+        .filter_map(|r| r.map_err(|e| warn!("Failed to fetch article: {e:#}")).ok())
+        .collect();
 
     info!(
         "Generating embeddings for {} new articles...",
@@ -143,76 +144,30 @@ pub async fn regenerate_articles() -> Result<()> {
 }
 
 async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<ArticleEntry> {
-    let fetches = sources.into_iter().map(|source| async move {
-        let content = async {
-            let html = HTTP_CLIENT.get(&source.url).send().await?.text().await?;
-            let options = rs_trafilatura::Options {
-                include_comments: false,
-                include_tables: true,
-                include_images: true,
-                include_links: true,
-                favor_recall: true,
-                include_formatting: true,
-                target_language: Some("en".to_string()),
-                deduplicate: true,
-                max_extracted_len: 30000,
-                page_type: Some(rs_trafilatura::page_type::PageType::Article),
-                ..Default::default()
-            };
-            rs_trafilatura::extract_with_options(&html, &options).map_err(|e| anyhow!("{e}"))
-        }
-        .await;
-
-        match content {
-            Ok(extracted) => Ok((source, extracted)),
-            Err(err) => {
-                warn!(url = %source.url, "Failed to fetch content: {err:#}");
-                Err(err)
-            }
-        }
-    });
-
-    let successful_fetches = join_all(fetches)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?;
-
-    let articles_content = successful_fetches
+    let articles_content = sources
         .into_iter()
         .enumerate()
-        .map(|(i, (source, content))| {
-            let mut images_found = HashSet::new();
+        .map(|(i, source)| {
             let images: String = source
-                .image
-                .as_deref()
-                .map(|url| (url, source.image_description.as_deref()))
-                .into_iter()
-                .chain(
-                    content
-                        .images
-                        .iter()
-                        .sorted_by_key(|img| !img.is_hero)
-                        .map(|i| (i.src.as_str(), i.caption.as_deref().or(i.alt.as_deref()))),
-                )
-                .filter(|(src, _)| {
-                    images_found.insert(src.to_string()) && !src.contains("placeholder")
-                })
-                .map(|(src, alt)| {
-                    let clean_src = src.split('?').next().unwrap_or(src);
-                    alt.filter(|s| !s.is_empty()).map_or_else(
-                        || format!("[{clean_src}]"),
-                        |text| format!("[{clean_src}, {text}]"),
-                    )
+                .images
+                .iter()
+                .map(|img_str| {
+                    let (src, caption) = img_str.split_once('|').unwrap_or((img_str, ""));
+                    if caption.is_empty() {
+                        format!("[{src}]")
+                    } else {
+                        format!("[{src}, {caption}]")
+                    }
                 })
                 .join(" ");
 
             format!(
-                "Source {} - Title: {} - URL: {} - Content: {} - Images: {}",
+                "Source {} - Title: {} - URL: {} - Images: {} - Content: {}",
                 i + 1,
                 source.title,
                 source.url,
-                content.content_text.replace('\n', " "),
-                images
+                images,
+                source.content.replace('\n', " ")
             )
         })
         .collect::<Vec<_>>()

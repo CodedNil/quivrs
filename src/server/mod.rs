@@ -3,6 +3,7 @@ pub mod database;
 mod embeddings;
 mod llm_functions;
 mod parse_feed;
+mod parse_website;
 
 use reqwest::Client;
 use std::{sync::LazyLock, time::Duration};

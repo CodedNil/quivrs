@@ -12,7 +12,12 @@ use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
-use std::{collections::HashMap, env, str::FromStr, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    str::FromStr,
+    sync::LazyLock,
+};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -71,14 +76,28 @@ pub struct EmbeddingCandidate {
     pub embedding: Vec<f32>,
 }
 
-/// Checks if a URL has already been processed.
-pub async fn url_exists(url: &str) -> bool {
-    sqlx::query("SELECT 1 FROM article_urls WHERE url = ?")
-        .bind(url)
-        .fetch_optional(&*DB)
-        .await
-        .map(|opt| opt.is_some())
-        .unwrap_or(false)
+/// Checks if a URL has already been processed, removes if they have.
+pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
+    if urls.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let query_str = format!("SELECT url FROM article_urls WHERE url IN ({placeholders})");
+    let mut q = sqlx::query(&query_str);
+    for url in urls {
+        q = q.bind(url);
+    }
+    let existing: HashSet<String> = q
+        .fetch_all(&*DB)
+        .await?
+        .into_iter()
+        .map(|row| row.get(0))
+        .collect();
+    Ok(urls
+        .iter()
+        .filter(|u| !existing.contains(*u))
+        .cloned()
+        .collect())
 }
 
 /// Retrieves articles within a time window for similarity comparison.
@@ -238,7 +257,7 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
     Ok(())
 }
 
-/// Finds articles that have multiple sources but haven't had a merged entry generated yet.
+/// Finds articles that have haven't had a merged entry generated yet.
 pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)>> {
     sqlx::query_as::<_, (Uuid, Vec<u8>)>("SELECT id, sources FROM articles WHERE entry IS NULL")
         .fetch_all(&*DB)
@@ -248,7 +267,7 @@ pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)
         .collect()
 }
 
-/// Saves the LLM-generated summary/entry for an article.
+/// Saves the entry for an article.
 pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
     sqlx::query("UPDATE articles SET entry = ?, updated_at = ? WHERE id = ?")
         .bind(to_allocvec(entry)?)

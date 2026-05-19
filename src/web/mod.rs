@@ -257,7 +257,13 @@ fn article_item(
         |e| e.description.as_str(),
     );
 
-    let hero_image = article.sources.iter().find_map(|s| s.image.clone());
+    let hero_image = article.sources.iter().find_map(|s| {
+        s.images
+            .first()
+            .and_then(|img| img.split('|').next())
+            .filter(|url| !url.is_empty())
+            .map(str::to_string)
+    });
 
     let bg = if is_selected {
         style::CARD_BG_SELECTED
@@ -370,15 +376,7 @@ fn article_detail(
         |e| e.title.as_str(),
     );
     let description = article.entry.as_ref().map_or_else(
-        || {
-            first_source.map_or("", |s| {
-                let summary = s.summary.as_str();
-                match summary.char_indices().nth(200) {
-                    Some((idx, _)) => &summary[..idx],
-                    None => summary,
-                }
-            })
-        },
+        || first_source.map_or("", |s| &s.summary),
         |e| e.description.as_str(),
     );
 
@@ -471,6 +469,7 @@ fn article_detail(
                 }
             } else {
                 "Generating..."
+                div { {first_source.map_or("", |s| &s.content)} }
             }
         }
     }
@@ -486,7 +485,7 @@ fn clean_url(url: &str) -> String {
 }
 
 fn source_parts(s: &str) -> (&str, &str) {
-    s.split_once('~').unwrap_or(("", s))
+    s.split_once('|').unwrap_or(("", s))
 }
 
 fn render_inline(text: &str) -> Element {
@@ -542,7 +541,7 @@ fn render_box_item(item: &str) -> Element {
             border_radius: "0.375rem",
             padding: "0.625rem 0.875rem",
             height: "100%",
-            if let Some((header, text)) = item.split_once('~') {
+            if let Some((header, text)) = item.split_once('|') {
                 div {
                     font_size: "0.62rem",
                     font_weight: "700",
@@ -625,7 +624,7 @@ fn render_section(section: &Section) -> Element {
                         font_size: "0.875rem",
                         color: "var(--base05)",
                         line_height: "1.6",
-                        if let Some((header, text)) = item.split_once('~') {
+                        if let Some((header, text)) = item.split_once('|') {
                             span { font_weight: "700", "{header}" }
                             " "
                             {render_inline(text)}
