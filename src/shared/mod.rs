@@ -18,7 +18,6 @@ pub struct StoredArticle {
     /// Generated content for the article
     pub entry: Option<ArticleEntry>,
 
-    pub article_type: ArticleType,
     pub category: Category,
 
     /// Timestamp when the first source was published.
@@ -128,18 +127,6 @@ pub enum Section {
     /// Example usages:
     /// - Up to 4 different perspectives on this article. Each formatted as a string "name|text". Name is the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view.
     ColumnBoxes(Vec<String>),
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Display, EnumIter, EnumString)]
-pub enum ArticleType {
-    Breaking,
-    News,
-    Opinion,
-    Marketing,
-    Review,
-    Guide,
-    Feature,
-    Post,
 }
 
 #[derive(

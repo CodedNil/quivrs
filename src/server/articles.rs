@@ -78,7 +78,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             continue;
         }
 
-        let Ok((article_type, category)) = classify(&embedding).await else {
+        let Ok(category) = classify(&embedding).await else {
             warn!("Classification failed for '{}'", source.title);
             continue;
         };
@@ -104,7 +104,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             }
         }
 
-        let article_overview = format!("'{}' {}/{}", article_text(&source), article_type, category);
+        let article_overview = format!("'{}' {}", article_text(&source), category);
         if let Some((article_id, existing_title, score)) = best {
             info!(
                 "[MERGE] {} → '{}' (score {score:.2})",
@@ -120,7 +120,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             } else {
                 info!("[NEW] {}", article_overview);
             }
-            database::insert_article(&source, &embedding, article_type, category).await?;
+            database::insert_article(&source, &embedding, category).await?;
         }
     }
 

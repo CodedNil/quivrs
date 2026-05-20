@@ -1,10 +1,9 @@
 use crate::server::embeddings::{
-    MODEL_NAME, article_text, article_type_label, category_label, classify, embed_label_texts,
+    MODEL_NAME, article_text, category_label, classify, embed_label_texts,
     generate_article_embeddings, label_hash, seed_label_cache,
 };
 use crate::shared::{
-    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
-    StoredArticle,
+    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Category, Rating, StoredArticle,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -57,7 +56,6 @@ pub struct EmbeddingCandidate {
 struct ReclassifyRow {
     id: Uuid,
     sources: Vec<u8>,
-    article_type: String,
     category: String,
 }
 
@@ -124,7 +122,6 @@ pub async fn get_embedding_candidates(
 pub async fn insert_article(
     source: &ArticleSource,
     embedding: &[f32],
-    article_type: ArticleType,
     category: Category,
 ) -> Result<()> {
     let id = Uuid::new_v4();
@@ -133,13 +130,12 @@ pub async fn insert_article(
 
     let published = source.published.timestamp();
     let updated_at = Utc::now().timestamp();
-    let article_type = article_type.to_string();
     let category = category.to_string();
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO articles
-             (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, article_type, category)
-         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?)",
+             (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, category)
+         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?)",
         id,
         source.title,
         sources_bytes,
@@ -147,7 +143,6 @@ pub async fn insert_article(
         MODEL_NAME,
         published,
         updated_at,
-        article_type,
         category,
     )
     .execute(&mut *tx)
@@ -202,8 +197,7 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
         return Ok(());
     }
 
-    let mut builder =
-        QueryBuilder::new("SELECT id, sources, article_type, category FROM articles WHERE id IN (");
+    let mut builder = QueryBuilder::new("SELECT id, sources, category FROM articles WHERE id IN (");
     let mut separated = builder.separated(", ");
     for id in &ids {
         separated.push_bind(id);
@@ -228,27 +222,23 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
 
     let mut tx = DB.begin().await?;
     for ((row, source), embeddings) in targets.iter().zip(&first_sources).zip(embeddings) {
-        let (article_type, category) = classify(&embeddings).await?;
-        let new_type = article_type.to_string();
-        let new_cat = category.to_string();
-        if new_type != row.article_type || new_cat != row.category {
+        let category = classify(&embeddings).await?;
+        let new_category = category.to_string();
+        if new_category != row.category {
             info!(
-                "[RECLASSIFY] '{}' {}/{} → {}/{}",
+                "[RECLASSIFY] '{}' {} → {}",
                 article_text(source),
-                row.article_type,
                 row.category,
-                new_type,
-                new_cat
+                new_category
             );
         }
         let embedding_bytes = to_allocvec(&embeddings)?;
         let updated_at = Utc::now().timestamp();
         sqlx::query!(
-            "UPDATE articles SET embedding = ?, embedding_model = ?, article_type = ?, category = ?, updated_at = ? WHERE id = ?",
+            "UPDATE articles SET embedding = ?, embedding_model = ?, category = ?, updated_at = ? WHERE id = ?",
             embedding_bytes,
             MODEL_NAME,
-            new_type,
-            new_cat,
+            new_category,
             updated_at,
             row.id,
         )
@@ -369,7 +359,6 @@ pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
             a.entry,
             a.published    as "published!",
             a.updated_at   as "updated_at!",
-            a.article_type as "article_type!",
             a.category     as "category!"
          FROM user_articles ua
          JOIN articles a ON ua.article_id = a.id
@@ -397,7 +386,6 @@ pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
                 .unwrap_or_default(),
             published: DateTime::from_timestamp(row.published, 0).unwrap_or_default(),
             updated_at: DateTime::from_timestamp(row.updated_at, 0).unwrap_or_default(),
-            article_type: row.article_type.parse().unwrap_or(ArticleType::News),
             category: row.category.parse().unwrap_or(Category::Technology),
         };
         Ok(ArticleData {
@@ -453,7 +441,7 @@ async fn upsert_label_embedding(key: &str, hash: &str, embedding: &[f32]) -> Res
 /// Loads label embeddings from DB, regenerating only stale or missing entries.
 async fn init_label_embeddings() -> Result<()> {
     // All entries in order: cats first, then types
-    let n_cat = Category::iter().count();
+    let n_categories = Category::iter().count();
     let all_entries: Vec<(String, String, String)> = Category::iter()
         .map(|c| {
             let text = category_label(c);
@@ -463,14 +451,6 @@ async fn init_label_embeddings() -> Result<()> {
                 format!("title: none | text: {text}"),
             )
         })
-        .chain(ArticleType::iter().map(|t| {
-            let text = article_type_label(t);
-            (
-                format!("type_{t}"),
-                label_hash(text),
-                format!("title: none | text: {text}"),
-            )
-        }))
         .collect();
 
     let mut cached: HashMap<String, (String, Vec<f32>)> = sqlx::query!(
@@ -501,18 +481,13 @@ async fn init_label_embeddings() -> Result<()> {
         }
     }
 
-    let mut cat = Vec::with_capacity(n_cat);
-    let mut type_ = Vec::with_capacity(all_entries.len() - n_cat);
-    for (i, (key, _, _)) in all_entries.iter().enumerate() {
+    let mut category = Vec::with_capacity(n_categories);
+    for (key, _, _) in &all_entries {
         let emb = cached.remove(key).map(|(_, e)| e).unwrap();
-        if i < n_cat {
-            cat.push(emb);
-        } else {
-            type_.push(emb);
-        }
+        category.push(emb);
     }
 
-    seed_label_cache(cat, type_).await;
+    seed_label_cache(category).await;
     Ok(())
 }
 

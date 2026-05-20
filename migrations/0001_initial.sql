@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS articles (
     entry            BLOB,
     embedding        BLOB NOT NULL,
     embedding_model  TEXT NOT NULL DEFAULT '',
-    article_type     TEXT NOT NULL DEFAULT 'News',
     category         TEXT NOT NULL DEFAULT 'Technology',
     published        INTEGER NOT NULL,
     updated_at       INTEGER NOT NULL

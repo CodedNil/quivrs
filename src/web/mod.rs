@@ -514,11 +514,6 @@ fn article_detail(
                 align_items: "center",
                 margin_bottom: "1.75rem",
                 RatingPill {
-                    label: article.article_type.to_string(),
-                    item_key: format!("article_type:{}", article.article_type),
-                    item_ratings,
-                }
-                RatingPill {
                     label: article.category.to_string(),
                     item_key: format!("category:{}", article.category),
                     item_ratings,
