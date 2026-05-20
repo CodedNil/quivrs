@@ -1,6 +1,7 @@
 use crate::shared::{ArticleSource, ArticleType, Category};
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use itertools::Itertools;
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use std::sync::LazyLock;
@@ -13,31 +14,31 @@ pub const MODEL_NAME: &str = "EmbeddingGemma300M";
 pub const fn category_label(category: Category) -> &'static str {
     match category {
         Category::Business => {
-            "Business, corporate finance, and global macroeconomics. Includes corporate earnings reports, financial market updates, stock trading, mergers and acquisitions, startup funding, venture capital, government economic policy, inflation, GDP, central bank decisions, trade agreements, layoffs, executive appointments, and industry competition."
+            "Business, corporate finance, and private sector commercial activity. Includes corporate earnings reports, financial market updates, stock trading, mergers and acquisitions, startup funding, venture capital, inflation, GDP, central bank decisions, trade agreements, layoffs, executive appointments, and industry competition."
         }
         Category::Politics => {
-            "Politics, governmental systems, and geopolitical affairs. Includes coverage of elections, legislation, political party dynamics, taxes, policymaking, legislative updates from parliament or congress, global diplomacy, foreign affairs, international relations, political appointments, and campaigns."
+            "Politics, governmental systems, and geopolitical affairs. Includes coverage of elections, legislation, political party dynamics, taxes, policymaking, parliament and congress updates, global diplomacy, international relations, sanctions, political appointments, campaigns, government infrastructure projects, public spending decisions, government contracts with private companies, and senior politicians' actions, statements, and resignations."
         }
         Category::Law => {
-            "Law, crime, the legal system, and criminal justice. Includes coverage of court cases, criminal trials, verdicts, sentencing, police investigations, arrests, civil lawsuits, judicial rulings, regulatory enforcement, fraud, theft, violence, cybercrime, and civil rights violations."
+            "Law, crime, the legal system, and criminal justice. Includes coverage of court cases, criminal trials, verdicts, sentencing, police investigations, arrests, civil lawsuits, judicial rulings, regulatory enforcement, fraud, theft, violence, cybercrime, civil rights violations, professional misconduct hearings, bans from professions or workplaces, fitness-to-plead determinations, and investigations into institutional wrongdoing."
         }
         Category::Health => {
-            "Health, medicine, and healthcare infrastructure. Includes medical research breakthroughs, clinical trial results, drug or treatment approvals, mental health, public health campaigns, disease outbreaks, epidemics, vaccines, nutrition science, and patient stories."
+            "Clinical health, medicine, and public healthcare. Includes medical research breakthroughs, pharmaceutical and medical study results, drug or treatment approvals, clinical psychiatric care and serious mental illness, disease outbreaks, epidemics, vaccines, hospital and healthcare policy, and personal accounts of living with chronic illness or serious long-term medical conditions."
         }
         Category::Culture => {
             "Culture, media, and the entertainment industry. Includes television shows, streaming content, series releases, true crime dramas, documentaries, films, music, and theatre. Covers celebrity updates, royal family news, human interest stories, book releases, art exhibitions, and media broadcasting guides explaining how to watch or stream a show."
         }
         Category::Lifestyle => {
-            "Lifestyle, consumer shopping, retail discounts, products, and home life. Focuses on interior organization, home decor, furniture, kitchen storage solutions, fashion design, weddings, and consumer product deals. Covers popular trend items, travel, food, and family relationships."
+            "Lifestyle, domestic home life, and practical household living. Includes household cleaning tips, home decor, interior organisation, kitchen storage, cooking recipes, food, fashion and clothing, weddings, travel, and family household relationships. Also covers consumer shopping for household goods, retail discounts on everyday items, and product deals for home and personal life."
         }
         Category::Environment => {
             "The environment, nature, and ecological changes. Includes reporting on climate change, global warming, carbon emissions, renewable energy transitions, wildlife conservation, biodiversity, deforestation, ocean pollution, ecological research, and green sustainability initiatives."
         }
         Category::Technology => {
-            "Consumer technology, consumer electronics, software applications, streaming platforms, apps, hardware, gadgets, and the tech industry. Includes tech product pricing changes, subscriptions, smartphones, operating systems, social media platforms, and big tech announcements. Also explicitly covers cybersecurity incidents, data breaches, domain abuse, online scams, hacking, vulnerabilities, artificial intelligence, and machine learning."
+            "Consumer technology, consumer electronics, software, and the tech industry. Includes smartphones, computers, operating systems, apps, streaming platforms, hardware, gadgets, wearable technology, smartwatches, fitness trackers, wireless headphones, earphones, and audio equipment. Also covers programming languages, software development, coding tools, developer retrospectives, personal programming essays, independent hobbyist coding projects, developer blog posts about Rust, Ruby, Python, C, Go, and other languages, tech company news, product launches and platform feature announcements, AI and machine learning, cybersecurity incidents, data breaches, hacking, and vulnerabilities."
         }
         Category::Science => {
-            "Fundamental science, academic research, and discovery. Includes coverage of space exploration, astronomy, physics, biology, chemistry, genetics, neuroscience, paleontology, academic studies, and peer-reviewed scientific findings."
+            "Fundamental science, academic research, and discovery. Includes astronomy, celestial events, natural sky phenomena, stargazing and sky-watching, space exploration, physics, biology, chemistry, botany, horticulture, genetics, neuroscience, paleontology, ecology, and peer-reviewed scientific findings. Covers in-depth features on natural processes, plant and animal biology, and scientific curiosities."
         }
         Category::Sports => {
             "Sports, athletics, and professional competitive leagues. Includes coverage of football, cricket, tennis, rugby, cycling, golf, boxing, track and field, and swimming. Tracks tournament progress, match results, player transfers, and sporting records."
@@ -48,28 +49,28 @@ pub const fn category_label(category: Category) -> &'static str {
 pub const fn article_type_label(article_type: ArticleType) -> &'static str {
     match article_type {
         ArticleType::Breaking => {
-            "Fast-breaking news alert, immediate live update, or urgent news flash reporting on a developing crisis, natural disaster, or major public emergency happening right now."
+            "Breaking news alert published the moment a physical emergency is confirmed, while emergency services are actively responding. Covers incidents where police are attending a stabbing or shooting with confirmed injuries, paramedics responding to a drowning, firefighters on scene at a building fire with casualties, or an explosion with confirmed victims. Defined by real-time emergency services response and immediate confirmed harm at the moment of publication."
         }
         ArticleType::News => {
-            "Standard current events and objective news reporting. Documents recent public incidents, odd or unusual current events, professional bans, employment dismissals, official announcements, local developments, or public records. Factual, informational journalistic coverage of daily events."
+            "Standard current events and objective news reporting. Documents recent public incidents, crime reports, court case summaries, human interest news items, odd or unusual current events, professional bans, employment dismissals, official announcements, local developments, political developments, infrastructure updates, public records, and newly published scientific study results or health research findings. Factual, informational journalistic coverage of daily events."
         }
         ArticleType::Opinion => {
             "Opinion piece, editorial column, or subjective essay presenting an individual's personal argument or commentary, often utilizing first-person perspectives to critique public affairs."
         }
         ArticleType::Marketing => {
-            "Marketing post, sponsored piece, or promotional advertisement intended to drive consumer sales. Features commercial product recommendations, gift guides, affiliate purchase links, or shopping deals."
+            "Marketing post, sponsored piece, or promotional advertisement explicitly intended to drive consumer sales. Features commercial product recommendations, curated seasonal shopping collections, deals roundups, gift guides, affiliate purchase links, or product lists with prices and calls to action."
         }
         ArticleType::Review => {
-            "Critical review or performance evaluation of a commercial product, device, creative work, or consumer service. Includes hands-on assessment, technical analysis, and explicit pros, cons, or quality ratings."
+            "Critical review or performance evaluation of a commercial product, device, creative work, or consumer service. Includes hands-on testing, head-to-head product comparisons, technical analysis, and explicit pros, cons, or quality ratings."
         }
         ArticleType::Guide => {
-            "Technical tutorial, step-by-step instructional guide, or educational how-to walkthrough designed to explain operational setups, troubleshoot technical issues, or teach a specific skill."
+            "Step-by-step instructional guide or practical how-to article designed to teach a skill or explain a process. Includes technical tutorials, debugging walkthroughs, root-cause investigations, household cleaning tips, cooking instructions, home maintenance guides, sky-watching guides, streaming and viewing guides for TV shows and films, best-of picks and top recommendations lists, and how-to explainers across any topic."
         }
         ArticleType::Feature => {
-            "Long-form narrative storytelling or a deep-dive piece of investigative journalism. Uses magazine-style writing to explore a profile, investigate a complex social issue, or provide an extensive analytical overview."
+            "Extended magazine-style longread or in-depth investigative journalism going well beyond a news summary. Multi-source reporting, deep character profiles, or sustained analytical exploration of a complex issue. Clearly a standalone longread."
         }
         ArticleType::Post => {
-            "Casual, informal personal blog post, personal journal entry, or individual developer diary, typical of an amateur or independent hobbyist rather than a professional news agency."
+            "Casual, informal first-person personal blog post or personal journal entry, written by one individual sharing their own experience, hobby project, or personal thoughts. Typical of personal websites, indie developer blogs, or independent newsletters where the author writes about their own life or project in their own voice."
         }
     }
 }
@@ -96,34 +97,28 @@ async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     EMBEDDING_MODEL.lock().await.embed(texts, None)
 }
 
-fn article_text(task: &str, s: &ArticleSource) -> String {
-    if s.tags.is_empty() {
-        format!("task: {task} | query: {}. {}", s.title, s.summary)
-    } else {
-        format!(
-            "task: {task} | query: {}. {}. {}",
-            s.title,
-            s.tags.join(", "),
-            s.summary
-        )
-    }
+pub fn article_text(s: &ArticleSource) -> String {
+    [
+        s.title.replace('\n', " "),
+        s.tags.iter().take(8).join(", ").replace('\n', " "),
+        s.summary
+            .chars()
+            .take(500)
+            .collect::<String>()
+            .replace('\n', " "),
+    ]
+    .iter()
+    .filter(|field| !field.is_empty())
+    .join(". ")
 }
 
-pub async fn generate_article_embeddings(
-    articles: &[ArticleSource],
-) -> Result<(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
-    let similarity_texts = articles
-        .iter()
-        .map(|s| article_text("sentence similarity", s));
-    let classification_texts = articles.iter().map(|s| article_text("classification", s));
-    let texts: Vec<String> = similarity_texts.chain(classification_texts).collect();
-
+pub async fn generate_article_embeddings(articles: &[ArticleSource]) -> Result<Vec<Vec<f32>>> {
+    let texts: Vec<String> = articles.iter().map(article_text).collect();
     let mut embs = generate_embeddings(&texts).await?;
     for emb in &mut embs {
         normalize(emb);
     }
-    let classification = embs.split_off(articles.len());
-    Ok((embs, classification))
+    Ok(embs)
 }
 
 pub async fn embed_label_texts(texts: &[String]) -> Result<Vec<Vec<f32>>> {

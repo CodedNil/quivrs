@@ -1,7 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{classify, cosine_similarity, generate_article_embeddings},
+        embeddings::{article_text, classify, cosine_similarity, generate_article_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
         parse_website::fetch_source_content,
@@ -67,22 +67,17 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let (similarity_embeddings, classification_embeddings) =
-        generate_article_embeddings(&new_entries)
-            .await
-            .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
+    let embeddings = generate_article_embeddings(&new_entries)
+        .await
+        .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
-    for (source, (sim_emb, cls_emb)) in new_entries.into_iter().zip(
-        similarity_embeddings
-            .into_iter()
-            .zip(classification_embeddings),
-    ) {
-        if sim_emb.is_empty() || cls_emb.is_empty() {
+    for (source, embedding) in new_entries.into_iter().zip(embeddings.into_iter()) {
+        if embedding.is_empty() {
             warn!("Skipping article due to empty embedding: {}", source.title);
             continue;
         }
 
-        let Ok((article_type, category)) = classify(&cls_emb).await else {
+        let Ok((article_type, category)) = classify(&embedding).await else {
             warn!("Classification failed for '{}'", source.title);
             continue;
         };
@@ -95,11 +90,8 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
         let mut best: Option<(uuid::Uuid, &str, f32)> = None;
         let mut highest: Option<(&str, f32)> = None;
-        for c in candidates
-            .iter()
-            .filter(|c| !c.embedding_similarity.is_empty())
-        {
-            let score = cosine_similarity(&sim_emb, &c.embedding_similarity);
+        for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
+            let score = cosine_similarity(&embedding, &c.embedding);
             if highest.is_none_or(|(_, s)| score > s) {
                 highest = Some((&c.title, score));
             }
@@ -111,22 +103,23 @@ pub async fn refresh_all_feeds() -> Result<()> {
             }
         }
 
+        let article_overview = format!("'{}' {}/{}", article_text(&source), article_type, category);
         if let Some((article_id, existing_title, score)) = best {
             info!(
-                "[MERGE] '{}' → '{}' (score {score:.2})",
-                source.title, existing_title
+                "[MERGE] {} → '{}' (score {score:.2})",
+                article_overview, existing_title
             );
             database::merge_into_article(article_id, &source).await?;
         } else {
             if let Some((closest_title, sim)) = highest {
                 info!(
-                    "[NEW] '{}' - Highest {sim:.2} '{}'",
-                    source.title, closest_title
+                    "[NEW] {} - Highest {sim:.2} '{}'",
+                    article_overview, closest_title
                 );
             } else {
-                info!("[NEW] '{}'", source.title);
+                info!("[NEW] {}", article_overview);
             }
-            database::insert_article(&source, &sim_emb, &cls_emb, article_type, category).await?;
+            database::insert_article(&source, &embedding, article_type, category).await?;
         }
     }
 

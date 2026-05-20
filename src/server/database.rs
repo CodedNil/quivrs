@@ -1,5 +1,5 @@
 use crate::server::embeddings::{
-    MODEL_NAME, article_type_label, category_label, classify, embed_label_texts,
+    MODEL_NAME, article_text, article_type_label, category_label, classify, embed_label_texts,
     generate_article_embeddings, label_hash, seed_label_cache,
 };
 use crate::shared::{
@@ -50,10 +50,9 @@ pub struct EmbeddingCandidate {
     pub id: Uuid,
     pub title: String,
     pub category: String,
-    pub embedding_similarity: Vec<f32>,
+    pub embedding: Vec<f32>,
 }
 
-// Only needed for the dynamic QueryBuilder IN-clause in reclassify_articles.
 #[derive(sqlx::FromRow)]
 struct ReclassifyRow {
     id: Uuid,
@@ -101,7 +100,7 @@ pub async fn get_embedding_candidates(
     window_end: i64,
 ) -> Result<Vec<EmbeddingCandidate>> {
     sqlx::query!(
-        r#"SELECT id as "id!: Uuid", title, category, embedding_similarity
+        r#"SELECT id as "id!: Uuid", title, category, embedding
          FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?"#,
         window_start,
         window_end,
@@ -115,7 +114,7 @@ pub async fn get_embedding_candidates(
             id: row.id,
             title: row.title,
             category: row.category,
-            embedding_similarity: from_bytes(&row.embedding_similarity)?,
+            embedding: from_bytes(&row.embedding)?,
         })
     })
     .collect()
@@ -124,15 +123,13 @@ pub async fn get_embedding_candidates(
 /// Inserts a new article and its initial metadata.
 pub async fn insert_article(
     source: &ArticleSource,
-    embedding_similarity: &[f32],
-    embedding_classification: &[f32],
+    embedding: &[f32],
     article_type: ArticleType,
     category: Category,
 ) -> Result<()> {
     let id = Uuid::new_v4();
     let sources_bytes = to_allocvec(std::slice::from_ref(source))?;
-    let similarity_bytes = to_allocvec(embedding_similarity)?;
-    let classification_bytes = to_allocvec(embedding_classification)?;
+    let embedding_bytes = to_allocvec(embedding)?;
 
     let published = source.published.timestamp();
     let updated_at = Utc::now().timestamp();
@@ -141,15 +138,12 @@ pub async fn insert_article(
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO articles
-             (id, title, sources, estimated_liked, entry, embedding_similarity,
-              embedding_classification, embedding_model, published, updated_at,
-              article_type, category)
-         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?, ?)",
+             (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, article_type, category)
+         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?, ?)",
         id,
         source.title,
         sources_bytes,
-        similarity_bytes,
-        classification_bytes,
+        embedding_bytes,
         MODEL_NAME,
         published,
         updated_at,
@@ -228,34 +222,30 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
         .map(|row| first_source(&row.sources))
         .collect::<Result<_>>()?;
 
-    let (similarity_embs, classification_embs) = generate_article_embeddings(&first_sources)
+    let embeddings = generate_article_embeddings(&first_sources)
         .await
         .inspect_err(|e| error!("Re-classification embedding generation failed: {e}"))?;
 
     let mut tx = DB.begin().await?;
-    for (((row, source), sim_emb), cls_emb) in targets
-        .iter()
-        .zip(&first_sources)
-        .zip(similarity_embs)
-        .zip(classification_embs)
-    {
-        let (article_type, category) = classify(&cls_emb).await?;
+    for ((row, source), embeddings) in targets.iter().zip(&first_sources).zip(embeddings) {
+        let (article_type, category) = classify(&embeddings).await?;
         let new_type = article_type.to_string();
         let new_cat = category.to_string();
         if new_type != row.article_type || new_cat != row.category {
             info!(
                 "[RECLASSIFY] '{}' {}/{} → {}/{}",
-                source.title, row.article_type, row.category, new_type, new_cat
+                article_text(source),
+                row.article_type,
+                row.category,
+                new_type,
+                new_cat
             );
         }
-        let similarity_bytes = to_allocvec(&sim_emb)?;
-        let classification_bytes = to_allocvec(&cls_emb)?;
+        let embedding_bytes = to_allocvec(&embeddings)?;
         let updated_at = Utc::now().timestamp();
         sqlx::query!(
-            "UPDATE articles SET embedding_similarity = ?, embedding_classification = ?,
-             embedding_model = ?, article_type = ?, category = ?, updated_at = ? WHERE id = ?",
-            similarity_bytes,
-            classification_bytes,
+            "UPDATE articles SET embedding = ?, embedding_model = ?, article_type = ?, category = ?, updated_at = ? WHERE id = ?",
+            embedding_bytes,
             MODEL_NAME,
             new_type,
             new_cat,
@@ -273,7 +263,7 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
 pub async fn regenerate_stale_embeddings() -> Result<()> {
     let stale = sqlx::query!(
         r#"SELECT id as "id!: Uuid", sources FROM articles
-         WHERE embedding_model != ? OR embedding_classification IS NULL"#,
+         WHERE embedding_model != ? OR embedding IS NULL"#,
         MODEL_NAME,
     )
     .fetch_all(&*DB)
@@ -290,20 +280,17 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
         .map(|row| first_source(&row.sources))
         .collect::<Result<_>>()?;
 
-    let (similarity_embs, classification_embs) = generate_article_embeddings(&first_sources)
+    let embeddings = generate_article_embeddings(&first_sources)
         .await
         .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
 
     let mut tx = DB.begin().await?;
-    for ((row, sim_emb), cls_emb) in stale.iter().zip(similarity_embs).zip(classification_embs) {
-        let similarity_bytes = to_allocvec(&sim_emb)?;
-        let classification_bytes = to_allocvec(&cls_emb)?;
+    for (row, embedding) in stale.iter().zip(embeddings) {
+        let embedding_bytes = to_allocvec(&embedding)?;
         let updated_at = Utc::now().timestamp();
         sqlx::query!(
-            "UPDATE articles SET embedding_similarity = ?, embedding_classification = ?,
-             embedding_model = ?, updated_at = ? WHERE id = ?",
-            similarity_bytes,
-            classification_bytes,
+            "UPDATE articles SET embedding = ?, embedding_model = ?, updated_at = ? WHERE id = ?",
+            embedding_bytes,
             MODEL_NAME,
             updated_at,
             row.id,
