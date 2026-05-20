@@ -56,6 +56,10 @@ fn AppHead() -> Element {
                 --base0c: #8bd5ca; --base0d: #8aadf4; --base0e: #c6a0f6; --base0f: #f0c6c6;
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0;
+            }}
+            ::selection {{
+                background-color: color-mix(in srgb, var(--base0d) 40%, transparent);
+                color: var(--base05);
             }}"
         }
     }
@@ -204,8 +208,8 @@ fn MainLayout() -> Element {
                         margin: "0",
                         "Quivrs"
                     }
-                    button {
-                        class: "pill-button",
+                    RefreshButton {
+                        title: "Re-classify all articles",
                         onclick: move |_| async move {
                             let ids = articles.read().iter().map(|a| a.id).collect();
                             if reclassify_articles(ids).await.is_ok()
@@ -214,8 +218,6 @@ fn MainLayout() -> Element {
                                 articles.set(new_articles);
                             }
                         },
-                        title: "Re-classify all articles",
-                        "↻"
                     }
                 }
 
@@ -463,8 +465,8 @@ fn article_detail(
                     {status_button("Bin", ArticleStatus::Binned, status, id, articles)}
                 }
                 div { display: "flex", gap: "0.25rem",
-                    button {
-                        class: "pill-button",
+                    RefreshButton {
+                        title: "Refresh classification",
                         onclick: move |_| async move {
                             if reclassify_articles(vec![id]).await.is_ok()
                                 && let Ok(new_articles) = get_user_articles().await
@@ -472,8 +474,6 @@ fn article_detail(
                                 articles.set(new_articles);
                             }
                         },
-                        title: "Refresh classification",
-                        "↻"
                     }
                     {rating_button("Hate", Rating::Hated, rating, id, articles)}
                     {rating_button("Dislike", Rating::Disliked, rating, id, articles)}
@@ -732,6 +732,29 @@ fn render_section(section: &Section) -> Element {
                 }
             }
         },
+    }
+}
+
+#[component]
+fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Element {
+    let mut hovered = use_signal(|| false);
+    rsx! {
+        button {
+            font_size: "0.875rem",
+            line_height: "1",
+            padding: "0.2rem 0.5rem",
+            border_radius: "9999px",
+            background_color: "var(--base02)",
+            color: if hovered() { "var(--base06)" } else { "var(--base05)" },
+            border: "none",
+            cursor: "pointer",
+            transition: "color 0.15s ease, border-color 0.15s ease",
+            title,
+            onmouseenter: move |_| hovered.set(true),
+            onmouseleave: move |_| hovered.set(false),
+            onclick,
+            "↻"
+        }
     }
 }
 

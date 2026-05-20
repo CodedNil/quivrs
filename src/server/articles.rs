@@ -19,7 +19,7 @@ use std::{
 use tokio::fs;
 use tracing::{error, info, warn};
 
-const SIMILARITY_THRESHOLD: f32 = 0.55;
+const SIMILARITY_THRESHOLD: f32 = 0.7;
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
@@ -67,12 +67,17 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let embeddings = generate_article_embeddings(&new_entries)
-        .await
-        .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
+    let (similarity_embeddings, classification_embeddings) =
+        generate_article_embeddings(&new_entries)
+            .await
+            .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
-    for (source, embedding) in new_entries.into_iter().zip(embeddings) {
-        if embedding.is_empty() {
+    for (source, (sim_emb, cls_emb)) in new_entries.into_iter().zip(
+        similarity_embeddings
+            .into_iter()
+            .zip(classification_embeddings),
+    ) {
+        if sim_emb.is_empty() || cls_emb.is_empty() {
             warn!("Skipping article due to empty embedding: {}", source.title);
             continue;
         }
@@ -86,8 +91,11 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
         let mut best: Option<(uuid::Uuid, &str, f32)> = None;
         let mut highest: Option<(&str, f32)> = None;
-        for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
-            let score = cosine_similarity(&embedding, &c.embedding);
+        for c in candidates
+            .iter()
+            .filter(|c| !c.embedding_similarity.is_empty())
+        {
+            let score = cosine_similarity(&sim_emb, &c.embedding_similarity);
             if highest.is_none_or(|(_, s)| score > s) {
                 highest = Some((&c.title, score));
             }
@@ -111,8 +119,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
             } else {
                 info!("[NEW] '{}'", source.title);
             }
-            if let Ok((article_type, category)) = classify(&embedding).await {
-                database::insert_article(&source, &embedding, article_type, category).await?;
+            if let Ok((article_type, category)) = classify(&cls_emb).await {
+                database::insert_article(&source, &sim_emb, &cls_emb, article_type, category)
+                    .await?;
             }
         }
     }

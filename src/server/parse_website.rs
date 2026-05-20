@@ -61,6 +61,8 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
         .map(|(url, caption)| format!("{url}|{caption}"))
         .collect();
 
+    let tags = extracted.metadata.tags;
+
     Ok(ArticleSource {
         url: url.clone(),
         title: html_escape::decode_html_entities(&extracted.metadata.title.unwrap_or_default())

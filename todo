@@ -1,9 +1,7 @@
-dont use any data from the rss for title summary and images, get it all from the scraped content
 use head image caption
-find if theres embedded video content instead of trying to get embedding to classify that
+run the classifier first, only merge similar if its the same topic, lower threshold then
 
-https://www.bbc.co.uk/news/extra/BMWw2fMKVW/hong-kong-dolphins example of a great feature article
-https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-news-ab9b2a2d0e0d
+find if theres embedded video content instead of trying to get embedding to classify that
 
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
@@ -11,7 +9,9 @@ better ground with citations embedded
 rewrite sections to not be so hardcoded, let it generate html & css based on template components
 two column list for pros/cons
 images grid 2x1
-let it format paragraphs, text in boxes etc as markdown
+
+https://www.bbc.co.uk/news/extra/BMWw2fMKVW/hong-kong-dolphins example of a great feature article
+https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-news-ab9b2a2d0e0d
 
 
 liked sources, categories
@@ -26,3 +26,4 @@ then we get the number by similarity to those
 
 
 support youtube feeds, twitter user posts, subreddits as sources
+use fxtwitter curl -s "https://api.fxtwitter.com/2/profile/ArtificialAnlys/statuses"
