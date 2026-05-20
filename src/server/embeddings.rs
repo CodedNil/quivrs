@@ -18,6 +18,7 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
                 "Goldman Sachs to cut 3,000 jobs as investment banking revenue slumps. The Wall Street giant is restructuring its consumer division after a costly retreat from retail banking.",
                 "Kickstarter just killed its new mature content rules. 'Honestly? We botched it.'",
                 "Swatch launch sparks 'chaotic' scenes and store closures. Some shoppers have been trying to resell a new line of watches priced at £335 each for up to £16,000.",
+                "Samsung workers set to strike at worst possible time. More than 47,000 Samsung Electronics workers are gearing up for an 18-day strike after bonus payment negotiations between the company and its union collapsed.",
             ],
             &[
                 "Consumer shopping guides, retail sale deals, personal lifestyle, leisure, hobbies, sports matches, fictional entertainment, technology, ai, llm.",
@@ -34,9 +35,13 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
                 "Rhun ap Iorwerth says he raised independence with Starmer. Rhun ap Iorwerth was accused of being distracted by the issue after he pressed the case for more powers.",
                 "Has anybody seen Nigel? Speculation swirls as Farage performs disappearing act. As campaigners take to the streets for what could be the most significant byelection for decades, the Reform leader’s absence remains a mystery",
                 "Andy Burnham Confirmed As Labour Candidate In Crunch Makerfield By-Election. He was the only person to throw their hat into the ring.",
+                "Ex-minister Shapps quits aerospace firm over rule concerns. The former defence secretary has resigned as chairman of Cambridge Aerospace 'to simplify matters'.",
+                "Greens candidate claims she was told to withdraw over student visa. Another candidate, Q Manivannan, did run despite also being in the UK on a student visa and they were elected as an MSP.",
+                "UK should set maximum working temperature rules, advisers say. Successive governments have failed to prepare the UK for extreme heat, the climate watchdog says.",
             ],
             &[
                 "Technology gadgets, software programming tutorials, developer content, legal regulatory compliance, crime allegations, product reviews, individual scientific discoveries.",
+                "Maths teacher who lied to pupils about being shot in war zone banned from the classroom. She sent messages, said to be from a lieutenant, saying she had ‘sustained two rounds to her abdomen’ and had been in surgery",
             ],
         ),
         Category::Law => (
@@ -45,19 +50,30 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
                 "Supreme Court rules government's Rwanda deportation policy unlawful. The unanimous judgment found the plan breached the UK's international human rights obligations.",
                 "PSNI data breach: Staff paid £40m in compensation. Almost £40 million pounds has been paid out to more than 5000 police officers and civilian staff impacted by a 2023 data breach.",
                 "Melrose twins cause double takes when called out to emergencies. Identical twins Lee and Liam Myers both work with the emergency services in the Scottish Borders.",
+                "Villagers foil traveller 'land grab': Men 'posing as broadband workers' are chased off by residents who fear field could be bulldozed on bank holiday weekend. The residents of picturesque Willows Green near Felsted were left watching in horror as travellers concreted over one local field over the May bank holiday weekend.",
+                "Questions for C4 after BBC investigation into Married at First Sight UK. Channel 4 has wider questions to answer after allegations made by three women who took part in the show.",
+                "Mum calls for harsher sentence after son killed by 'disrespected' Royal Marine with one punch. Cemal John Yilmaz, 39, was knocked unconscious with a single blow to the head by Royal Marine Joseph Hones and sustained fatal injuries when he hit his head on the concrete",
             ],
-            &["Entertainment news, celebrity, fashion trends, food recipes, travel."],
+            &[
+                "Entertainment news, celebrity, fashion trends, food recipes, travel.",
+                "Self-swab DNA test kit adverts banned over misleading claims. The Advertising Standards Authority has ruled Enough's online posts contained unproven claims.",
+                "Farage's £5m problem: do any of his defences hold up?. Nigel Farage has offered a succession of explanations for failing to declare a £5m gift he received in 2024 from crypto-billionaire Christopher Harborne. Ex-MP and professor of law David Howarth examines whether any of these match what the rules actually say",
+                "Junior school pupil treated for meningitis in fourth Reading case. The UKHSA says the fourth case has links with the same wider social network as the others.",
+            ],
         ),
         Category::Health => (
             &[
-                "Health. Medical research, healthcare systems, mental wellness, disease prevention, clinical treatments, meningitis, infection spread, virus, bacteria, covid-19, epidemic, pandemic, hospital, ambulance.",
+                "Health. Medical research, healthcare systems, mental wellness, disease prevention, clinical treatments, infection spread, virus, bacteria, covid-19, epidemic, pandemic, hospital, ambulance.",
                 "New Alzheimer's drug slows cognitive decline by 35% in landmark clinical trial. The treatment could be approved by regulators as early as next year.",
                 "Measles cases in England reach highest level in two decades as vaccine uptake falls. Health officials are urging parents to ensure their children are fully immunised.",
                 "Disabled man 'rotting' on a hospital ward - despite being told he is fit to go home. Ravi Mehta says his care could be terminated if he self-discharged. His NHS care board says its decisions have not been driven by costs.",
                 "Soldier on parachuting to Tristan da Cunha for Hantavirus aid. A specialist team helped supply critical medical support to Tristan da Cunha in the South Atlantic.",
+                "Self-swab DNA test kit adverts banned over misleading claims. The Advertising Standards Authority has ruled Enough's online posts contained unproven claims.",
             ],
             &[
                 "Politics, government spending, corporate business, technology hardware, software, criminal assault.",
+                "DWP benefits cheat who claimed £25,000 in PIP jailed after photo emerges. Helen Green successfully raked in Personal Independence Payment (PIP) from the DWP.",
+                "Jailed Havant GP struck off for abusing female patients. Mohan Babu's behaviour was 'predatory, repeated [and] persistent', a medical tribunal concludes.",
             ],
         ),
         Category::Culture => (
@@ -71,6 +87,8 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
             ],
             &[
                 "Current events, immediate breaking news, product marketing, shopping guides, software.",
+                "Teenager admits murder of Kayden Moy on Irvine beach. As the trial of two teenagers gets under way in Glasgow, a court hears that 18-year-old Cole Turley had earlier pled guilty to murder.",
+                "X agrees to quicker action on hate and terror content in the UK. Ofcom said the commitments were of particular importance after recent crimes targeting Jewish communities in the UK.",
             ],
         ),
         Category::Lifestyle => (
@@ -81,6 +99,7 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
             ],
             &[
                 "Industrial hardware, cybersecurity, software tools, digital applications, political policy, legal cases, medical diagnostics, celebrity, technology gadgets.",
+                "Why Ruby Still Feels Like Home After All These Years. I have been writing Ruby for more than fifteen years now. Started back when Rails 3 and 3.1 were current and everyone was still figuring out how to deploy wi...",
             ],
         ),
         Category::Environment => (
@@ -92,6 +111,7 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
             ],
             &[
                 "Stock market updates, gaming reviews, video streaming, fashion trends, corporate earnings.",
+                "Grenfell Tower fire: Up to 57 face charges including manslaughter but trials may take until 2035. Dozens of individuals and up to 20 organisations facing prosecution ‘by 10th anniversary’, with offences under consideration including gross negligence manslaughter",
             ],
         ),
         Category::Technology => (
@@ -114,6 +134,7 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
                 "Satellites and AI used to track UK hedgehogs in bid to slow their population decline. Researchers hope the project will identify barriers preventing hedgehogs from finding food and mates.",
                 "James Webb Space Telescope finds evidence of liquid water on exoplanet 120 light years away. The finding raises fresh hopes about the potential for life beyond our solar system.",
                 "Why is almost everyone right-handed? The answer may lie in how we learned to walk. Humans are the only primates with a population-wide hand preference. A new Oxford-led study, 'Bipedalism and brain expansion explain human handedness', published in PLOS Biology, traces it back to bipedalism and brain expansion.",
+                "How to spot the 'Da Vinci glow,' a rare lunar phenomenon visible this week. Learn what Earthshine is, how to see it before the window closes, and why it only appears in spring,",
             ],
             &[
                 "Corporate sales, marketing promotions, opinion editorials, gaming news, lifestyle tips, crime.",
@@ -125,6 +146,7 @@ const fn category_labels(category: Category) -> (&'static [&'static str], &'stat
                 "England beat Australia by three wickets in thrilling Ashes decider at The Oval. Ben Stokes led his side to a famous victory with an unbeaten century in the fourth innings.",
                 "Man United sack Erik ten Hag after worst Premier League start in club history. The Dutchman leaves Old Trafford with the team in 15th place after nine games.",
                 "How to watch Bournemouth vs Man City: live streams, TV channels for Premier League 25/26 game. We'll show you how to watch Bournemouth vs Man City live streams online and from anywhere, as Pep Guardiola's team aim to keep their Premier League title chances alive",
+                "Southampton may face legal challenge from own players after being kicked out of playoff final. Middlesbrough are to face Hull in the Championship playoff final after Southampton admitted they spied on Boro and two other opponents",
             ],
             &[
                 "Corporate mergers, political legislation, software development, medical research, fine arts, thieves.",
@@ -240,26 +262,6 @@ const fn article_type_labels(
     }
 }
 
-// How strongly the pair classifier adjusts the raw cosine similarity.
-const MERGE_SIGNAL_WEIGHT: f32 = 0.25;
-
-// Pairs of ("Title A. Summary A.", "Title B. Summary B.") used to build merge centroids.
-const MERGE_POSITIVE_PAIRS: &[(&str, &str)] = &[(
-    "Reform's Makerfield candidate said King should open up Buckingham Palace for asylum seekers. Robert Kenyon wrote about Asian men 'assaulting white people en masse' and 'an invasion of foreign criminals' on his now suspended X account.",
-    "Reform UK Makerfield candidate was 'friends' with neo-fascist leader. REFORM UK’s candidate in the Makerfield by-election was formerly “friends” on Facebook with a neo-fascist leader",
-)];
-
-const MERGE_NEGATIVE_PAIRS: &[(&str, &str)] = &[
-    (
-        "Reform UK Makerfield candidate was 'friends' with neo-fascist leader. REFORM UK’s candidate in the Makerfield by-election was formerly “friends” on Facebook with a neo-fascist leader",
-        "Reform UK Councillors Told to Speak Only to GB News’ as Party Shuns Local Press. Local news editor in Ipswich says Reform party chair instructed his councillors to shut out the press in favour of only speaking to the right-wing news channel",
-    ),
-    (
-        "NADINE DORRIES: Why we must scrap the Online Safety Act I helped bring to life. On Sunday, the home affairs spokesman for Reform UK, Zia Yusuf, posted a video discussing the huge levels of mass migration Britain has had in recent years - and what our party will do about it.",
-        "Reform's Makerfield candidate said King should open up Buckingham Palace for asylum seekers. Robert Kenyon wrote about Asian men 'assaulting white people en masse' and 'an invasion of foreign criminals' on his now suspended X account.",
-    ),
-];
-
 static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
     Mutex::new(
         TextEmbedding::try_new(InitOptions::new(MODEL).with_show_download_progress(true))
@@ -298,12 +300,6 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
     a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
-fn hadamard_normalize(a: &[f32], b: &[f32]) -> Vec<f32> {
-    let mut h: Vec<f32> = a.iter().zip(b).map(|(x, y)| x * y).collect();
-    normalize(&mut h);
-    h
 }
 
 fn average_embeddings(groups: &[&[Vec<f32>]]) -> Vec<Vec<f32>> {
@@ -394,73 +390,4 @@ pub async fn classify(embedding: &[f32]) -> Result<(ArticleType, Category)> {
         .unwrap();
 
     Ok((best_type, best_cat))
-}
-
-struct MergeCentroids {
-    positive: Vec<f32>,
-    negative: Vec<f32>,
-}
-
-static MERGE_CENTROIDS: OnceCell<MergeCentroids> = OnceCell::const_new();
-
-/// Returns a similarity score adjusted by the merge pair classifier.
-pub async fn merge_similarity(emb_a: &[f32], emb_b: &[f32]) -> f32 {
-    let sim = cosine_similarity(emb_a, emb_b);
-
-    let centroids = MERGE_CENTROIDS
-        .get_or_try_init(|| async {
-            let all_texts: Vec<String> = MERGE_POSITIVE_PAIRS
-                .iter()
-                .chain(MERGE_NEGATIVE_PAIRS.iter())
-                .flat_map(|(a, b)| [a.to_string(), b.to_string()])
-                .collect();
-
-            if all_texts.is_empty() {
-                return anyhow::Ok(MergeCentroids {
-                    positive: vec![],
-                    negative: vec![],
-                });
-            }
-
-            let embs = generate_embeddings(&all_texts).await?;
-            let n_pos = MERGE_POSITIVE_PAIRS.len();
-
-            let mut pos_sum = vec![0.0f32; embs[0].len()];
-            for i in 0..n_pos {
-                let h = hadamard_normalize(&embs[i * 2], &embs[i * 2 + 1]);
-                for (a, b) in pos_sum.iter_mut().zip(&h) {
-                    *a += b;
-                }
-            }
-
-            let mut neg_sum = vec![0.0f32; embs[0].len()];
-            let neg_offset = n_pos * 2;
-            for i in 0..MERGE_NEGATIVE_PAIRS.len() {
-                let h =
-                    hadamard_normalize(&embs[neg_offset + i * 2], &embs[neg_offset + i * 2 + 1]);
-                for (a, b) in neg_sum.iter_mut().zip(&h) {
-                    *a += b;
-                }
-            }
-
-            normalize(&mut pos_sum);
-            normalize(&mut neg_sum);
-            anyhow::Ok(MergeCentroids {
-                positive: pos_sum,
-                negative: neg_sum,
-            })
-        })
-        .await;
-
-    let Ok(centroids) = centroids else {
-        return sim;
-    };
-    if centroids.positive.is_empty() {
-        return sim;
-    }
-
-    let h = hadamard_normalize(emb_a, emb_b);
-    let signal =
-        cosine_similarity(&h, &centroids.positive) - cosine_similarity(&h, &centroids.negative);
-    MERGE_SIGNAL_WEIGHT.mul_add(signal, sim)
 }

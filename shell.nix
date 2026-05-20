@@ -11,9 +11,11 @@ pkgs.mkShell {
     lld
     binaryen
     pkg-config
+    sqlx-cli
   ];
   buildInputs = with pkgs; [
     openssl
   ];
   RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+  DATABASE_URL = "sqlite://quivrs.db";
 }

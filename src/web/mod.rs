@@ -93,8 +93,8 @@ fn Article(id: Uuid) -> Element {
     let found = articles
         .read()
         .iter()
-        .find(|(i, _, _, _)| *i == id)
-        .map(|(_, s, r, a)| (*s, *r, a.clone()));
+        .find(|a| a.id == id)
+        .map(|a| (a.status, a.rating, a.article.clone()));
 
     match found {
         Some((status, rating, art)) => rsx! {
@@ -207,7 +207,7 @@ fn MainLayout() -> Element {
                     button {
                         class: "pill-button",
                         onclick: move |_| async move {
-                            let ids = articles.read().iter().map(|(id, _, _, _)| *id).collect();
+                            let ids = articles.read().iter().map(|a| a.id).collect();
                             if reclassify_articles(ids).await.is_ok()
                                 && let Ok(new_articles) = get_user_articles().await
                             {
@@ -230,11 +230,11 @@ fn MainLayout() -> Element {
                             let mut new_v = Vec::new();
                             let mut stored_v = Vec::new();
                             let mut binned_v = Vec::new();
-                            for (id, status, rating, article) in data.iter() {
-                                match status {
-                                    ArticleStatus::New => new_v.push((*id, *rating, article)),
-                                    ArticleStatus::Stored => stored_v.push((*id, *rating, article)),
-                                    ArticleStatus::Binned => binned_v.push((*id, *rating, article)),
+                            for a in data.iter() {
+                                match a.status {
+                                    ArticleStatus::New => new_v.push((a.id, a.rating, &a.article)),
+                                    ArticleStatus::Stored => stored_v.push((a.id, a.rating, &a.article)),
+                                    ArticleStatus::Binned => binned_v.push((a.id, a.rating, &a.article)),
                                 }
                             }
                             rsx! {
@@ -314,23 +314,14 @@ fn article_item(
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
 
-    let first_source = article.sources.first();
-    let title = article.entry.as_ref().map_or_else(
-        || first_source.map_or("", |s| s.title.as_str()),
-        |e| e.title.as_str(),
-    );
-    let description = article.entry.as_ref().map_or_else(
-        || {
-            first_source.map_or("", |s| {
-                let summary = s.summary.as_str();
-                match summary.char_indices().nth(200) {
-                    Some((idx, _)) => &summary[..idx],
-                    None => summary,
-                }
-            })
-        },
-        |e| e.description.as_str(),
-    );
+    let title = article.display_title();
+    let description = {
+        let full = article.display_description();
+        match full.char_indices().nth(200) {
+            Some((idx, _)) => &full[..idx],
+            None => full,
+        }
+    };
 
     let hero_image = article.sources.iter().find_map(|s| {
         s.images
@@ -449,14 +440,8 @@ fn article_detail(
     let id = article.id;
 
     let first_source = article.sources.first();
-    let title = article.entry.as_ref().map_or_else(
-        || first_source.map_or("", |s| s.title.as_str()),
-        |e| e.title.as_str(),
-    );
-    let description = article.entry.as_ref().map_or_else(
-        || first_source.map_or("", |s| &s.summary),
-        |e| e.description.as_str(),
-    );
+    let title = article.display_title();
+    let description = article.display_description();
 
     rsx! {
         article {
@@ -915,12 +900,8 @@ fn status_button(
             color: "var(--base07)",
             onclick: move |_| async move {
                 let _ = set_article_status(id, this_status).await;
-                if let Some((_, s, _, _)) = articles
-                    .write()
-                    .iter_mut()
-                    .find(|(i, _, _, _)| *i == id)
-                {
-                    *s = this_status;
+                if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                    a.status = this_status;
                 }
             },
         }
@@ -941,12 +922,8 @@ fn rating_button(
             color: rating_color(this_rating),
             onclick: move |_| async move {
                 let _ = set_rating(id, this_rating).await;
-                if let Some((_, _, r, _)) = articles
-                    .write()
-                    .iter_mut()
-                    .find(|(i, _, _, _)| *i == id)
-                {
-                    *r = Some(this_rating);
+                if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                    a.rating = Some(this_rating);
                 }
             },
         }

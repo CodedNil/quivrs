@@ -1,7 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{classify, generate_article_embeddings, merge_similarity},
+        embeddings::{classify, cosine_similarity, generate_article_embeddings},
         llm_functions::run,
         parse_feed::scan_feed,
         parse_website::fetch_source_content,
@@ -19,7 +19,7 @@ use std::{
 use tokio::fs;
 use tracing::{error, info, warn};
 
-const SIMILARITY_THRESHOLD: f32 = 0.6;
+const SIMILARITY_THRESHOLD: f32 = 0.55;
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
@@ -87,7 +87,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         let mut best: Option<(uuid::Uuid, &str, f32)> = None;
         let mut highest: Option<(&str, f32)> = None;
         for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
-            let score = merge_similarity(&embedding, &c.embedding).await;
+            let score = cosine_similarity(&embedding, &c.embedding);
             if highest.is_none_or(|(_, s)| score > s) {
                 highest = Some((&c.title, score));
             }
@@ -101,7 +101,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 "[MERGE] '{}' → '{}' (score {score:.2})",
                 source.title, existing_title
             );
-            database::merge_into_article(article_id, &source, &embedding).await?;
+            database::merge_into_article(article_id, &source).await?;
         } else {
             if let Some((closest_title, sim)) = highest {
                 info!(

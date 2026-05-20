@@ -1,7 +1,7 @@
 use crate::server::HTTP_CLIENT;
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
-use url_normalize::{Options as NormalizeOptions, RemoveQueryParameters};
+use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
 
 /// Download and parse the feed and return a list of URLs.
 pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
@@ -175,11 +175,25 @@ fn child_text<'a>(node: roxmltree::Node<'a, 'a>, name: &str, ns: Option<&str>) -
         .map(|s| s.trim().to_string())
 }
 
+/// Only strip known tracking parameters
 fn normalize_article_url(url: &str) -> String {
+    const TRACKING_PARAMS: &[&str] = &[
+        "ref", "source", "fbclid", "gclid", "msclkid", "yclid", "igshid",
+    ];
     url_normalize::normalize_url(
         url,
         &NormalizeOptions {
-            remove_query_parameters: RemoveQueryParameters::All,
+            force_https: true,
+            strip_hash: true,
+            remove_query_parameters: RemoveQueryParameters::List(vec![QueryFilter::Predicate(
+                Box::new(|key: &str| {
+                    let lower = key.to_ascii_lowercase();
+                    TRACKING_PARAMS.contains(&key)
+                        || lower.starts_with("utm_")
+                        || lower.starts_with("at_")
+                        || lower.starts_with("mc_")
+                }),
+            )]),
             ..Default::default()
         },
     )

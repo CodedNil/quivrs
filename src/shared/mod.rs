@@ -33,6 +33,30 @@ impl PartialEq for StoredArticle {
     }
 }
 
+impl StoredArticle {
+    pub fn display_title(&self) -> &str {
+        self.entry.as_ref().map_or_else(
+            || self.sources.first().map_or("", |s| s.title.as_str()),
+            |e| e.title.as_str(),
+        )
+    }
+
+    pub fn display_description(&self) -> &str {
+        self.entry.as_ref().map_or_else(
+            || self.sources.first().map_or("", |s| s.summary.as_str()),
+            |e| e.description.as_str(),
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ArticleData {
+    pub id: Uuid,
+    pub status: ArticleStatus,
+    pub rating: Option<Rating>,
+    pub article: StoredArticle,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ArticleSource {
     pub url: String,
@@ -159,5 +183,3 @@ pub enum Rating {
     Liked,
     Loved,
 }
-
-pub type ArticleData = (Uuid, ArticleStatus, Option<Rating>, StoredArticle);
