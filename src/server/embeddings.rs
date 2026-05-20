@@ -35,9 +35,9 @@ pub const fn category_label(category: Category) -> &'static str {
         Category::Business => {
             "earnings revenue profit stocks shares merger acquisition IPO dividends CEO layoffs tariffs GDP inflation hedge fund private equity startup venture capital fiscal bonds FTSE Nasdaq shareholder buyout"
         }
-        // Government, parliament, elections, and political parties
+        // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => {
-            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall HS2 sanctions diplomacy PMQs SNP"
+            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall HS2 sanctions diplomacy PMQs SNP military army navy RAF defence war NATO troops Israel missile drone"
         }
         // Courts, crime, police investigations, and criminal justice
         Category::Law => {
@@ -47,29 +47,45 @@ pub const fn category_label(category: Category) -> &'static str {
         Category::Health => {
             "NHS hospital GP vaccine diagnosis cancer surgery prescription clinical trial symptoms disease epidemic inpatient psychiatric pharmaceutical medication therapy chronic disability overdose ward nurse stroke dementia autism mental health fitness diet nutrition exercise workout weight sleep supplements vitamins"
         }
-        // Entertainment, film, TV, music, celebrities, and streaming
+        // Entertainment, film, TV, music, celebrities, streaming, and media
         Category::Culture => {
-            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film"
+            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film broadcaster Ofcom Channel 4 BBC media"
         }
-        // Domestic life, cooking, home, fashion, and consumer tips
+        // Domestic life, cooking, home, fashion, consumer tips, personal finance, and employment
         Category::Lifestyle => {
-            "recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding IKEA interior skincare bathroom laundry storage hacks tips ants vinegar coffee"
+            "recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding IKEA interior skincare bathroom laundry storage hacks tips ants vinegar coffee mortgage rent savings pension budget bills energy loan credit housing property landlord employment job unemployed graduate"
         }
-        // Climate, ecology, wildlife, and the natural world
-        Category::Environment => {
-            "climate carbon emissions wildlife biodiversity deforestation flooding drought renewable ecology extinction conservation glaciers methane solar wind reef hedgehog farming heatwave COP rewilding pollution"
+        // Cars, transport infrastructure, aviation, and commuting
+        Category::Transport => {
+            "car EV electric vehicle Tesla road motorway highway aviation airline airport train railway commute driver fuel petrol diesel autonomous self-driving bus lorry van cycling infrastructure"
         }
-        // Software, hardware, AI, coding, and the tech industry
+        // Wildlife, ecology, the natural world, and climate — animals, plants, weather, conservation
+        Category::Nature => {
+            "wildlife animals birds insects plants trees forests oceans seas rivers mountains countryside national parks ecology biodiversity extinction conservation habitat hedgehog deer butterfly orchid climate carbon flooding drought heatwave rewilding farming weather"
+        }
+        // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => {
-            "software hardware AI ChatGPT Claude Gemini smartphone app coding Python Ruby Rust JavaScript cybersecurity breach hacking VPN GPU API programming GitHub Nintendo SpaceX rocket satellite smartwatch wearable console headphones earphones audio speakers display OLED television firmware open-source SDK"
+            "smartphone iPhone Android laptop notebook tablet smartwatch wearable headphones on-ear over-ear earphones audio speakers display OLED television TV camera drone VPN router hardware gadget Apple Samsung LG Sony console GPU"
+        }
+        // Software development, coding, and cybersecurity
+        Category::Software => {
+            "coding programming Python Ruby Rust JavaScript TypeScript HTML CSS web React Node GitHub API open-source algorithm compiler binary firmware SDK cybersecurity breach hacking phishing malware ransomware exploit vulnerability CVE"
+        }
+        // Artificial intelligence, machine learning, and AI assistants
+        Category::AI => {
+            "AI ChatGPT Claude Gemini GPT OpenAI Anthropic DeepMind machine learning LLM neural network model training inference chatbot Copilot Midjourney Stable Diffusion robotics"
         }
         // Scientific research, astronomy, biology, and academic discovery
         Category::Science => {
-            "astronomy telescope genome species paleontology neuroscience botany orchid physics quantum biology chemistry fossils stargazing celestial earthshine mathematics NASA experiment journal hypothesis lab discovery space science"
+            "astronomy telescope genome species paleontology neuroscience botany orchid physics quantum biology chemistry fossils stargazing celestial earthshine mathematics NASA SpaceX rocket satellite spacecraft orbit Mars experiment journal hypothesis lab discovery space science"
         }
         // Physical competitive sports and athletic leagues
         Category::Sports => {
             "football cricket tennis rugby golf boxing swimming cycling wicket tournament Premier League Champions League Europa League transfer squad batting medal athletics Wimbledon Olympics F1 Grand Prix penalty fixture goalscorer hat-trick"
+        }
+        // Video games, gaming culture, esports, and game releases
+        Category::Gaming => {
+            "game gameplay esports Fortnite Minecraft Steam PlayStation Xbox Nintendo Switch RPG FPS shooter strategy multiplayer co-op indie AAA Zelda Mario studio console handheld"
         }
     }
 }

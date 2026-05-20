@@ -440,9 +440,7 @@ async fn upsert_label_embedding(key: &str, hash: &str, embedding: &[f32]) -> Res
 
 /// Loads label embeddings from DB, regenerating only stale or missing entries.
 async fn init_label_embeddings() -> Result<()> {
-    // All entries in order: cats first, then types
-    let n_categories = Category::iter().count();
-    let all_entries: Vec<(String, String, String)> = Category::iter()
+    let entries: Vec<(String, String, String)> = Category::iter()
         .map(|c| {
             let text = category_label(c);
             (
@@ -462,8 +460,7 @@ async fn init_label_embeddings() -> Result<()> {
     .map(|row| Ok((row.key, (row.hash, from_bytes::<Vec<f32>>(&row.embedding)?))))
     .collect::<Result<_>>()?;
 
-    // Find stale/missing entries and generate only those
-    let stale: Vec<usize> = all_entries
+    let stale: Vec<usize> = entries
         .iter()
         .enumerate()
         .filter(|(_, (key, hash, _))| cached.get(key).is_none_or(|(h, _)| h != hash))
@@ -472,22 +469,21 @@ async fn init_label_embeddings() -> Result<()> {
 
     if !stale.is_empty() {
         info!("Regenerating {} stale label embeddings...", stale.len());
-        let texts: Vec<String> = stale.iter().map(|&i| all_entries[i].2.clone()).collect();
-        let embs = embed_label_texts(&texts).await?;
-        for (&i, emb) in stale.iter().zip(embs) {
-            let (key, hash, _) = &all_entries[i];
+        let texts: Vec<String> = stale.iter().map(|&i| entries[i].2.clone()).collect();
+        for (&i, emb) in stale.iter().zip(embed_label_texts(&texts).await?) {
+            let (key, hash, _) = &entries[i];
             upsert_label_embedding(key, hash, &emb).await?;
             cached.insert(key.clone(), (hash.clone(), emb));
         }
     }
 
-    let mut category = Vec::with_capacity(n_categories);
-    for (key, _, _) in &all_entries {
-        let emb = cached.remove(key).map(|(_, e)| e).unwrap();
-        category.push(emb);
-    }
-
-    seed_label_cache(category).await;
+    seed_label_cache(
+        entries
+            .iter()
+            .map(|(key, _, _)| cached.remove(key).unwrap().1)
+            .collect(),
+    )
+    .await;
     Ok(())
 }
 

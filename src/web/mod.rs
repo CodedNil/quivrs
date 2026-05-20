@@ -1020,10 +1020,14 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
                             Category::Health => render_icon(fa_solid_icons::FaHeart),
                             Category::Culture => render_icon(fa_solid_icons::FaFilm),
                             Category::Lifestyle => render_icon(fa_solid_icons::FaHouse),
-                            Category::Environment => render_icon(fa_solid_icons::FaLeaf),
+                            Category::Transport => render_icon(fa_solid_icons::FaCar),
+                            Category::Nature => render_icon(fa_solid_icons::FaLeaf),
                             Category::Technology => render_icon(fa_solid_icons::FaMicrochip),
+                            Category::Software => render_icon(fa_solid_icons::FaCode),
+                            Category::AI => render_icon(fa_solid_icons::FaBrain),
                             Category::Science => render_icon(fa_solid_icons::FaFlask),
                             Category::Sports => render_icon(fa_solid_icons::FaFootball),
+                            Category::Gaming => render_icon(fa_solid_icons::FaGamepad),
                         }
                     }
                     div {

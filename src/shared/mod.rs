@@ -149,10 +149,14 @@ pub enum Category {
     Health,
     Culture,
     Lifestyle,
-    Environment,
+    Transport,
+    Nature,
     Technology,
+    Software,
+    AI,
     Science,
     Sports,
+    Gaming,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
