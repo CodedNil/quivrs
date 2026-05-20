@@ -54,7 +54,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .collect();
 
     let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched.into_iter().partition(|s| {
-        !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary && s.summary.len() > 20
+        !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary && s.summary.len() > 40
     });
     let dismissed_urls: Vec<String> = dismissed.into_iter().map(|s| s.url).collect();
     database::mark_urls_dismissed(&dismissed_urls).await?;
@@ -82,6 +82,10 @@ pub async fn refresh_all_feeds() -> Result<()> {
             continue;
         }
 
+        let Ok((article_type, category)) = classify(&cls_emb).await else {
+            warn!("Classification failed for '{}'", source.title);
+            continue;
+        };
         // Find the highest similarity match
         let candidates = database::get_embedding_candidates(
             (source.published - TimeDelta::days(2)).timestamp(),
@@ -99,7 +103,10 @@ pub async fn refresh_all_feeds() -> Result<()> {
             if highest.is_none_or(|(_, s)| score > s) {
                 highest = Some((&c.title, score));
             }
-            if score >= SIMILARITY_THRESHOLD && best.is_none_or(|(_, _, s)| score > s) {
+            if score >= SIMILARITY_THRESHOLD
+                && c.category == category.to_string()
+                && best.is_none_or(|(_, _, s)| score > s)
+            {
                 best = Some((c.id, &c.title, score));
             }
         }
@@ -119,10 +126,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             } else {
                 info!("[NEW] '{}'", source.title);
             }
-            if let Ok((article_type, category)) = classify(&cls_emb).await {
-                database::insert_article(&source, &sim_emb, &cls_emb, article_type, category)
-                    .await?;
-            }
+            database::insert_article(&source, &sim_emb, &cls_emb, article_type, category).await?;
         }
     }
 

@@ -12,6 +12,7 @@ pkgs.mkShell {
     binaryen
     pkg-config
     sqlx-cli
+    sqlite
   ];
   buildInputs = with pkgs; [
     openssl

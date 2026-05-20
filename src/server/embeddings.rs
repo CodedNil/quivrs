@@ -1,6 +1,8 @@
 use crate::shared::{ArticleSource, ArticleType, Category};
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use sha2::{Digest, Sha256};
+use std::fmt::Write;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tokio::sync::{Mutex, OnceCell};
@@ -8,7 +10,7 @@ use tokio::sync::{Mutex, OnceCell};
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const MODEL_NAME: &str = "EmbeddingGemma300M";
 
-const fn category_label(category: Category) -> &'static str {
+pub const fn category_label(category: Category) -> &'static str {
     match category {
         Category::Business => {
             "Business, corporate finance, and global macroeconomics. Includes corporate earnings reports, financial market updates, stock trading, mergers and acquisitions, startup funding, venture capital, government economic policy, inflation, GDP, central bank decisions, trade agreements, layoffs, executive appointments, and industry competition."
@@ -43,7 +45,7 @@ const fn category_label(category: Category) -> &'static str {
     }
 }
 
-const fn article_type_labels(article_type: ArticleType) -> &'static str {
+pub const fn article_type_label(article_type: ArticleType) -> &'static str {
     match article_type {
         ArticleType::Breaking => {
             "Fast-breaking news alert, immediate live update, or urgent news flash reporting on a developing crisis, natural disaster, or major public emergency happening right now."
@@ -69,8 +71,18 @@ const fn article_type_labels(article_type: ArticleType) -> &'static str {
         ArticleType::Post => {
             "Casual, informal personal blog post, personal journal entry, or individual developer diary, typical of an amateur or independent hobbyist rather than a professional news agency."
         }
-        ArticleType::Video => "Video container, multimedia player embed, or video post.",
     }
+}
+
+pub fn label_hash(text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(MODEL_NAME.as_bytes());
+    hasher.finalize().iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
@@ -84,18 +96,26 @@ async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     EMBEDDING_MODEL.lock().await.embed(texts, None)
 }
 
+fn article_text(task: &str, s: &ArticleSource) -> String {
+    if s.tags.is_empty() {
+        format!("task: {task} | query: {}. {}", s.title, s.summary)
+    } else {
+        format!(
+            "task: {task} | query: {}. {}. {}",
+            s.title,
+            s.tags.join(", "),
+            s.summary
+        )
+    }
+}
+
 pub async fn generate_article_embeddings(
     articles: &[ArticleSource],
 ) -> Result<(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
-    let similarity_texts = articles.iter().map(|s| {
-        format!(
-            "task: sentence similarity | query: {}. {}",
-            s.title, s.summary
-        )
-    });
-    let classification_texts = articles
+    let similarity_texts = articles
         .iter()
-        .map(|s| format!("task: classification | query: {}. {}", s.title, s.summary));
+        .map(|s| article_text("sentence similarity", s));
+    let classification_texts = articles.iter().map(|s| article_text("classification", s));
     let texts: Vec<String> = similarity_texts.chain(classification_texts).collect();
 
     let mut embs = generate_embeddings(&texts).await?;
@@ -104,6 +124,14 @@ pub async fn generate_article_embeddings(
     }
     let classification = embs.split_off(articles.len());
     Ok((embs, classification))
+}
+
+pub async fn embed_label_texts(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    let mut embs = generate_embeddings(texts).await?;
+    for emb in &mut embs {
+        normalize(emb);
+    }
+    Ok(embs)
 }
 
 fn normalize(v: &mut Vec<f32>) {
@@ -129,22 +157,22 @@ struct LabelEmbeddings {
 
 static LABEL_EMBEDDINGS: OnceCell<LabelEmbeddings> = OnceCell::const_new();
 
+pub async fn seed_label_cache(cat: Vec<Vec<f32>>, type_: Vec<Vec<f32>>) {
+    let _ = LABEL_EMBEDDINGS.set(LabelEmbeddings { cat, type_ });
+}
+
 pub async fn classify(embedding: &[f32]) -> Result<(ArticleType, Category)> {
     let labels = LABEL_EMBEDDINGS
         .get_or_try_init(|| async {
+            let n_cat = Category::iter().count();
             let texts: Vec<String> = Category::iter()
                 .map(|c| format!("title: none | text: {}", category_label(c)))
                 .chain(
                     ArticleType::iter()
-                        .map(|a| format!("title: none | text: {}", article_type_labels(a))),
+                        .map(|a| format!("title: none | text: {}", article_type_label(a))),
                 )
                 .collect();
-
-            let n_cat = Category::iter().count();
-            let mut embs = generate_embeddings(&texts).await?;
-            for emb in &mut embs {
-                normalize(emb);
-            }
+            let mut embs = embed_label_texts(&texts).await?;
             let type_ = embs.split_off(n_cat);
             anyhow::Ok(LabelEmbeddings { cat: embs, type_ })
         })

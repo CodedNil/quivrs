@@ -34,3 +34,9 @@ CREATE TABLE IF NOT EXISTS item_ratings (
     key    TEXT PRIMARY KEY,
     rating TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS label_embeddings (
+    key       TEXT PRIMARY KEY,
+    hash      TEXT NOT NULL,
+    embedding BLOB NOT NULL
+);

@@ -63,6 +63,7 @@ pub struct ArticleSource {
     pub title: String,
     pub summary: String,
     pub content: String,
+    pub tags: Vec<String>,
     /// Each entry is `"url|caption"` — split on `|` to get the two parts.
     pub images: Vec<String>,
     pub published: DateTime<Utc>,
@@ -139,7 +140,6 @@ pub enum ArticleType {
     Guide,
     Feature,
     Post,
-    Video,
 }
 
 #[derive(

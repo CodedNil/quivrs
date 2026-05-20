@@ -1,4 +1,7 @@
-use crate::server::embeddings::{MODEL_NAME, classify, generate_article_embeddings};
+use crate::server::embeddings::{
+    MODEL_NAME, article_type_label, category_label, classify, embed_label_texts,
+    generate_article_embeddings, label_hash, seed_label_cache,
+};
 use crate::shared::{
     ArticleData, ArticleEntry, ArticleSource, ArticleStatus, ArticleType, Category, Rating,
     StoredArticle,
@@ -16,6 +19,7 @@ use std::{
     str::FromStr,
     sync::LazyLock,
 };
+use strum::IntoEnumIterator;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -31,6 +35,7 @@ static DB: LazyLock<SqlitePool> = LazyLock::new(|| {
 
 pub async fn init() -> Result<()> {
     sqlx::migrate!().run(&*DB).await?;
+    init_label_embeddings().await?;
     Ok(())
 }
 
@@ -44,6 +49,7 @@ fn first_source(blob: &[u8]) -> Result<ArticleSource> {
 pub struct EmbeddingCandidate {
     pub id: Uuid,
     pub title: String,
+    pub category: String,
     pub embedding_similarity: Vec<f32>,
 }
 
@@ -95,7 +101,7 @@ pub async fn get_embedding_candidates(
     window_end: i64,
 ) -> Result<Vec<EmbeddingCandidate>> {
     sqlx::query!(
-        r#"SELECT id as "id!: Uuid", title, embedding_similarity
+        r#"SELECT id as "id!: Uuid", title, category, embedding_similarity
          FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?"#,
         window_start,
         window_end,
@@ -108,6 +114,7 @@ pub async fn get_embedding_candidates(
         Ok(EmbeddingCandidate {
             id: row.id,
             title: row.title,
+            category: row.category,
             embedding_similarity: from_bytes(&row.embedding_similarity)?,
         })
     })
@@ -439,6 +446,86 @@ pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
     )
     .execute(&*DB)
     .await?;
+    Ok(())
+}
+
+async fn upsert_label_embedding(key: &str, hash: &str, embedding: &[f32]) -> Result<()> {
+    let bytes = to_allocvec(embedding)?;
+    sqlx::query!(
+        "INSERT INTO label_embeddings (key, hash, embedding) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET hash = excluded.hash, embedding = excluded.embedding",
+        key,
+        hash,
+        bytes,
+    )
+    .execute(&*DB)
+    .await?;
+    Ok(())
+}
+
+/// Loads label embeddings from DB, regenerating only stale or missing entries.
+async fn init_label_embeddings() -> Result<()> {
+    // All entries in order: cats first, then types
+    let n_cat = Category::iter().count();
+    let all_entries: Vec<(String, String, String)> = Category::iter()
+        .map(|c| {
+            let text = category_label(c);
+            (
+                format!("category_{c}"),
+                label_hash(text),
+                format!("title: none | text: {text}"),
+            )
+        })
+        .chain(ArticleType::iter().map(|t| {
+            let text = article_type_label(t);
+            (
+                format!("type_{t}"),
+                label_hash(text),
+                format!("title: none | text: {text}"),
+            )
+        }))
+        .collect();
+
+    let mut cached: HashMap<String, (String, Vec<f32>)> = sqlx::query!(
+        r#"SELECT key as "key!", hash as "hash!", embedding as "embedding!" FROM label_embeddings"#,
+    )
+    .fetch_all(&*DB)
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.key, (row.hash, from_bytes::<Vec<f32>>(&row.embedding)?))))
+    .collect::<Result<_>>()?;
+
+    // Find stale/missing entries and generate only those
+    let stale: Vec<usize> = all_entries
+        .iter()
+        .enumerate()
+        .filter(|(_, (key, hash, _))| cached.get(key).is_none_or(|(h, _)| h != hash))
+        .map(|(i, _)| i)
+        .collect();
+
+    if !stale.is_empty() {
+        info!("Regenerating {} stale label embeddings...", stale.len());
+        let texts: Vec<String> = stale.iter().map(|&i| all_entries[i].2.clone()).collect();
+        let embs = embed_label_texts(&texts).await?;
+        for (&i, emb) in stale.iter().zip(embs) {
+            let (key, hash, _) = &all_entries[i];
+            upsert_label_embedding(key, hash, &emb).await?;
+            cached.insert(key.clone(), (hash.clone(), emb));
+        }
+    }
+
+    let mut cat = Vec::with_capacity(n_cat);
+    let mut type_ = Vec::with_capacity(all_entries.len() - n_cat);
+    for (i, (key, _, _)) in all_entries.iter().enumerate() {
+        let emb = cached.remove(key).map(|(_, e)| e).unwrap();
+        if i < n_cat {
+            cat.push(emb);
+        } else {
+            type_.push(emb);
+        }
+    }
+
+    seed_label_cache(cat, type_).await;
     Ok(())
 }
 

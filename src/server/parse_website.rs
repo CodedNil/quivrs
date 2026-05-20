@@ -2,11 +2,43 @@ use crate::{server::HTTP_CLIENT, shared::ArticleSource};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use itertools::Itertools;
-use std::collections::HashSet;
+use postcard::{from_bytes, to_allocvec};
+use sha2::{Digest, Sha256};
+use std::{collections::HashSet, fmt::Write};
+use tokio::fs;
 use url::Url;
 
 /// Downloads the full webpage and parses title, summary, content, and images on the source.
 pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
+    let cache_path = {
+        let hash = Sha256::digest(url.as_bytes())
+            .iter()
+            .fold(String::new(), |mut s, b| {
+                let _ = write!(s, "{b:02x}");
+                s
+            });
+        std::env::temp_dir().join("quivrs").join(hash)
+    };
+
+    if let Ok(bytes) = fs::read(&cache_path).await
+        && let Ok(source) = from_bytes::<ArticleSource>(&bytes)
+    {
+        return Ok(source);
+    }
+
+    let source = extract_source_content(url).await?;
+
+    if let Ok(bytes) = to_allocvec(&source) {
+        let dir = cache_path.parent().unwrap();
+        if fs::create_dir_all(dir).await.is_ok() {
+            let _ = fs::write(&cache_path, bytes).await;
+        }
+    }
+
+    Ok(source)
+}
+
+async fn extract_source_content(url: String) -> Result<ArticleSource> {
     let base_url = Url::parse(&url).ok();
     let html = HTTP_CLIENT.get(&url).send().await?.text().await?;
     let options = rs_trafilatura::Options {
@@ -61,8 +93,6 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
         .map(|(url, caption)| format!("{url}|{caption}"))
         .collect();
 
-    let tags = extracted.metadata.tags;
-
     Ok(ArticleSource {
         url: url.clone(),
         title: html_escape::decode_html_entities(&extracted.metadata.title.unwrap_or_default())
@@ -72,6 +102,7 @@ pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
         )
         .into_owned(),
         content: extracted.content_text,
+        tags: extracted.metadata.tags,
         images,
         published: extracted.metadata.date.unwrap_or_else(Utc::now),
     })
