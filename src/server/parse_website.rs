@@ -1,109 +1,333 @@
 use crate::{server::HTTP_CLIENT, shared::ArticleSource};
 use anyhow::{Result, anyhow};
-use chrono::Utc;
-use itertools::Itertools;
-use postcard::{from_bytes, to_allocvec};
+use chrono::{DateTime, Utc};
+use dom_smoothie::Readability;
+use scraper::{Html, Selector};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fmt::Write};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+    sync::LazyLock,
+};
 use tokio::fs;
+use tracing::info;
 use url::Url;
 
-/// Downloads the full webpage and parses title, summary, content, and images on the source.
-pub async fn fetch_source_content(url: String) -> Result<ArticleSource> {
-    let cache_path = {
-        let hash = Sha256::digest(url.as_bytes())
-            .iter()
-            .fold(String::new(), |mut s, b| {
-                let _ = write!(s, "{b:02x}");
-                s
-            });
-        std::env::temp_dir().join("quivrs").join(hash)
+const MIN_SUMMARY_LEN: usize = 30;
+const MIN_TITLE_LEN: usize = 6;
+const BOT_TITLES: &[&str] = &[
+    "access denied",
+    "security verification",
+    "verifying device",
+    "just a moment",
+    "checking your browser",
+    "attention required",
+    "please verify",
+    "403 forbidden",
+    "enable javascript",
+];
+
+static SEL_JSONLD: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(r#"script[type="application/ld+json"]"#).unwrap());
+static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
+static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
+
+fn sha256_hex(data: &[u8]) -> String {
+    Sha256::digest(data).iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
+
+pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> {
+    let cache_path = std::env::temp_dir()
+        .join("quivrs")
+        .join(format!("{}.html", sha256_hex(url.as_bytes())));
+
+    let html = if let Ok(bytes) = fs::read(&cache_path).await {
+        String::from_utf8_lossy(&bytes).into_owned()
+    } else {
+        let html = HTTP_CLIENT.get(&url).send().await?.text().await?;
+        if let Some(dir) = cache_path.parent()
+            && fs::create_dir_all(dir).await.is_ok()
+        {
+            let _ = fs::write(&cache_path, html.as_bytes()).await;
+        }
+        html
     };
 
-    if let Ok(bytes) = fs::read(&cache_path).await
-        && let Ok(source) = from_bytes::<ArticleSource>(&bytes)
-    {
-        return Ok(source);
+    let base_url = Url::parse(&url).ok();
+    let (m, images) = collect_page_metadata(&html, base_url.as_ref());
+
+    let get = |keys: &[&str]| -> String {
+        keys.iter()
+            .find_map(|k| m.get(*k))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let title = get(&["sl_headline", "og_title", "basic_title"]);
+    let summary = get(&["sl_description", "og_description", "basic_description"]);
+    let content = {
+        let from_jsonld = get(&["sl_body"]);
+        if from_jsonld.is_empty() {
+            Readability::new(html.as_str(), Some(url.as_str()), None)
+                .ok()
+                .and_then(|mut r| r.parse().ok())
+                .map(|a| a.text_content.to_string())
+                .unwrap_or_default()
+        } else {
+            from_jsonld
+        }
+    };
+    let date = m
+        .get("sl_date")
+        .or_else(|| m.get("og_date"))
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map_or_else(Utc::now, |d| d.with_timezone(&Utc));
+    let tags = m
+        .get("sl_keywords")
+        .or_else(|| m.get("parsely_tags"))
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .or_else(|| m.get("sl_section").map(|s| vec![s.clone()]))
+        .unwrap_or_default();
+
+    if !title.is_empty() && BOT_TITLES.iter().any(|t| title.to_lowercase().contains(t)) {
+        let _ = fs::remove_file(&cache_path).await;
+        return Err(anyhow!("bot-protection page: {title}"));
+    }
+    if title.is_empty() {
+        info!("[SKIP] {url}: empty title");
+        return Ok(None);
+    }
+    if summary.is_empty() {
+        info!("[SKIP] {url}: empty summary (title: {title})");
+        return Ok(None);
+    }
+    if content.is_empty() {
+        info!("[SKIP] {url}: empty content (title: {title})");
+        return Ok(None);
+    }
+    if title == summary {
+        info!("[SKIP] {url}: title matches summary");
+        return Ok(None);
     }
 
-    let source = extract_source_content(url).await?;
+    let mut seen = HashSet::new();
+    let images = images
+        .into_iter()
+        .filter(|(u, _)| !u.is_empty() && !u.contains("placeholder") && seen.insert(u.clone()))
+        .map(|(u, c)| format!("{u}|{c}"))
+        .collect();
 
-    if let Ok(bytes) = to_allocvec(&source) {
-        let dir = cache_path.parent().unwrap();
-        if fs::create_dir_all(dir).await.is_ok() {
-            let _ = fs::write(&cache_path, bytes).await;
+    Ok(Some(ArticleSource {
+        url,
+        title,
+        summary,
+        content,
+        tags,
+        images,
+        published: date,
+    }))
+}
+
+fn decode(s: &str) -> String {
+    html_escape::decode_html_entities(s).into_owned()
+}
+
+fn resolve_url(base: Option<&Url>, img_url: &str) -> String {
+    base.and_then(|b| b.join(img_url).ok())
+        .map_or_else(|| img_url.to_string(), |u| u.to_string())
+}
+
+fn collect_page_metadata(
+    html: &str,
+    base: Option<&Url>,
+) -> (HashMap<&'static str, String>, Vec<(String, String)>) {
+    let doc = Html::parse_document(html);
+    let mut m: HashMap<&'static str, String> = HashMap::new();
+    let mut images: Vec<(String, String)> = vec![];
+
+    for el in doc.select(&SEL_JSONLD) {
+        let text = el.text().collect::<String>();
+        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+            collect_jsonld(&v, &mut m, &mut images, base);
         }
     }
 
-    Ok(source)
+    for el in doc.select(&SEL_META) {
+        let name = el
+            .value()
+            .attr("name")
+            .or_else(|| el.value().attr("property"));
+        let content = el.value().attr("content");
+        match (name, content) {
+            (Some("og:title"), Some(v)) => {
+                let d = decode(v);
+                if d.len() > MIN_TITLE_LEN {
+                    m.entry("og_title").or_insert(d);
+                }
+            }
+            (Some("og:description"), Some(v)) => {
+                let d = decode(v);
+                if d.len() > MIN_SUMMARY_LEN {
+                    m.entry("og_description").or_insert(d);
+                }
+            }
+            (Some("description"), Some(v)) => {
+                let d = decode(v);
+                if d.len() > MIN_SUMMARY_LEN {
+                    m.entry("basic_description").or_insert(d);
+                }
+            }
+            (Some("og:image"), Some(v)) => {
+                m.entry("og_image").or_insert_with(|| resolve_url(base, v));
+            }
+            (Some("og:image:alt"), Some(v)) => {
+                m.entry("og_image_alt").or_insert_with(|| decode(v));
+            }
+            (Some("og:article:published_time"), Some(v)) => {
+                m.entry("og_date").or_insert_with(|| v.to_string());
+            }
+            (Some("parsely-tags"), Some(v)) => {
+                m.entry("parsely_tags").or_insert_with(|| v.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    if images.is_empty()
+        && let Some(img_url) = m.remove("og_image")
+    {
+        images.push((img_url, m.remove("og_image_alt").unwrap_or_default()));
+    }
+
+    if let Some(el) = doc.select(&SEL_TITLE).next() {
+        let raw = el.text().collect::<String>();
+        let clean = raw
+            .rfind(" | ")
+            .or_else(|| raw.rfind(" \u{2014} "))
+            .or_else(|| raw.rfind(" - "))
+            .map_or(raw.as_str(), |pos| &raw[..pos])
+            .trim();
+        if clean.len() > MIN_TITLE_LEN {
+            m.entry("basic_title").or_insert_with(|| decode(clean));
+        }
+    }
+
+    (m, images)
 }
 
-async fn extract_source_content(url: String) -> Result<ArticleSource> {
-    let base_url = Url::parse(&url).ok();
-    let html = HTTP_CLIENT.get(&url).send().await?.text().await?;
-    let options = rs_trafilatura::Options {
-        include_comments: false,
-        include_tables: true,
-        include_images: true,
-        include_links: false,
-        include_formatting: false,
-        favor_recall: true,
-        deduplicate: true,
-        max_extracted_len: 22000,
-        ..Default::default()
-    };
-    let extracted =
-        rs_trafilatura::extract_with_options(&html, &options).map_err(|e| anyhow!("{e}"))?;
-
-    let mut seen_images = HashSet::new();
-    let resolve_url = |img_url: &str| {
-        base_url.as_ref().map_or_else(
-            || img_url.to_string(),
-            |base| {
-                base.join(img_url)
-                    .map_or_else(|_| img_url.to_string(), |u| u.to_string())
-            },
-        )
-    };
-
-    let images = extracted
-        .metadata
-        .image
-        .map(|img_url| (resolve_url(&img_url), String::new()))
-        .into_iter()
-        .chain(
-            extracted
-                .images
+fn collect_jsonld(
+    v: &Value,
+    m: &mut HashMap<&'static str, String>,
+    images: &mut Vec<(String, String)>,
+    base: Option<&Url>,
+) {
+    match v {
+        Value::Array(arr) => arr
+            .iter()
+            .for_each(|item| collect_jsonld(item, m, images, base)),
+        obj => match obj.get("@graph") {
+            Some(Value::Array(graph)) => graph
                 .iter()
-                .sorted_by_key(|img| !img.is_hero)
-                .map(|img| {
-                    (
-                        resolve_url(&img.src),
-                        img.caption
-                            .as_deref()
-                            .or(img.alt.as_deref())
-                            .unwrap_or("")
-                            .to_string(),
-                    )
-                }),
-        )
-        .filter(|(url, _)| {
-            !url.is_empty() && !url.contains("placeholder") && seen_images.insert(url.clone())
-        })
-        .map(|(url, caption)| format!("{url}|{caption}"))
-        .collect();
+                .for_each(|item| collect_jsonld_object(item, m, images, base)),
+            _ => collect_jsonld_object(obj, m, images, base),
+        },
+    }
+}
 
-    Ok(ArticleSource {
-        url: url.clone(),
-        title: html_escape::decode_html_entities(&extracted.metadata.title.unwrap_or_default())
-            .into_owned(),
-        summary: html_escape::decode_html_entities(
-            &extracted.metadata.description.unwrap_or_default(),
-        )
-        .into_owned(),
-        content: extracted.content_text,
-        tags: extracted.metadata.tags,
-        images,
-        published: extracted.metadata.date.unwrap_or_else(Utc::now),
-    })
+fn collect_jsonld_object(
+    obj: &Value,
+    m: &mut HashMap<&'static str, String>,
+    images: &mut Vec<(String, String)>,
+    base: Option<&Url>,
+) {
+    if let Some(v) = obj.get("headline").and_then(Value::as_str) {
+        let d = decode(v);
+        if d.len() > MIN_TITLE_LEN {
+            m.entry("sl_headline").or_insert(d);
+        }
+    }
+    if let Some(v) = obj
+        .get("description")
+        .or_else(|| obj.get("alternativeHeadline"))
+        .and_then(Value::as_str)
+    {
+        let d = decode(v);
+        if d.len() > MIN_SUMMARY_LEN {
+            m.entry("sl_description").or_insert(d);
+        }
+    }
+    if let Some(v) = obj
+        .get("articleBody")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        m.entry("sl_body").or_insert_with(|| v.to_string());
+    }
+    if let Some(kw) = obj.get("keywords") {
+        let csv = match kw {
+            Value::Array(arr) => arr
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| decode(s.trim()))
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(","),
+            Value::String(s) => s.clone(),
+            _ => String::new(),
+        };
+        if !csv.is_empty() {
+            m.entry("sl_keywords").or_insert(csv);
+        }
+    }
+    if let Some(v) = obj
+        .get("articleSection")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        m.entry("sl_section").or_insert_with(|| decode(v));
+    }
+    if let Some(v) = obj
+        .get("datePublished")
+        .or_else(|| obj.get("dateModified"))
+        .and_then(Value::as_str)
+    {
+        m.entry("sl_date").or_insert_with(|| v.to_string());
+    }
+    if images.is_empty()
+        && let Some(img) = obj.get("image").or_else(|| obj.get("thumbnail"))
+    {
+        collect_images(img, images, base);
+    }
+}
+
+fn collect_images(v: &Value, out: &mut Vec<(String, String)>, base: Option<&Url>) {
+    match v {
+        Value::String(url) if !url.is_empty() => out.push((resolve_url(base, url), String::new())),
+        Value::Object(obj) => {
+            if let Some(url) = obj
+                .get("url")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                out.push((
+                    resolve_url(base, url),
+                    obj.get("caption")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                ));
+            }
+        }
+        Value::Array(arr) => arr.iter().for_each(|item| collect_images(item, out, base)),
+        _ => {}
+    }
 }

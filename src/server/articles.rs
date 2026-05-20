@@ -47,16 +47,17 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
 
     info!("Fetching content for {} new articles...", new_urls.len());
-    let fetched: Vec<ArticleSource> = join_all(new_urls.into_iter().map(fetch_source_content))
-        .await
-        .into_iter()
-        .filter_map(|r| r.map_err(|e| warn!("Failed to fetch article: {e:#}")).ok())
-        .collect();
+    let results = join_all(new_urls.iter().map(|url| fetch_source_content(url.clone()))).await;
 
-    let (new_entries, dismissed): (Vec<_>, Vec<_>) = fetched.into_iter().partition(|s| {
-        !s.title.is_empty() && !s.summary.is_empty() && s.title != s.summary && s.summary.len() > 40
-    });
-    let dismissed_urls: Vec<String> = dismissed.into_iter().map(|s| s.url).collect();
+    let mut new_entries: Vec<ArticleSource> = vec![];
+    let mut dismissed_urls: Vec<String> = vec![];
+    for (url, result) in new_urls.into_iter().zip(results) {
+        match result {
+            Ok(Some(source)) => new_entries.push(source),
+            Ok(None) => dismissed_urls.push(url),
+            Err(e) => warn!("Failed to fetch {url}: {e:#}"),
+        }
+    }
     database::mark_urls_dismissed(&dismissed_urls).await?;
 
     if new_entries.is_empty() {

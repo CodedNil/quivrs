@@ -7,6 +7,7 @@ pkgs.mkShell {
     cargo
     rustfmt
     clippy
+    just
     dioxus-cli
     lld
     binaryen

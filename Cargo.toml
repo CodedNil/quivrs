@@ -65,7 +65,8 @@ sqlx = { version = "0.8", features = [
     "uuid",
     "derive",
 ] }
-rs-trafilatura = "0.2.2"
+dom_smoothie = "0.17.0"
+scraper = "0.27.0"
 futures = "0.3.32"
 fastembed = "5.13.4"
 sha2 = "0.11.0"
