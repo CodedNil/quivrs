@@ -2,8 +2,7 @@ pub mod articles;
 pub mod database;
 mod embeddings;
 mod llm_functions;
-mod parse_feed;
-mod parse_website;
+pub mod parsers;
 
 use reqwest::{Client, header};
 use std::{sync::LazyLock, time::Duration};

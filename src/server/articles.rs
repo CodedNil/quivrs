@@ -3,8 +3,7 @@ use crate::{
         database,
         embeddings::{article_text, classify, cosine_similarity, generate_article_embeddings},
         llm_functions::run,
-        parse_feed::scan_feed,
-        parse_website::fetch_source_content,
+        parsers::{feeds::scan_feed, social::fetch_social_content, websites::fetch_source_content},
     },
     shared::{ArticleEntry, ArticleSource},
 };
@@ -47,7 +46,14 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
 
     info!("Fetching content for {} new articles...", new_urls.len());
-    let results = join_all(new_urls.iter().map(|url| fetch_source_content(url.clone()))).await;
+    let results = join_all(new_urls.iter().map(|url| async {
+        if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app") {
+            fetch_social_content(url).await
+        } else {
+            fetch_source_content(url.clone()).await
+        }
+    }))
+    .await;
 
     let mut new_entries: Vec<ArticleSource> = vec![];
     let mut dismissed_urls: Vec<String> = vec![];

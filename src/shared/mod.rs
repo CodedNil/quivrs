@@ -56,7 +56,7 @@ pub struct ArticleData {
     pub article: StoredArticle,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ArticleSource {
     pub url: String,
     pub title: String,

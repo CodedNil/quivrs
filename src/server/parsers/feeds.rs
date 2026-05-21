@@ -1,6 +1,7 @@
 use crate::server::HTTP_CLIENT;
 use anyhow::{Result, anyhow};
 use serde::Deserialize;
+use tracing::warn;
 use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
 
 /// Download and parse the feed and return a list of URLs.
@@ -23,7 +24,13 @@ pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
         if bytes.get(first_non_ws) == Some(&b'{') {
             parse_json_feed(&bytes)?
         } else {
-            parse_xml_feed(&bytes)?
+            match parse_xml_feed(&bytes) {
+                Ok(urls) => urls,
+                Err(e) => {
+                    warn!("Failed to parse XML feed {url_rss}: {e}");
+                    vec![]
+                }
+            }
         }
     };
     Ok(urls

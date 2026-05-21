@@ -1,13 +1,12 @@
+use crate::server::parsers::get_cache_path;
 use crate::{server::HTTP_CLIENT, shared::ArticleSource};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use dom_smoothie::Readability;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
     sync::LazyLock,
 };
 use tokio::fs;
@@ -33,17 +32,8 @@ static SEL_JSONLD: LazyLock<Selector> =
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 
-fn sha256_hex(data: &[u8]) -> String {
-    Sha256::digest(data).iter().fold(String::new(), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
-}
-
 pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> {
-    let cache_path = std::env::temp_dir()
-        .join("quivrs")
-        .join(format!("{}.html", sha256_hex(url.as_bytes())));
+    let cache_path = get_cache_path(&url, "html");
 
     let html = if let Ok(bytes) = fs::read(&cache_path).await {
         String::from_utf8_lossy(&bytes).into_owned()
