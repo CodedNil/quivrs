@@ -495,7 +495,7 @@ fn article_detail(
                 font_size: "0.7rem",
                 color: "var(--base05)",
                 margin: "0 0 1rem 0",
-                {article.updated_at.format("%Y-%m-%d %H:%M UTC").to_string()}
+                {article.published.format("%Y-%m-%d %H:%M UTC").to_string()}
             }
             p {
                 font_size: "0.875rem",

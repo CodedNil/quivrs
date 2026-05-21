@@ -50,6 +50,7 @@ pub struct EmbeddingCandidate {
     pub title: String,
     pub category: String,
     pub embedding: Vec<f32>,
+    pub published: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -98,7 +99,7 @@ pub async fn get_embedding_candidates(
     window_end: i64,
 ) -> Result<Vec<EmbeddingCandidate>> {
     sqlx::query!(
-        r#"SELECT id as "id!: Uuid", title, category, embedding
+        r#"SELECT id as "id!: Uuid", title, category, embedding, published
          FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?"#,
         window_start,
         window_end,
@@ -113,6 +114,7 @@ pub async fn get_embedding_candidates(
             title: row.title,
             category: row.category,
             embedding: from_bytes(&row.embedding)?,
+            published: row.published,
         })
     })
     .collect()

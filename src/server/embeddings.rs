@@ -33,15 +33,15 @@ pub const fn category_label(category: Category) -> &'static str {
     match category {
         // Corporate finance, stock markets, and macroeconomics
         Category::Business => {
-            "earnings revenue profit stocks shares merger acquisition IPO dividends CEO layoffs tariffs GDP inflation hedge-fund private-equity startup venture-capital fiscal bonds FTSE Nasdaq shareholder buyout trade-deal commerce markets recession bookkeeping audit liquidation bankruptcy conglomerate arbitrage commodity-trading insolvency mercantile quarterly-results acquisition-bid hostile-takeover"
+            "earnings revenue profit stocks shares merger acquisition IPO dividends CEO layoffs tariffs GDP inflation hedge-fund private-equity startup venture-capital fiscal bonds FTSE Nasdaq shareholder buyout trade-deal commerce markets recession bookkeeping audit liquidation bankruptcy conglomerate arbitrage commodity-trading insolvency mercantile quarterly-results acquisition-bid hostile-takeover manufacturing supply-chain logistics factory automation textiles outsourcing"
         }
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => {
-            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism"
+            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism by-election turnout benefits welfare social-security DWP"
         }
         // Courts, crime, police investigations, and criminal justice
         Category::Law => {
-            "court trial convicted jailed sentenced defendant prosecution verdict jury judge murder stabbing knife beating assault attack grooming exploitation abuse offender indecent coercive stalking fraud theft robbery ASA FCA banned misconduct DWP lawsuit acquitted injunction plaintiff caution probe tribunal litigation legal-action manslaughter burglary shoplifting extradition forensics bailiff subpoena affidavit perjury jurisprudence embezzlement investigation missing-person inquest coroner detective"
+            "court trial convicted jailed sentenced defendant prosecution verdict jury judge murder stabbing knife beating assault attack grooming exploitation abuse offender indecent coercive stalking fraud theft robbery ASA FCA banned misconduct DWP lawsuit acquitted injunction plaintiff caution probe tribunal litigation legal-action manslaughter burglary shoplifting extradition forensics bailiff subpoena affidavit perjury jurisprudence embezzlement investigation missing-person inquest coroner detective tragedy drowned rescuers tribute police-cordon"
         }
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => {
@@ -49,9 +49,9 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Entertainment, film, TV, music, celebrities, streaming, and media
         Category::Culture => {
-            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film broadcaster Ofcom Channel 4 BBC media paparazzi showbiz cinematography choreography discography playwright red-carpet stardom influencer Hollywood Bollywood Cannes Sundance Eurovision K-pop Broadway West-End exhibition gallery museum sculpture literature bestseller"
+            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film broadcaster Ofcom Channel 4 BBC media paparazzi showbiz cinematography choreography discography playwright red-carpet stardom influencer Hollywood Bollywood Cannes Sundance Eurovision K-pop Broadway West-End exhibition gallery museum sculpture literature bestseller casting audition"
         }
-        // Domestic life, cooking, home, fashion, consumer tips, personal finance, and employment
+        // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => {
             "recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding interior skincare bathroom laundry storage hacks tips ants vinegar coffee mortgage rent savings pension budget bills energy loan credit housing property landlord employment job unemployed graduate parenting housekeeping upholstery sourdough minimalism staycation decluttering"
         }

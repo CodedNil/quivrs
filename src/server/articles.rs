@@ -19,6 +19,8 @@ use tokio::fs;
 use tracing::{error, info, warn};
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
+const TIME_BONUS_MAX: f32 = 0.1;
+const TIME_WINDOW_DAYS: i64 = 2;
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
@@ -90,15 +92,21 @@ pub async fn refresh_all_feeds() -> Result<()> {
         };
         // Find the highest similarity match
         let candidates = database::get_embedding_candidates(
-            (source.published - TimeDelta::days(2)).timestamp(),
-            (source.published + TimeDelta::days(2)).timestamp(),
+            (source.published - TimeDelta::days(TIME_WINDOW_DAYS)).timestamp(),
+            (source.published + TimeDelta::days(TIME_WINDOW_DAYS)).timestamp(),
         )
         .await?;
+
+        let source_ts = source.published.timestamp() as f32;
+        let half_life_secs = 4.0 * 3600.0_f32;
 
         let mut best: Option<(uuid::Uuid, &str, f32)> = None;
         let mut highest: Option<(&str, f32)> = None;
         for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
-            let score = cosine_similarity(&embedding, &c.embedding);
+            let diff_secs = (source_ts - c.published as f32).abs();
+            let time_bonus =
+                TIME_BONUS_MAX * (-std::f32::consts::LN_2 * diff_secs / half_life_secs).exp();
+            let score = cosine_similarity(&embedding, &c.embedding) + time_bonus;
             if highest.is_none_or(|(_, s)| score > s) {
                 highest = Some((&c.title, score));
             }
