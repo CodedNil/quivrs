@@ -34,57 +34,6 @@ pub fn ArticleDetail(
             margin_right: "auto",
             padding_bottom: "5rem",
 
-            // Toolbar: status actions left, refresh + stars right
-            div {
-                display: "flex",
-                align_items: "center",
-                justify_content: "space-between",
-                padding: "1.25rem 2rem 1rem",
-
-                div { display: "flex", align_items: "center", gap: "0.375rem",
-                    if status != ArticleStatus::Stored {
-                        ActionBtn {
-                            icon: fa_solid_icons::FaBookmark,
-                            title: "Save to Stored",
-                            color: "var(--base0b)",
-                            onclick: move |_| async move {
-                                let _ = set_article_status(id, ArticleStatus::Stored).await;
-                                if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                    a.status = ArticleStatus::Stored;
-                                }
-                            },
-                        }
-                    }
-                    if status != ArticleStatus::Binned {
-                        ActionBtn {
-                            icon: fa_solid_icons::FaTrash,
-                            title: "Move to Bin",
-                            color: "var(--base08)",
-                            onclick: move |_| async move {
-                                let _ = set_article_status(id, ArticleStatus::Binned).await;
-                                if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                    a.status = ArticleStatus::Binned;
-                                }
-                            },
-                        }
-                    }
-                }
-
-                div { display: "flex", align_items: "center", gap: "0.75rem",
-                    RefreshButton {
-                        title: "Re-classify article",
-                        onclick: move |_| async move {
-                            if reclassify_articles(vec![id]).await.is_ok()
-                                && let Ok(updated) = get_user_articles().await
-                            {
-                                articles.set(updated);
-                            }
-                        },
-                    }
-                    StarRating { current: rating, id, articles }
-                }
-            }
-
             // Hero image
             if let Some(url) = hero {
                 img {
@@ -108,31 +57,77 @@ pub fn ArticleDetail(
                     "{title}"
                 }
 
-                // Meta: date · category · sources
+                // Meta: stored · date · rating · category · sources
                 div {
                     display: "flex",
                     align_items: "center",
-                    flex_wrap: "wrap",
-                    gap: "0.5rem",
+                    gap: "1.5rem",
                     margin_bottom: "1.25rem",
-                    span {
-                        font_size: "0.7rem",
-                        color: "var(--base04)",
-                        {article.published.format("%b %d, %Y").to_string()}
-                    }
-                    RatingPill {
-                        label: article.category.to_string(),
-                        item_key: format!("category:{}", article.category),
-                        item_ratings,
-                    }
-                    for source in &article.sources {
-                        RatingPill {
-                            key: "{source.url}",
-                            label: source.source.clone(),
-                            item_key: format!("source:{}", source.source),
-                            item_ratings,
-                            url: Some(source.url.clone()),
+                    justify_content: "space-between",
+
+                    div {
+                        display: "flex",
+                        align_items: "center",
+                        gap: "0.375rem",
+                        if status != ArticleStatus::Stored {
+                            ActionBtn {
+                                icon: fa_solid_icons::FaBookmark,
+                                title: "Save to ReadL",
+                                color: "var(--base0b)",
+                                onclick: move |_| async move {
+                                    let _ = set_article_status(id, ArticleStatus::Stored).await;
+                                    if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                                        a.status = ArticleStatus::Stored;
+                                    }
+                                },
+                            }
                         }
+                        if status != ArticleStatus::Binned {
+                            ActionBtn {
+                                icon: fa_solid_icons::FaTrash,
+                                title: "Move to Bin",
+                                color: "var(--base08)",
+                                onclick: move |_| async move {
+                                    let _ = set_article_status(id, ArticleStatus::Binned).await;
+                                    if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                                        a.status = ArticleStatus::Binned;
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    span { font_size: "0.7rem", color: "var(--base04)",
+                        {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
+                    }
+                    StarRating { current: rating, id, articles }
+                    div {
+                        display: "flex",
+                        align_items: "center",
+                        gap: "0.375rem",
+                        RatingPill {
+                            label: article.category.to_string(),
+                            item_key: format!("category:{}", article.category),
+                            item_ratings,
+                        }
+                        for source in &article.sources {
+                            RatingPill {
+                                key: "{source.url}",
+                                label: source.source.clone(),
+                                item_key: format!("source:{}", source.source),
+                                item_ratings,
+                                url: Some(source.url.clone()),
+                            }
+                        }
+                    }
+                    RefreshButton {
+                        title: "Re-classify article",
+                        onclick: move |_| async move {
+                            if reclassify_articles(vec![id]).await.is_ok()
+                                && let Ok(updated) = get_user_articles().await
+                            {
+                                articles.set(updated);
+                            }
+                        },
                     }
                 }
 
@@ -176,8 +171,6 @@ pub fn ArticleDetail(
         }
     }
 }
-
-// ── Supporting components ────────────────────────────────────────────────────
 
 #[component]
 fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
@@ -232,14 +225,11 @@ fn StarRating(
     let fill_to = hover_idx.read().or(current_idx);
 
     rsx! {
-        div {
-            display: "flex",
-            align_items: "center",
-            gap: "0.05rem",
+        div { display: "flex", align_items: "center", gap: "0.05rem",
             for (i, &this_rating) in RATINGS.iter().enumerate() {
                 {
-                    let filled = fill_to.map_or(false, |h| i <= h);
-                    let is_hover = hover_idx.read().map_or(false, |h| i == h);
+                    let filled = fill_to.is_some_and(|h| i <= h);
+                    let is_hover = hover_idx.read().is_some_and(|h| i == h);
                     let is_current = current_idx == Some(i);
                     rsx! {
                         button {
@@ -251,7 +241,6 @@ fn StarRating(
                             font_size: "1.2rem",
                             line_height: "1",
                             color: if filled { "#f5c518" } else { "var(--base03)" },
-                            text_shadow: if filled { "0 0 10px rgba(245,197,24,0.5)" } else { "none" },
                             transform: if is_hover { "scale(1.35)" } else if filled { "scale(1.05)" } else { "scale(1)" },
                             transition: "color 0.1s, transform 0.12s, text-shadow 0.15s",
                             display: "inline-block",
@@ -264,7 +253,7 @@ fn StarRating(
                                     a.rating = if is_current { None } else { Some(new) };
                                 }
                             },
-                            "★"
+                            Icon { icon: fa_solid_icons::FaStar, width: 15, height: 15 }
                         }
                     }
                 }
@@ -272,8 +261,6 @@ fn StarRating(
         }
     }
 }
-
-// ── Section rendering ────────────────────────────────────────────────────────
 
 fn render_inline(text: &str) -> Element {
     let mut elements: Vec<Element> = Vec::new();
@@ -289,13 +276,19 @@ fn render_inline(text: &str) -> Element {
             let end = rel_end + i + 1;
             if i > plain_start {
                 let s = text[plain_start..i].to_string();
-                elements.push(rsx! { span { "{s}" } });
+                elements.push(rsx! {
+                    span { "{s}" }
+                });
             }
             let s = text[i + 1..end].to_string();
             elements.push(if b == b'*' {
-                rsx! { span { font_weight: "700", "{s}" } }
+                rsx! {
+                    span { font_weight: "700", "{s}" }
+                }
             } else {
-                rsx! { span { font_style: "italic", "{s}" } }
+                rsx! {
+                    span { font_style: "italic", "{s}" }
+                }
             });
             i = end + 1;
             plain_start = i;
@@ -305,9 +298,13 @@ fn render_inline(text: &str) -> Element {
     }
     if plain_start < bytes.len() {
         let s = text[plain_start..].to_string();
-        elements.push(rsx! { span { "{s}" } });
+        elements.push(rsx! {
+            span { "{s}" }
+        });
     }
-    rsx! { {elements.into_iter()} }
+    rsx! {
+        {elements.into_iter()}
+    }
 }
 
 fn render_box_item(item: &str) -> Element {
@@ -414,7 +411,9 @@ fn render_section(section: &Section) -> Element {
                 flex_direction: "column",
                 gap: "0.5rem",
                 margin: "0 0 1.25rem",
-                for item in items { {render_box_item(item)} }
+                for item in items {
+                    {render_box_item(item)}
+                }
             }
         },
         Section::ColumnBoxes(items) => rsx! {

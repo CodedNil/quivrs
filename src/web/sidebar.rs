@@ -56,7 +56,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
     for a in &active {
         groups.entry(a.article.category).or_default().push(a);
     }
-    let categories: Vec<(Category, usize)> = groups.iter().map(|(c, v)| (*c, v.len())).collect();
+    let categories: Vec<Category> = groups.keys().copied().collect();
 
     let list = rsx! {
         for (category, items) in groups {
@@ -64,7 +64,8 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                 for a in items {
                     ArticleItem {
                         key: "{a.id}",
-                        id: a.id, rating: a.rating,
+                        id: a.id,
+                        rating: a.rating,
                         article: a.article.clone(),
                         selected: selected_id,
                         tab: tab.clone(),
@@ -75,11 +76,12 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
     };
 
     let mut bar_fraction: Signal<f64> = use_signal(|| 0.0);
+    let mut cat_heights: Signal<Vec<(Category, f64)>> = use_signal(Vec::new);
     let cats_for_scroll = categories.clone();
+
     rsx! {
-        aside {
+        div {
             width: "30rem",
-            border_right: "1px solid var(--base02)",
             display: "flex",
             flex_direction: "column",
             background_color: "var(--base0d)",
@@ -87,77 +89,15 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
             overflow: "hidden",
 
             div {
-                id: "article-scroll-container",
-                flex: "1",
-                overflow_y: "auto",
-                padding_top: "11rem",
-                onscroll: move |_| {
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        let doc = web_sys::window().and_then(|w| w.document());
-                        let scroll_el = doc.as_ref().and_then(|d| d.get_element_by_id("article-scroll-container"));
-                        let overlay_el = doc.as_ref().and_then(|d| d.get_element_by_id("sidebar-overlay"));
-
-                        if let (Some(scroll_el), Some(overlay_el)) = (scroll_el, overlay_el) {
-                            let scroll_top = scroll_el.scroll_top() as f64;
-                            let max = (scroll_el.scroll_height() - scroll_el.client_height()) as f64;
-                            if max <= 0.0 { return; }
-
-                            let overlay_h = overlay_el.client_height() as f64;
-                            let visible_top = scroll_top + overlay_h;
-                            let sr = scroll_el.get_bounding_client_rect();
-
-                            let total: usize = cats_for_scroll.iter().map(|(_, n)| n).sum();
-                            if total == 0 { return; }
-
-                            // Walk categories to find which one is at the top of the visible area
-                            // and compute a bar fraction aligned to category proportions.
-                            let mut cum_bar = 0.0f64;
-                            let mut found = false;
-                            for &(cat, count) in &cats_for_scroll {
-                                let section_w = count as f64 / total as f64;
-                                if let Some(cat_el) = doc.as_ref().and_then(|d| d.get_element_by_id(&format!("category-group-{cat}"))) {
-                                    let cr = cat_el.get_bounding_client_rect();
-                                    let cat_top = cr.top() - sr.top() + scroll_top;
-                                    let cat_h = cr.height();
-                                    if cat_top <= visible_top && visible_top < cat_top + cat_h {
-                                        let progress = if cat_h > 0.0 { (visible_top - cat_top) / cat_h } else { 0.0 };
-                                        bar_fraction.set((cum_bar + progress * section_w).clamp(0.0, 1.0));
-                                        found = true;
-                                        break;
-                                    }
-                                    if cat_top > visible_top {
-                                        bar_fraction.set(cum_bar);
-                                        found = true;
-                                        break;
-                                    }
-                                    cum_bar += section_w;
-                                }
-                            }
-                            if !found { bar_fraction.set(1.0); }
-                        }
-                    }
-                },
-                if data.is_empty() {
-                    p { padding: "1.25rem", font_size: "0.75rem", color: "var(--base01)", "Loading..." }
-                } else {
-                    {list}
-                }
-            }
-
-            div {
-                id: "sidebar-overlay",
-                position: "absolute",
-                top: "0",
-                left: "0",
-                right: "0",
-                z_index: "10",
-                backdrop_filter: "blur(14px)",
-                background_color: "color-mix(in srgb, var(--base02) 92%, transparent)",
+                id: "sidebar-header",
+                display: "flex",
+                flex_direction: "column",
+                gap: "0.8rem",
+                padding: "0.8rem",
+                background_color: "var(--base0d)",
                 box_shadow: "0 4px 20px rgba(0,0,0,0.4)",
 
                 div {
-                    padding: "1.25rem 1.25rem 0.75rem",
                     display: "flex",
                     justify_content: "space-between",
                     align_items: "center",
@@ -183,21 +123,101 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                     }
                 }
 
-                TabNav { tab, new_count, stored_count, binned_count }
-                CategoryScrollBar { categories, bar_fraction }
+                TabNav {
+                    tab,
+                    new_count,
+                    stored_count,
+                    binned_count,
+                }
+                CategoryScrollBar { categories, bar_fraction, cat_heights }
+            }
+
+            div {
+                id: "article-scroll-container",
+                flex: "1",
+                overflow_y: "auto",
+                onscroll: move |_| {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let doc = web_sys::window().and_then(|w| w.document());
+                        let scroll_el = doc
+                            .as_ref()
+                            .and_then(|d| d.get_element_by_id("article-scroll-container"));
+                        let overlay_el = doc
+                            .as_ref()
+                            .and_then(|d| d.get_element_by_id("sidebar-overlay"));
+                        if let (Some(scroll_el), Some(overlay_el)) = (scroll_el, overlay_el) {
+                            let scroll_top = scroll_el.scroll_top() as f64;
+                            let max =
+                                (scroll_el.scroll_height() - scroll_el.client_height()) as f64;
+                            if max <= 0.0 {
+                                return;
+                            }
+                            let overlay_h = overlay_el.client_height() as f64;
+                            let visible_top = scroll_top + overlay_h;
+                            let sr = scroll_el.get_bounding_client_rect();
+
+                            // Single DOM pass: position + height for each category
+                            let segments: Vec<(Category, f64, f64)> = cats_for_scroll
+                                .iter()
+                                .filter_map(|&cat| {
+                                    doc.as_ref()
+                                        .and_then(|d| {
+                                            d.get_element_by_id(&format!("category-group-{cat}"))
+                                        })
+                                        .map(|el| {
+                                            let cr = el.get_bounding_client_rect();
+                                            (cat, cr.top() - sr.top() + scroll_top, cr.height())
+                                        })
+                                })
+                                .collect();
+                            let total_h: f64 = segments.iter().map(|(_, _, h)| h).sum();
+                            if total_h <= 0.0 {
+                                return;
+                            }
+                            let new_heights: Vec<(Category, f64)> = segments
+                                .iter()
+                                .map(|(c, _, h)| (*c, *h))
+                                .collect();
+                            if *cat_heights.read() != new_heights {
+                                cat_heights.set(new_heights);
+                            }
+                            let mut cum_bar = 0.0f64;
+                            let mut found = false;
+                            for &(_cat, cat_top, cat_h) in &segments {
+                                let section_w = cat_h / total_h;
+                                if cat_top <= visible_top && visible_top < cat_top + cat_h {
+                                    let progress = if cat_h > 0.0 {
+                                        (visible_top - cat_top) / cat_h
+                                    } else {
+                                        0.0
+                                    };
+                                    bar_fraction
+                                        .set((cum_bar + progress * section_w).clamp(0.0, 1.0));
+                                    found = true;
+                                    break;
+                                }
+                                if cat_top > visible_top {
+                                    bar_fraction.set(cum_bar);
+                                    found = true;
+                                    break;
+                                }
+                                cum_bar += section_w;
+                            }
+                            if !found {
+                                bar_fraction.set(1.0);
+                            }
+                        }
+                    }
+                },
+                {list}
             }
         }
     }
 }
 
-// Tab order: Stored(0) New(1) Binned(2)
 #[component]
 fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usize) -> Element {
-    let indicator_left = match tab.as_str() {
-        "stored" => "calc(0.625rem)",
-        "new" => "calc(0.875rem + (100% - 1.75rem) / 3)",
-        _ => "calc(1.125rem + (100% - 1.75rem) / 3 * 2)",
-    };
     let clip = match tab.as_str() {
         "stored" => {
             "inset(0 calc(100% - 0.625rem - (100% - 1.75rem) / 3) 0.625rem 0.625rem round 0.5rem)"
@@ -209,12 +229,9 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
     };
 
     rsx! {
-        div {
-            position: "relative",
-            display: "flex",
-            padding: "0 0.625rem 0.625rem",
-            gap: "0.25rem",
+        div { position: "relative", display: "flex", gap: "0.25rem",
 
+            // Sliding blue bubble — clipped to active button, sits behind the button text
             div {
                 position: "absolute",
                 top: "0",
@@ -224,10 +241,7 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 clip_path: clip,
                 transition: "clip-path 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
                 pointer_events: "none",
-                z_index: "2",
-                display: "flex",
-                padding: "0 0.625rem 0.625rem",
-                gap: "0.25rem",
+                z_index: "1",
                 div {
                     key: "{tab}",
                     position: "absolute",
@@ -235,41 +249,28 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                     left: "0",
                     right: "0",
                     bottom: "0",
-                    background_color: "var(--base0d)",
+                    background_color: "color-mix(in srgb, var(--base0d) 80%, var(--base01))",
                     animation: "tab-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
                 }
-                InvertedLabel { text: "Stored", count: stored_count }
-                InvertedLabel { text: "New",    count: new_count }
-                InvertedLabel { text: "Binned", count: binned_count }
             }
 
-            TabButton { slug: "stored", label: "Stored", count: stored_count, active: tab.clone() }
-            TabButton { slug: "new",    label: "New",    count: new_count,    active: tab.clone() }
-            TabButton { slug: "binned", label: "Binned", count: binned_count, active: tab }
-        }
-    }
-}
-
-#[component]
-fn InvertedLabel(text: &'static str, count: usize) -> Element {
-    rsx! {
-        div {
-            flex: "1",
-            position: "relative",
-            z_index: "1",
-            display: "flex",
-            align_items: "center",
-            justify_content: "center",
-            gap: "0.375rem",
-            padding: "0.5rem",
-            span { color: "var(--base01)", font_size: "0.875rem", font_weight: "700", "{text}" }
-            span {
-                color: "var(--base01)",
-                background_color: "rgba(0,0,0,0.12)",
-                border_radius: "9999px",
-                padding: "0.125rem 0.4rem",
-                font_size: "0.72rem",
-                "{count}"
+            TabButton {
+                slug: "stored",
+                label: "Stored",
+                count: stored_count,
+                active: tab.clone(),
+            }
+            TabButton {
+                slug: "new",
+                label: "New",
+                count: new_count,
+                active: tab.clone(),
+            }
+            TabButton {
+                slug: "binned",
+                label: "Binned",
+                count: binned_count,
+                active: tab,
             }
         }
     }
@@ -284,11 +285,19 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
     let is_hovered = *hovered.read();
     let is_pressed = *pressed.read();
 
+    let bg = if is_pressed {
+        "rgba(255,255,255,0.14)"
+    } else if is_hovered && !is_active {
+        "rgba(255,255,255,0.11)"
+    } else {
+        "rgba(255,255,255,0.06)"
+    };
+
     rsx! {
         button {
             flex: "1",
             position: "relative",
-            z_index: "1",
+            z_index: "2",
             display: "flex",
             align_items: "center",
             justify_content: "center",
@@ -296,18 +305,25 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
             padding: "0.5rem",
             border_radius: "0.5rem",
             border: "none",
-            background_color: if is_pressed { "rgba(255,255,255,0.1)" } else if is_hovered && !is_active { "rgba(255,255,255,0.06)" } else { "transparent" },
+            background_color: bg,
             cursor: "pointer",
             color: "var(--base05)",
             font_size: "0.875rem",
             font_weight: "700",
             transform: if is_pressed { "scale(0.94)" } else { "scale(1)" },
-            transition: "background-color 0.12s ease, transform 0.1s ease",
+            transition: "background-color 0.15s ease, transform 0.1s ease",
             onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| { hovered.set(false); pressed.set(false); },
+            onmouseleave: move |_| {
+                hovered.set(false);
+                pressed.set(false);
+            },
             onmousedown: move |_| pressed.set(true),
             onmouseup: move |_| pressed.set(false),
-            onclick: move |_| { nav.push(Route::TabHome { tab: slug.to_string() }); },
+            onclick: move |_| {
+                nav.push(Route::TabHome {
+                    tab: slug.to_string(),
+                });
+            },
             "{label}"
             span {
                 background_color: "rgba(255,255,255,0.12)",
@@ -322,16 +338,38 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
 }
 
 #[component]
-fn CategoryScrollBar(categories: Vec<(Category, usize)>, bar_fraction: Signal<f64>) -> Element {
-    let total: usize = categories.iter().map(|(_, n)| n).sum();
+fn CategoryScrollBar(
+    categories: Vec<Category>,
+    bar_fraction: Signal<f64>,
+    cat_heights: Signal<Vec<(Category, f64)>>,
+) -> Element {
     let mut dragging = use_signal(|| false);
-    let fraction = *bar_fraction.read();
 
-    if total == 0 {
+    if categories.is_empty() {
         return rsx! {};
     }
 
+    let heights = cat_heights.read();
+    let total_h: f64 = heights.iter().map(|(_, h)| h).sum();
+    let category_flexes: Vec<(Category, f64)> = categories
+        .iter()
+        .map(|&cat| {
+            let flex = if total_h > 0.0 {
+                heights
+                    .iter()
+                    .find(|(c, _)| *c == cat)
+                    .map_or(1.0, |(_, h)| *h)
+            } else {
+                1.0
+            };
+            (cat, flex)
+        })
+        .collect();
+    drop(heights);
+
+    let fraction = *bar_fraction.read();
     let frac_pct = fraction * 100.0;
+
     rsx! {
         div {
             id: "category-scroll-bar",
@@ -339,17 +377,16 @@ fn CategoryScrollBar(categories: Vec<(Category, usize)>, bar_fraction: Signal<f6
             display: "flex",
             align_items: "stretch",
             height: "1.7rem",
-            padding: "0.3rem 0.5rem",
             gap: "0.2rem",
             onmousedown: move |_| dragging.set(true),
             onmouseup: move |_| dragging.set(false),
             onmouseleave: move |_| dragging.set(false),
             onmousemove: move |e| {
-                if !*dragging.read() { return; }
                 #[cfg(target_arch = "wasm32")]
-                if let Some(bar) = web_sys::window()
-                    .and_then(|w| w.document())
-                    .and_then(|d| d.get_element_by_id("category-scroll-bar"))
+                if *dragging.read()
+                    && let Some(bar) = web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.get_element_by_id("category-scroll-bar"))
                 {
                     let rect = bar.get_bounding_client_rect();
                     let frac = ((e.client_coordinates().x as f64 - rect.left()) / rect.width())
@@ -364,8 +401,6 @@ fn CategoryScrollBar(categories: Vec<(Category, usize)>, bar_fraction: Signal<f6
                 }
             },
 
-            // Circle rendered first — sits behind the category icons (which are rendered after).
-            // Center = padding_left + fraction × (100% - total_h_padding); translateX(-50%) centers it.
             div {
                 position: "absolute",
                 top: "50%",
@@ -379,9 +414,9 @@ fn CategoryScrollBar(categories: Vec<(Category, usize)>, bar_fraction: Signal<f6
                 z_index: "0",
             }
 
-            for &(category, count) in &categories {
+            for &(category, flex) in &category_flexes {
                 div {
-                    flex: "{count}",
+                    flex: "{flex:.1}",
                     position: "relative",
                     z_index: "1",
                     display: "flex",
@@ -397,14 +432,24 @@ fn CategoryScrollBar(categories: Vec<(Category, usize)>, bar_fraction: Signal<f6
                         e.stop_propagation();
                         #[cfg(target_arch = "wasm32")]
                         if let (Some(scroll_el), Some(cat_el), Some(overlay_el)) = (
-                            web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("article-scroll-container")),
-                            web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id(&format!("category-group-{category}"))),
-                            web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("sidebar-overlay")),
+                            web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| d.get_element_by_id("article-scroll-container")),
+                            web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| {
+                                    d.get_element_by_id(&format!("category-group-{category}"))
+                                }),
+                            web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| d.get_element_by_id("sidebar-overlay")),
                         ) {
                             let overlay_h = overlay_el.client_height() as f64;
                             let sr = scroll_el.get_bounding_client_rect();
                             let cr = cat_el.get_bounding_client_rect();
-                            let new_top = scroll_el.scroll_top() as f64 + cr.top() - sr.top() - overlay_h - 8.0;
+                            let new_top = scroll_el.scroll_top() as f64 + cr.top() - sr.top()
+                                - overlay_h
+                                - 8.0;
                             scroll_el.set_scroll_top(new_top.max(0.0) as i32);
                         }
                     },
@@ -423,15 +468,11 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
             display: "flex",
             margin: "0 0.625rem 1.5rem",
             border_radius: style::RADIUS_GROUP,
-            clip_path: "inset(0 round 0.875rem)",
-            // base02 at 25% opacity — subtle dark fill, lets the blue sidebar show through edges
             background_color: "rgba(54, 58, 79, 0.25)",
-            box_shadow: "inset 0 2px 10px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.22)",
+            overflow: "hidden",
+            box_shadow: "inset 0 2px 6px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.22)",
 
-            div {
-                width: "44px",
-                min_width: "44px",
-                background_color: "rgba(30, 32, 48, 0.55)",
+            div { width: "44px", background_color: "rgba(30, 32, 48, 0.55)",
                 div {
                     position: "sticky",
                     top: "0",
@@ -524,23 +565,44 @@ fn ArticleItem(
             transform: scale,
             transition: style::TRANSITION_CARD,
             onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| { hovered.set(false); pressed.set(false); },
+            onmouseleave: move |_| {
+                hovered.set(false);
+                pressed.set(false);
+            },
             onmousedown: move |_| pressed.set(true),
             onmouseup: move |_| pressed.set(false),
-            onclick: move |_| { use_navigator().push(Route::Article { tab: tab.clone(), id }); },
+            onclick: move |_| {
+                use_navigator()
+                    .push(Route::Article {
+                        tab: tab.clone(),
+                        id,
+                    });
+            },
 
             if let Some(img_url) = hero_image {
-                img { src: "{img_url}", alt: "", width: "100%", height: "144px", object_fit: "cover", display: "block" }
+                img {
+                    src: "{img_url}",
+                    alt: "",
+                    width: "100%",
+                    height: "144px",
+                    object_fit: "cover",
+                    display: "block",
+                }
             }
 
             // filter wrapper needed: drop-shadow on clip-path is itself clipped
             if let Some(r) = rating {
                 div {
-                    position: "absolute", top: "0", left: "0",
-                    width: "48px", height: "48px", z_index: 1,
+                    position: "absolute",
+                    top: "0",
+                    left: "0",
+                    width: "48px",
+                    height: "48px",
+                    z_index: 1,
                     filter: "drop-shadow(1px 2px 5px rgba(0,0,0,0.75))",
                     div {
-                        width: "100%", height: "100%",
+                        width: "100%",
+                        height: "100%",
                         background_color: rating_color(r),
                         clip_path: "polygon(0 0, 100% 0, 0 100%)",
                     }
@@ -549,13 +611,18 @@ fn ArticleItem(
 
             div { padding: "0.625rem 0.75rem",
                 h3 {
-                    font_size: "0.75rem", font_weight: "600", color: "var(--base05)",
-                    line_height: "1.375", margin: "0 0 0.2rem 0",
+                    font_size: "0.75rem",
+                    font_weight: "600",
+                    color: "var(--base05)",
+                    line_height: "1.375",
+                    margin: "0 0 0.2rem 0",
                     "{title}"
                 }
                 p {
-                    font_size: "0.67rem", color: "var(--base05)",
-                    line_height: "1.5", margin: "0",
+                    font_size: "0.67rem",
+                    color: "var(--base05)",
+                    line_height: "1.5",
+                    margin: "0",
                     "{description}"
                 }
             }

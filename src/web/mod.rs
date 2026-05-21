@@ -16,7 +16,6 @@ use uuid::Uuid;
 mod style {
     pub const RADIUS_CARD: &str = "0.625rem";
     pub const RADIUS_GROUP: &str = "0.875rem";
-    pub const GROUP_SHADOW: &str = "inset 0 2px 10px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.22)";
     pub const CARD_BG_IDLE: &str = "var(--base00)";
     pub const CARD_BG_SELECTED: &str = "color-mix(in srgb, var(--base0d) 22%, var(--base00))";
     pub const CARD_SHADOW_IDLE: &str = "0 1px 3px rgba(0,0,0,0.22)";
@@ -150,8 +149,9 @@ pub fn app() -> Element {
     });
 
     rsx! {
+        AppHead {}
+        document::Title { "Quivrs" }
         Router::<Route> {}
-
     }
 }
 
@@ -189,8 +189,6 @@ fn MainLayout() -> Element {
     });
 
     rsx! {
-        AppHead {}
-        document::Title { "Quivrs" }
         div {
             display: "flex",
             height: "100vh",
