@@ -227,7 +227,7 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
         if new_category != row.category {
             info!(
                 "[RECLASSIFY] '{}' {} → {}",
-                article_text(source),
+                article_text(source, 1),
                 row.category,
                 new_category
             );

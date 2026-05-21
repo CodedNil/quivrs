@@ -19,7 +19,7 @@ use std::{
 use tokio::fs;
 use tracing::{error, info, warn};
 
-const SIMILARITY_THRESHOLD: f32 = 0.7;
+const SIMILARITY_THRESHOLD: f32 = 0.68;
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
@@ -104,7 +104,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
             }
         }
 
-        let article_overview = format!("'{}' {}", article_text(&source), category);
+        let article_overview = format!("'{}' {}", article_text(&source, 1), category);
         if let Some((article_id, existing_title, score)) = best {
             info!(
                 "[MERGE] {} → '{}' (score {score:.2})",
