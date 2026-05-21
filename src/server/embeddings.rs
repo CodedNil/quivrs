@@ -37,7 +37,7 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => {
-            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism by-election turnout benefits welfare social-security DWP"
+            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Democrats Republicans Libertarians Mayor Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism by-election turnout benefits welfare social-security DWP"
         }
         // Courts, crime, police investigations, and criminal justice
         Category::Law => {
@@ -49,7 +49,7 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Entertainment, film, TV, music, celebrities, streaming, and media
         Category::Culture => {
-            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film broadcaster Ofcom Channel 4 BBC media paparazzi showbiz cinematography choreography discography playwright red-carpet stardom influencer Hollywood Bollywood Cannes Sundance Eurovision K-pop Broadway West-End exhibition gallery museum sculpture literature bestseller casting audition"
+            "Netflix Disney streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals King Queen Royal entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer how to watch film broadcaster Ofcom Channel 4 BBC media paparazzi showbiz cinematography choreography discography playwright red-carpet stardom influencer Hollywood Bollywood Cannes Sundance Eurovision K-pop Broadway West-End exhibition gallery museum sculpture literature bestseller casting audition"
         }
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => {
@@ -61,15 +61,15 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Wildlife, ecology, the natural world, and climate — animals, plants, weather, conservation
         Category::Nature => {
-            "wildlife animals birds insects plants trees forests oceans seas rivers mountains countryside national parks ecology biodiversity extinction conservation habitat hedgehog deer butterfly orchid climate carbon flooding drought heatwave rewilding farming weather meteorology zoology botany entomology ornithology ecosystem reforestation precipitation humidity anticyclone"
+            "wildlife animals birds insects plants trees forests oceans seas rivers mountains countryside national parks ecology biodiversity extinction endangered conservation habitat hedgehog deer butterfly orchid climate carbon flooding drought heatwave rewilding farming weather meteorology zoology botany entomology ornithology ecosystem reforestation precipitation humidity anticyclone pesticides"
         }
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => {
-            "smartphone iPhone Android laptop notebook tablet smartwatch wearable headphones on-ear over-ear earphones audio speakers display OLED television TV camera drone VPN router hardware gadget Apple Samsung LG Sony console GPU peripherals motherboard chipset bluetooth firmware-update pixel-density megapixel"
+            "smartphone iPhone Android laptop notebook tablet smartwatch wearable headphones on-ear over-ear earphones audio speakers display OLED television TV camera drone VPN router hardware gadget Apple Samsung LG Sony Google Meta Facebook Twitter Microsoft Huawei Lenovo IBM Oracle Nvidia AMD console GPU peripherals motherboard chipset bluetooth firmware-update pixel-density megapixel"
         }
         // Software development, coding, and cybersecurity
         Category::Software => {
-            "coding programming Python Ruby Rust JavaScript TypeScript HTML CSS web React Node GitHub API open-source algorithm compiler binary firmware SDK cybersecurity breach hacking phishing malware ransomware exploit vulnerability CVE backend frontend devops refactoring middleware multithreading encryption-key repository containerization"
+            "coding programming Python Ruby Rust JavaScript TypeScript HTML CSS web websites React Node GitHub API open-source Linux algorithm compiler binary firmware SDK cybersecurity breach hacking phishing malware ransomware exploit vulnerability CVE backend frontend devops refactoring middleware multithreading encryption-key repository containerization"
         }
         // Artificial intelligence, machine learning, and AI assistants
         Category::AI => {

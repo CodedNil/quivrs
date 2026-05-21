@@ -21,5 +21,10 @@ then it has a button called explore which pops out another 10 of the top estimat
 estimate the like by comparing the embedding against the average hated, disliked, neutral, liked and loved
 then we get the number by similarity to those
 
+articles fade and eventually get binned if left in new too long, but only if their liked estimation is below 0.8, and they fade faster the lower the estimated_like, so one that has estimated_liked of 0.1 might fade in a couple days while 0.7 might last a week
+only merge into articles we havent read yet
+
 
 support youtube feeds, subreddits as sources
+
+widgets for things like current polling trackers

@@ -156,7 +156,7 @@ pub async fn regenerate_articles() -> Result<()> {
 
     let mut article_stream = stream::iter(targets)
         .map(|(id, sources)| async move { (id, generate_article_content(sources).await) })
-        .buffer_unordered(5);
+        .buffer_unordered(3);
 
     while let Some((id, result)) = article_stream.next().await {
         match result {

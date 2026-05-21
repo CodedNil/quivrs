@@ -112,7 +112,12 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
     let mut seen = HashSet::new();
     let images = images
         .into_iter()
-        .filter(|(u, _)| !u.is_empty() && !u.contains("placeholder") && seen.insert(u.clone()))
+        .filter(|(u, _)| {
+            !u.is_empty()
+                && !u.contains("placeholder")
+                && !u.contains("gravatar.com")
+                && seen.insert(u.clone())
+        })
         .map(|(u, c)| format!("{u}|{c}"))
         .collect();
 

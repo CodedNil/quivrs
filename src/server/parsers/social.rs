@@ -113,10 +113,6 @@ async fn scan_twitter_profile(url: &str) -> Result<Vec<String>> {
         })
         .unwrap_or_default();
 
-    info!(
-        "[SOCIAL] Found {} tweets from @{username} via fxtwitter",
-        urls.len()
-    );
     Ok(urls)
 }
 
@@ -232,11 +228,6 @@ async fn scan_bluesky_profile(url: &str) -> Result<Vec<String>> {
         })
         .collect();
 
-    info!(
-        "[SOCIAL] Found {} posts from Bluesky profile @{}",
-        urls.len(),
-        handle
-    );
     Ok(urls)
 }
 
