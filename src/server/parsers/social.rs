@@ -1,16 +1,62 @@
-use crate::server::parsers::{get_cache_path, get_cached_or_fetch};
+use crate::server::{HTTP_CLIENT, parsers::get_cached_or_fetch_ext};
 use crate::shared::ArticleSource;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use scraper::{Html, Selector};
 use serde_json::Value;
-use std::sync::LazyLock;
-use tokio::fs;
 use tracing::info;
 
-static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
-static SEL_SCRIPT: LazyLock<Selector> = LazyLock::new(|| Selector::parse("script").unwrap());
+const FXTWITTER_API: &str = "https://api.fxtwitter.com/2";
 
+fn build_summary(text: &str) -> String {
+    const MAX_LEN: usize = 200;
+    const MIN_LEN: usize = 80; // prefer clean line breaks only once we have this much
+
+    let mut result = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let sep = usize::from(!result.is_empty());
+        if result.len() + sep + line.len() > MAX_LEN {
+            if result.len() >= MIN_LEN {
+                break; // enough content — stop at clean line boundary
+            }
+            // not enough yet — include this line truncated
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            let available = MAX_LEN - result.len();
+            let cutoff = (0..=available.min(line.len()))
+                .rev()
+                .find(|&i| line.is_char_boundary(i))
+                .unwrap_or(0);
+            let end = line[..cutoff]
+                .rfind(' ')
+                .filter(|&i| cutoff - i <= 10)
+                .unwrap_or(cutoff);
+            result.push_str(&line[..end]);
+            break;
+        }
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(line);
+    }
+    result
+}
+
+fn short_title(text: &str, handle: &str) -> String {
+    const MAX: usize = 80;
+    let snippet = if text.len() <= MAX {
+        text
+    } else {
+        text[..MAX].rfind(' ').map_or(&text[..MAX], |i| &text[..i])
+    };
+    format!("{snippet} @{handle}")
+}
+
+/// Fetch the content of an individual social post
 pub async fn fetch_social_content(url: &str) -> Result<Option<ArticleSource>> {
     if url.contains("twitter.com") || url.contains("x.com") {
         fetch_twitter_native(url).await
@@ -21,170 +67,203 @@ pub async fn fetch_social_content(url: &str) -> Result<Option<ArticleSource>> {
     }
 }
 
+/// Read recent posts from a profile
+pub async fn scan_social_profile(url: &str) -> Result<Vec<String>> {
+    if url.contains("bsky.app/profile/") {
+        scan_bluesky_profile(url).await
+    } else {
+        scan_twitter_profile(url).await
+    }
+}
+
+/// Read recent twitter posts from a profile
+async fn scan_twitter_profile(url: &str) -> Result<Vec<String>> {
+    let username = url
+        .trim_end_matches('/')
+        .split('/')
+        .next_back()
+        .and_then(|s| s.split('?').next())
+        .context("Invalid Twitter profile URL")?;
+
+    let api_url = format!("{FXTWITTER_API}/profile/{username}/statuses");
+    let resp = HTTP_CLIENT.get(&api_url).send().await?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
+    let v: Value = resp.json().await?;
+
+    let urls: Vec<String> = v
+        .get("results")
+        .and_then(|r| r.as_array())
+        .map(|results| {
+            results
+                .iter()
+                .filter_map(|s| {
+                    // Skip thread continuations and reposts
+                    if ["replying_to", "reposted_by"]
+                        .iter()
+                        .any(|k| s.get(k).is_some_and(|v| !v.is_null()))
+                    {
+                        return None;
+                    }
+                    let id = s.get("id")?.as_str()?;
+                    Some(format!("https://x.com/{username}/status/{id}"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    info!(
+        "[SOCIAL] Found {} tweets from @{username} via fxtwitter",
+        urls.len()
+    );
+    Ok(urls)
+}
+
+/// Parse an individual twitter post
 async fn fetch_twitter_native(url: &str) -> Result<Option<ArticleSource>> {
-    let html_content = get_cached_or_fetch(url).await?;
-    let doc = Html::parse_document(&html_content);
+    let tweet_id = url
+        .split('/')
+        .next_back()
+        .and_then(|s| s.split('?').next())
+        .context("Invalid tweet URL")?;
 
-    for script in doc.select(&SEL_SCRIPT) {
-        let text = script.text().collect::<String>();
-        if let Some(json_start) = text.find("__INITIAL_STATE__=") {
-            let start = json_start + "__INITIAL_STATE__=".len();
-            let end = text[start..]
-                .find("};")
-                .map_or_else(|| text[start..].len(), |i| i + 1);
+    let api_url = format!("{FXTWITTER_API}/thread/{tweet_id}");
+    let json = get_cached_or_fetch_ext(&api_url, "json").await?;
+    let v: Value = match serde_json::from_str(&json) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
 
-            if let Ok(v) = serde_json::from_str::<Value>(&text[start..start + end])
-                && let Some(source) = parse_twitter_initial_state(&v, url)
-            {
-                return Ok(Some(source));
+    let author = v.get("author").context("Missing author")?;
+    let screen_name = author
+        .get("screen_name")
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
+
+    let thread = v
+        .get("thread")
+        .and_then(|t| t.as_array())
+        .context("Missing thread")?;
+
+    let mut content_parts: Vec<String> = Vec::new();
+    let mut images: Vec<String> = Vec::new();
+
+    for tweet in thread {
+        if let Some(text) = tweet.get("text").and_then(|t| t.as_str()) {
+            content_parts.push(text.to_string());
+        }
+        if let Some(photos) = tweet
+            .get("media")
+            .and_then(|m| m.get("photos"))
+            .and_then(|p| p.as_array())
+        {
+            for photo in photos {
+                if let Some(photo_url) = photo.get("url").and_then(|u| u.as_str()) {
+                    images.push(format!("{photo_url}|"));
+                }
             }
         }
     }
 
-    let mut title = String::new();
-    let mut description = String::new();
-    let mut image = None;
-
-    for el in doc.select(&SEL_META) {
-        let property = el
-            .value()
-            .attr("property")
-            .or_else(|| el.value().attr("name"));
-        let content = el.value().attr("content");
-
-        match (property, content) {
-            (Some("og:title"), Some(v)) => title = v.to_string(),
-            (Some("og:description"), Some(v)) => description = v.to_string(),
-            (Some("og:image"), Some(v)) => image = Some(v.to_string()),
-            _ => {}
-        }
-    }
-
-    if description.is_empty() {
+    if content_parts.is_empty() {
         return Ok(None);
     }
 
-    let source = ArticleSource {
-        url: url.to_string(),
-        title: if title.is_empty() {
-            "Tweet".to_string()
-        } else {
-            format!("Tweet: {title}")
-        },
-        summary: description
-            .split('\n')
-            .next()
-            .unwrap_or(&description)
-            .to_string(),
-        content: description,
-        tags: vec![],
-        images: image.map(|i| vec![format!("{i}|")]).unwrap_or_default(),
-        published: Utc::now(),
-    };
-    info!("[SOCIAL] Scraped Twitter (Meta): {:#?}", source);
-    Ok(Some(source))
-}
-
-fn parse_twitter_initial_state(v: &Value, url: &str) -> Option<ArticleSource> {
-    let tweet_id = url.split('/').next_back()?.split('?').next()?;
-    let tweets = v.get("entities")?.get("tweets")?.get("entities")?;
-    let tweet = tweets.get(tweet_id)?;
-
-    let full_text = tweet
-        .get("full_text")
-        .or_else(|| tweet.get("text"))?
-        .as_str()?;
-    let user_id = tweet.get("user")?.as_str()?;
-    let user = v
-        .get("entities")?
-        .get("users")?
-        .get("entities")?
-        .get(user_id)?;
-
-    let name = user.get("name")?.as_str()?;
-    let screen_name = user.get("screen_name")?.as_str()?;
-    let user_desc = user.get("description")?.as_str().unwrap_or("");
-
-    let summary_raw = if user_desc.is_empty() {
-        full_text.to_string()
-    } else {
-        format!("{user_desc}: {full_text}")
-    };
-    let summary = summary_raw
-        .split('\n')
-        .next()
-        .unwrap_or(&summary_raw)
-        .to_string();
-
-    let mut images = Vec::new();
-    if let Some(media) = tweet
-        .get("entities")
-        .and_then(|e| e.get("media"))
-        .and_then(|m| m.as_array())
-    {
-        for m in media {
-            if let Some(img_url) = m.get("media_url_https").and_then(|u| u.as_str()) {
-                images.push(format!("{img_url}|"));
-            }
-        }
-    }
-
-    let published = tweet
-        .get("created_at")
+    let published = v
+        .get("status")
+        .and_then(|s| s.get("created_at"))
         .and_then(|d| d.as_str())
-        .and_then(|d| DateTime::parse_from_rfc3339(d).ok())
+        .and_then(|d| DateTime::parse_from_str(d, "%a %b %d %H:%M:%S %z %Y").ok())
         .map_or_else(Utc::now, |d| d.with_timezone(&Utc));
 
-    let source = ArticleSource {
+    let content = content_parts.join("\n\n---\n\n");
+    let first_text = content_parts.first().map_or("", String::as_str);
+    let summary = build_summary(first_text);
+    let title_line = first_text.lines().next().unwrap_or("");
+
+    Ok(Some(ArticleSource {
         url: url.to_string(),
-        title: format!("Tweet: {name} (@{screen_name})"),
+        title: short_title(title_line, screen_name),
         summary,
-        content: full_text.to_string(),
+        content,
         tags: vec![],
         images,
         published,
-    };
-    info!("[SOCIAL] Scraped Twitter (State): {:#?}", source);
-    Some(source)
+        source: screen_name.to_string(),
+    }))
 }
 
-async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
-    let parts: Vec<&str> = url
+/// Read recent bluesky posts from a profile
+async fn scan_bluesky_profile(url: &str) -> Result<Vec<String>> {
+    let handle = url
         .split("/profile/")
-        .last()
-        .context("Invalid Bluesky URL")?
-        .split("/post/")
-        .collect();
-    if parts.len() != 2 {
-        return Ok(None);
-    }
-    let (handle, rkey) = (
-        parts[0],
-        parts[1].split('?').next().context("Invalid rkey")?,
+        .nth(1)
+        .context("Invalid Bluesky profile URL")?
+        .trim_end_matches('/');
+
+    let api_url = format!(
+        "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor={handle}&filter=posts_no_replies&limit=30"
     );
+
+    let resp = HTTP_CLIENT.get(&api_url).send().await?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
+    let v: Value = resp.json().await?;
+
+    let Some(feed) = v.get("feed").and_then(|f| f.as_array()) else {
+        return Ok(vec![]);
+    };
+
+    let urls: Vec<String> = feed
+        .iter()
+        .filter_map(|item| {
+            if item.get("reason").is_some() {
+                return None;
+            }
+            let post = item.get("post")?;
+            let uri = post.get("uri")?.as_str()?;
+            let rkey = uri.split('/').next_back()?;
+            let post_handle = post.get("author")?.get("handle")?.as_str()?;
+            Some(format!(
+                "https://bsky.app/profile/{post_handle}/post/{rkey}"
+            ))
+        })
+        .collect();
+
+    info!(
+        "[SOCIAL] Found {} posts from Bluesky profile @{}",
+        urls.len(),
+        handle
+    );
+    Ok(urls)
+}
+
+/// Parse an individual bluesky post
+async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
+    let after_profile = url
+        .split("/profile/")
+        .nth(1)
+        .context("Invalid Bluesky URL")?;
+    let Some((handle, rest)) = after_profile.split_once("/post/") else {
+        return Ok(None);
+    };
+    let rkey = rest.split('?').next().context("Invalid rkey")?;
 
     let api_url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=at://{handle}/app.bsky.feed.post/{rkey}"
     );
-    let cache_path = get_cache_path(&api_url, "json");
 
-    let v: Value = if let Ok(bytes) = fs::read(&cache_path).await {
-        serde_json::from_slice(&bytes)?
-    } else {
-        let resp = crate::server::HTTP_CLIENT.get(&api_url).send().await?;
-        if !resp.status().is_success() {
-            return Ok(None);
-        }
-        let json_val: Value = resp.json().await?;
-        if let Some(dir) = cache_path.parent()
-            && fs::create_dir_all(dir).await.is_ok()
-        {
-            let _ = fs::write(&cache_path, serde_json::to_vec(&json_val)?).await;
-        }
-        json_val
+    let text = get_cached_or_fetch_ext(&api_url, "json").await?;
+    let v: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
     };
 
-    let thread = v.get("thread").context("Missing thread")?;
+    let Some(thread) = v.get("thread") else {
+        return Ok(None);
+    };
     let post = thread.get("post").context("Missing post")?;
     let author = post.get("author").context("Missing author")?;
     let record = post.get("record").context("Missing record")?;
@@ -198,10 +277,6 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
         .get("handle")
         .and_then(|h| h.as_str())
         .context("Missing handle")?;
-    let name = author
-        .get("displayName")
-        .and_then(|v| v.as_str())
-        .unwrap_or(handle);
 
     let mut full_content = Vec::new();
     let mut current_parent = thread.get("parent");
@@ -234,8 +309,8 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
             .iter()
             .filter_map(|r| {
                 let p = r.get("post")?;
-                let handle = p.get("author")?.get("handle")?.as_str()?;
-                if handle == handle_full {
+                let reply_handle = p.get("author")?.get("handle")?.as_str()?;
+                if reply_handle == handle_full {
                     let rec = p.get("record")?;
                     Some((rec.get("createdAt")?.as_str()?, rec.get("text")?.as_str()?))
                 } else {
@@ -264,19 +339,16 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
         .and_then(|d| DateTime::parse_from_rfc3339(d).ok())
         .map_or_else(Utc::now, |d| d.with_timezone(&Utc));
 
-    let source = ArticleSource {
+    let summary = build_summary(&main_text);
+    let title_line = main_text.lines().next().unwrap_or("");
+    Ok(Some(ArticleSource {
         url: url.to_string(),
-        title: format!("Bluesky: {name} (@{handle_full})"),
-        summary: main_text
-            .split('\n')
-            .next()
-            .unwrap_or(&main_text)
-            .to_string(),
+        title: short_title(title_line, handle_full),
+        summary,
         content: full_content.join("\n\n---\n\n"),
         tags: vec![],
         images,
         published,
-    };
-    info!("[SOCIAL] Scraped Bluesky: {:#?}", source);
-    Ok(Some(source))
+        source: handle_full.to_string(),
+    }))
 }

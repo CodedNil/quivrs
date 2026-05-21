@@ -6,6 +6,12 @@ use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParamet
 
 /// Download and parse the feed and return a list of URLs.
 pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
+    let is_twitter = url_rss.contains("twitter.com") || url_rss.contains("x.com");
+    let is_bluesky = url_rss.contains("bsky.app/profile/");
+    if (is_twitter || is_bluesky) && !url_rss.contains("/status/") && !url_rss.contains("/post/") {
+        return super::social::scan_social_profile(url_rss).await;
+    }
+
     let urls = if url_rss.contains("reddit.com/r/") {
         let json_url = url_rss
             .trim_end_matches('/')

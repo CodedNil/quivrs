@@ -1,6 +1,3 @@
-use head image caption
-run the classifier first, only merge similar if its the same topic, lower threshold then
-
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
 better ground with citations embedded
@@ -25,5 +22,4 @@ estimate the like by comparing the embedding against the average hated, disliked
 then we get the number by similarity to those
 
 
-support youtube feeds, twitter user posts, subreddits as sources
-use fxtwitter curl -s "https://api.fxtwitter.com/2/profile/ArtificialAnlys/statuses"
+support youtube feeds, subreddits as sources

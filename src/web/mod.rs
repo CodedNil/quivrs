@@ -519,17 +519,12 @@ fn article_detail(
                     item_ratings,
                 }
                 for source in &article.sources {
-                    {
-                        let domain = clean_url(&source.url);
-                        rsx! {
-                            RatingPill {
-                                key: "{source.url}",
-                                label: domain.clone(),
-                                item_key: format!("source:{}", domain),
-                                item_ratings,
-                                url: Some(source.url.clone()),
-                            }
-                        }
+                    RatingPill {
+                        key: "{source.url}",
+                        label: source.source.clone(),
+                        item_key: format!("source:{}", source.source),
+                        item_ratings,
+                        url: Some(source.url.clone()),
                     }
                 }
             }
@@ -543,15 +538,6 @@ fn article_detail(
             }
         }
     }
-}
-
-fn clean_url(url: &str) -> String {
-    let s = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .unwrap_or(url);
-    let s = s.strip_prefix("www.").unwrap_or(s);
-    s.split('/').next().unwrap_or(s).to_string()
 }
 
 fn source_parts(s: &str) -> (&str, &str) {

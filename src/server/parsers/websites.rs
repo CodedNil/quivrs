@@ -116,8 +116,18 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
         .map(|(u, c)| format!("{u}|{c}"))
         .collect();
 
+    let source = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches("www.")
+        .to_string();
+
     Ok(Some(ArticleSource {
         url,
+        source,
         title,
         summary,
         content,

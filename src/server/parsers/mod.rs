@@ -23,23 +23,23 @@ pub fn get_cache_path(url: &str, extension: &str) -> PathBuf {
     ))
 }
 
-pub async fn get_cached_or_fetch(url: &str) -> Result<String> {
-    let cache_path = get_cache_path(url, "html");
+pub async fn get_cached_or_fetch_ext(url: &str, ext: &str) -> Result<String> {
+    let cache_path = get_cache_path(url, ext);
 
     if let Ok(bytes) = fs::read(&cache_path).await {
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
-    } else {
-        let html = crate::server::HTTP_CLIENT
-            .get(url)
-            .send()
-            .await?
-            .text()
-            .await?;
-        if let Some(dir) = cache_path.parent()
-            && fs::create_dir_all(dir).await.is_ok()
-        {
-            let _ = fs::write(&cache_path, html.as_bytes()).await;
-        }
-        Ok(html)
+        return Ok(String::from_utf8_lossy(&bytes).into_owned());
     }
+
+    let text = crate::server::HTTP_CLIENT
+        .get(url)
+        .send()
+        .await?
+        .text()
+        .await?;
+    if let Some(dir) = cache_path.parent()
+        && fs::create_dir_all(dir).await.is_ok()
+    {
+        let _ = fs::write(&cache_path, text.as_bytes()).await;
+    }
+    Ok(text)
 }
