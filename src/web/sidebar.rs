@@ -1,4 +1,4 @@
-use super::{Route, components::RefreshButton};
+use super::Route;
 use crate::shared::{
     ArticleData, ArticleStatus, Category, Rating, StoredArticle,
     server_functions::{get_user_articles, reclassify_articles},
@@ -156,7 +156,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 overflow: "hidden",
                 position: "relative",
                 background_color: "var(--mantle)",
-                border_radius: "20px 40px 0px 0px",
+                border_radius: "20px 40px 40px 20px",
 
                 div {
                     display: "flex",
@@ -197,7 +197,10 @@ fn StatusLane(
             flex: "0 0 100%",
             height: "100%",
             overflow_y: "auto",
+            display: "flex",
+            flex_direction: "column",
             margin_right: if status == ArticleStatus::Binned { "0" } else { "40px" },
+            gap: "{CATEGORY_BORDER_PX}px",
             onscroll: move |e: ScrollEvent| {
                 if active {
                     scroll_top_val.set(e.scroll_top());
@@ -454,30 +457,27 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
         div {
             id: "category-group-{category}-{status}",
             display: "flex",
-            border_bottom: "{CATEGORY_BORDER_PX}px solid var(--mantle)",
+            background_color: "var(--surface0)",
+            border_radius: "20px 40px 40px 20px",
 
             div {
                 width: LABEL_WIDTH,
-                background_color: "var(--surface0)",
-                border_radius: "20px 0px 0px 20px",
+                position: "sticky",
+                top: "0",
+                display: "flex",
+                flex_direction: "column",
+                align_items: "center",
+                padding: "0.8rem",
+                gap: "0.75rem",
+                {category_icon(category, 24)}
                 div {
-                    position: "sticky",
-                    top: "0",
-                    display: "flex",
-                    flex_direction: "column",
-                    align_items: "center",
-                    padding: "0.8rem",
-                    gap: "0.75rem",
-                    {category_icon(category, 24)}
-                    div {
-                        writing_mode: "vertical-rl",
-                        transform: "rotate(180deg)",
-                        font_size: "1.2rem",
-                        font_weight: "800",
-                        text_transform: "uppercase",
-                        letter_spacing: "0.12em",
-                        "{category}"
-                    }
+                    writing_mode: "vertical-rl",
+                    transform: "rotate(180deg)",
+                    font_size: "1.2rem",
+                    font_weight: "800",
+                    text_transform: "uppercase",
+                    letter_spacing: "0.12em",
+                    "{category}"
                 }
             }
             div {
@@ -487,7 +487,7 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
                 gap: "{ARTICLE_GAP_PX}px",
                 padding: "{ARTICLE_GAP_PX}px",
                 background_color: "var(--accent)",
-                border_radius: "0px 40px 40px 0px",
+                border_radius: "20px 40px 40px 20px",
                 {children}
             }
         }
@@ -507,7 +507,7 @@ fn ArticleItem(
     let mut pressed = use_signal(|| false);
 
     let title = article.display_title();
-    let description_truncated = article.display_description();
+    let description = article.display_description();
     let hero_image = article.hero_image();
 
     let d = chrono::Utc::now().signed_duration_since(article.published);
@@ -525,14 +525,11 @@ fn ArticleItem(
             height: "{ARTICLE_HEIGHT_PX}px",
             cursor: "pointer",
             border_radius: "2rem",
-            border: "2px solid var(--surface1)",
-            box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
-            transition: "box-shadow 0.2s ease",
             overflow: "hidden",
             display: "flex",
             flex_direction: "column",
-            // Safari requires mask-image to correctly clip transformed children at border-radius
-            style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black);",
+            // Fixes correctly clipping transformed children at border-radius
+            style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black); border: 2px solid var(--surface1)",
             transform: "translateZ(0)",
 
             onmouseenter: move |_| hovered.set(true),
@@ -576,37 +573,66 @@ fn ArticleItem(
                         clip_path: "polygon(0 0, 100% 0, 0 100%)",
                         background_color: "color-mix(in srgb, {r.color()} 70%, transparent)",
                         backdrop_filter: "blur(8px)",
+                        z_index: "10",
                     }
                 }
-            }
 
-            div {
-                padding: "0.75rem",
-                background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, var(--mantle))" } else { "var(--mantle)" },
-                text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
-                transition: "background 0.5s ease",
-                h3 {
-                    font_size: "1rem",
-                    font_weight: "700",
-                    color: "var(--text)",
-                    margin: "0 0 0.4rem 0",
-                    "{title}"
-                }
-                p {
-                    font_size: "0.75rem",
-                    color: "var(--subtext1)",
-                    font_weight: "600",
-                    margin: "0",
-                    span {
-                        font_size: "0.65rem",
-                        font_weight: "900",
-                        text_transform: "uppercase",
-                        margin_right: "0.4rem",
-                        "{time_ago}"
+                div {
+                    position: "absolute",
+                    bottom: "0",
+                    left: "0",
+                    right: "0",
+                    padding: "0.75rem",
+                    background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, rgba(24, 24, 37, 0.4))" } else { "rgba(24, 24, 37, 0.4)" },
+                    backdrop_filter: "blur(16px)",
+                    text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+                    transition: "background 0.5s ease",
+                    h3 {
+                        font_size: "1rem",
+                        font_weight: "700",
+                        color: "var(--text)",
+                        margin: "0 0 0.4rem 0",
+                        "{title}"
                     }
-                    "{description_truncated}"
+                    p {
+                        font_size: "0.75rem",
+                        color: "var(--subtext1)",
+                        font_weight: "600",
+                        margin: "0 10px",
+                        span {
+                            font_size: "0.65rem",
+                            font_weight: "900",
+                            text_transform: "uppercase",
+                            margin_right: "0.4rem",
+                            "{time_ago}"
+                        }
+                        "{description}"
+                    }
                 }
             }
+        }
+    }
+}
+
+#[component]
+pub fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Element {
+    let mut hovered = use_signal(|| false);
+    rsx! {
+        button {
+            font_size: "0.875rem",
+            line_height: "1",
+            padding: "0.2rem 0.5rem",
+            border_radius: "9999px",
+            background_color: "var(--base)",
+            color: if hovered() { "var(--subtext0)" } else { "var(--text)" },
+            border: "none",
+            cursor: "pointer",
+            transition: "color 0.15s ease",
+            title,
+            onmouseenter: move |_| hovered.set(true),
+            onmouseleave: move |_| hovered.set(false),
+            onclick,
+            "↻"
         }
     }
 }

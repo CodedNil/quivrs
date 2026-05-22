@@ -1,7 +1,7 @@
-use super::components::{RatingPill, RefreshButton};
+use super::components::RatingPill;
 use crate::shared::{
     ArticleData, ArticleStatus, Rating, Section, StoredArticle,
-    server_functions::{get_user_articles, reclassify_articles, set_article_status, set_rating},
+    server_functions::{set_article_status, set_rating},
 };
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
@@ -104,16 +104,6 @@ pub fn ArticleDetail(
                             url: Some(source.url.clone()),
                         }
                     }
-                }
-                RefreshButton {
-                    title: "Re-classify article",
-                    onclick: move |_| async move {
-                        if reclassify_articles(vec![id]).await.is_ok()
-                            && let Ok(updated) = get_user_articles().await
-                        {
-                            articles.set(updated);
-                        }
-                    },
                 }
             }
 

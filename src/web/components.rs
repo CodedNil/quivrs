@@ -18,29 +18,6 @@ pub fn CenteredMessage(text: String) -> Element {
     }
 }
 
-#[component]
-pub fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Element {
-    let mut hovered = use_signal(|| false);
-    rsx! {
-        button {
-            font_size: "0.875rem",
-            line_height: "1",
-            padding: "0.2rem 0.5rem",
-            border_radius: "9999px",
-            background_color: "var(--base)",
-            color: if hovered() { "var(--subtext0)" } else { "var(--text)" },
-            border: "none",
-            cursor: "pointer",
-            transition: "color 0.15s ease",
-            title,
-            onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| hovered.set(false),
-            onclick,
-            "↻"
-        }
-    }
-}
-
 /// A rating pill that expands with rating buttons on hover.
 #[component]
 pub fn RatingPill(
