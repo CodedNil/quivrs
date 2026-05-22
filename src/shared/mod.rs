@@ -102,6 +102,9 @@ pub struct ArticleEntry {
 
     /// The article's content, written in HTML.
     pub content: String,
+
+    /// A wiki-style sidebar for key facts, summaries, or metadata, written in HTML.
+    pub sidebar: Option<String>,
 }
 
 #[derive(

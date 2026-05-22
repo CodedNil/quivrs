@@ -212,24 +212,39 @@ Output the result in the following JSON schema:
 {{
   "title": "Concise and descriptive title, max 8 words",
   "description": "Short informative summary, a few sentences max, no newlines",
-  "content": "HTML article content"
+  "content": "HTML article content",
+  "sidebar": "HTML for a wiki-style sidebar"
 }}
 
-The "content" field should be written in high-quality HTML.
-Structure it like a professional digital publication with clear sections using headings (h1 to h6) and paragraphs and subheadings etc.
-You should gain a good overview of the article in the first few paragraphs, then you gain more depth as you progress.
-Multiple paragraphs are recommended when there is a lot of content, cover it in depth without repeating yourself.
-Try to include all the images available, have the hero image near the top of the article. Favour the highest resolution images available.
-Make sure all the images have an `alt` attribute and are wrapped in <figure> with a <figcaption> for the caption where available.
+### Main Content Guidelines ("content" field)
+The content should be written in high-quality HTML. Structure it like a professional digital publication with clear sections using headings (h2 to h6) and paragraphs. Do NOT include a main <h1> title.
 
-When relevant, include:
-Heading of "Timeline" followed by a bullet points of history leading up to this article. Each bullet point should start with the date, for example "2026" or "January 2026" or "13th January 2026". Followed by the event description, which should be max one sentence.
-Heading of "Highlights" followed by a div of class 'flexbox-columns' containing up to 4 short highlights each in a div with class 'box' that give an overview of this article and key details. Each with a title and text, using the box layout.
-Heading of "Perspectives" followed by a div of class 'flexbox-rows' containing up to 4 different perspectives on this article each in a div with class 'box'. Each formatted with a name, the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view. And text describing the perspective.
-Quotes using the 'quote' class.
+#### Available Components:
+- **Box Component**: A <div> with class 'box'. MUST have a <strong> title on its own row, followed by a <p> for the text.
+- **Layout Containers**: Use 'flexbox-columns' for vertical stacks of boxes, or 'flexbox-rows' for horizontal grids of boxes (div with class 'box').
+- **Timeline**: A <div> with class 'timeline' containing <div>s with class 'timeline-item'. Each item has a <span class='date'> and a <span class='event'>.
+- **Quotes**: A <blockquote> with class 'quote'.
 
-You have free control over the layout to make it visually engaging.
-EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.
+#### Content Structure:
+1. **Overview**: Start with a good overview in the first few paragraphs.
+2. **Deep Dive**: Increase depth as you progress, including links to sources and embedded media (videos/iframes) where relevant.
+3. **Timeline (Optional)**: Include where chronologically relevant. Use the heading "Timeline".
+4. **Perspectives (Optional)**: Use the heading "Perspectives". Use 'flexbox-rows' component with up to 4 boxes near the end to show different viewpoints. The box **title** should be the name of the person, organization, or the specific viewpoint (e.g., "Skeptics", "Industry Experts", "The CEO of X").
+
+Images:
+Include all available images in the main content. Place the hero image near the top. Favour high resolution. Wrap in <figure> with an <img> (including `alt`) and a <figcaption>.
+
+### Sidebar Guidelines ("sidebar" field)
+The sidebar should be a concise wiki-style summary that adapts to the article type.
+- **Container**: Use a <div> with class 'sidebar-content'.
+- **Metadata Table**: Use a <table> with class 'info-table' for key data points.
+    - News: "Date", "Location", "Key Figures".
+    - Reviews: "Specs", "Price", "Rating".
+    - Entities: "Founded", "Headquarters", "Key People".
+- **Highlights (Optional)**: A "Quick Highlights" section using a simple <ul> of key takeaways.
+- **Media**: Include a small thumbnail image if available.
+
+EVERYTHING must be entirely factual and based on the sources provided.
 
 Sources:
 {articles_content}"#
@@ -245,8 +260,16 @@ Sources:
         .clean(&entry.content)
         .to_string();
 
+    let sidebar_sanitized = entry.sidebar.as_ref().map(|s| {
+        ammonia::Builder::default()
+            .add_generic_attributes(&["class"])
+            .clean(s)
+            .to_string()
+    });
+
     Ok(ArticleEntry {
         content: sanitizer,
+        sidebar: sidebar_sanitized,
         ..entry
     })
 }
