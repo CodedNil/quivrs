@@ -46,7 +46,8 @@ fn AppHead() -> Element {
                 --subtext1: #b8c0e0;
                 --accent: #8aadf4;
                 font-family: 'Inter', system-ui, sans-serif;
-                margin: 0; padding: 0;
+                margin: 0; padding: 0px;
+                background-color: var(--mantle);
             }}
             {SIDEBAR_STYLES}"
         }
@@ -187,7 +188,6 @@ fn MainLayout() -> Element {
             display: "flex",
             height: "100vh",
             overflow: "hidden",
-            background_color: "var(--crust)",
             color: "var(--text)",
             Sidebar { tab, selected_id }
             main { flex: "1", overflow_y: "auto", Outlet::<Route> {} }

@@ -30,3 +30,8 @@ support youtube feeds, subreddits as sources
 widgets for things like current polling trackers
 maybe we do consistent widgets that are in the side display of articles
 like if the article talks about a major politician we could add widget for that persons approval rating, or widget for current polling, which are consistent across articles and are updated with new data from feed inputs
+
+
+images:
+have a library of generic images that it lets the ai use, the ai can generate new ones if needed but asked to keep them reusable across multiple articles, not too specific
+do a hero image for the sidebar and let it also select a smaller image to put there too like a headshot etc

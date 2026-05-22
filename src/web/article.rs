@@ -28,142 +28,147 @@ pub fn ArticleDetail(
     });
 
     rsx! {
-        article {
-            max_width: "44rem",
-            margin_left: "auto",
-            margin_right: "auto",
-            padding_bottom: "5rem",
+        div { padding: "50px", min_height: "100%",
+            article {
+                max_width: "44rem",
+                margin_left: "auto",
+                margin_right: "auto",
+                padding_bottom: "5rem",
+                background_color: "var(--base)",
+                border_radius: "40px",
+                overflow: "hidden",
 
-            // Hero image
-            if let Some(url) = hero {
-                img {
-                    src: "{url}",
-                    alt: "",
-                    width: "100%",
-                    max_height: "22rem",
-                    object_fit: "cover",
-                    display: "block",
-                }
-            }
-
-            div { padding: "1.5rem 2rem 0",
-                h1 {
-                    font_size: "1.625rem",
-                    font_weight: "800",
-                    line_height: "1.2",
-                    color: "var(--text)",
-                    margin: "0 0 0.75rem",
-                    letter_spacing: "-0.01em",
-                    "{title}"
+                // Hero image
+                if let Some(url) = hero {
+                    img {
+                        src: "{url}",
+                        alt: "",
+                        width: "100%",
+                        max_height: "22rem",
+                        object_fit: "cover",
+                        display: "block",
+                    }
                 }
 
-                // Meta: stored · date · rating · category · sources
-                div {
-                    display: "flex",
-                    align_items: "center",
-                    gap: "1.5rem",
-                    margin_bottom: "1.25rem",
-                    justify_content: "space-between",
+                div { padding: "1.5rem 2rem 0",
+                    h1 {
+                        font_size: "1.625rem",
+                        font_weight: "800",
+                        line_height: "1.2",
+                        color: "var(--text)",
+                        margin: "0 0 0.75rem",
+                        letter_spacing: "-0.01em",
+                        "{title}"
+                    }
 
+                    // Meta: stored · date · rating · category · sources
                     div {
                         display: "flex",
                         align_items: "center",
-                        gap: "0.375rem",
-                        if status != ArticleStatus::Stored {
-                            ActionBtn {
-                                icon: fa_solid_icons::FaBookmark,
-                                title: "Save to ReadL",
-                                color: "var(--accent)",
-                                onclick: move |_| async move {
-                                    let _ = set_article_status(id, ArticleStatus::Stored).await;
-                                    if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                        a.status = ArticleStatus::Stored;
-                                    }
-                                },
-                            }
-                        }
-                        if status != ArticleStatus::Binned {
-                            ActionBtn {
-                                icon: fa_solid_icons::FaTrash,
-                                title: "Move to Bin",
-                                color: "var(--overlay0)",
-                                onclick: move |_| async move {
-                                    let _ = set_article_status(id, ArticleStatus::Binned).await;
-                                    if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                        a.status = ArticleStatus::Binned;
-                                    }
-                                },
-                            }
-                        }
-                    }
-                    span { font_size: "0.7rem", color: "var(--subtext0)",
-                        {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
-                    }
-                    StarRating { current: rating, id, articles }
-                    div {
-                        display: "flex",
-                        align_items: "center",
-                        gap: "0.375rem",
-                        RatingPill {
-                            label: article.category.to_string(),
-                            item_key: format!("category:{}", article.category),
-                            item_ratings,
-                        }
-                        for source in &article.sources {
-                            RatingPill {
-                                key: "{source.url}",
-                                label: source.source.clone(),
-                                item_key: format!("source:{}", source.source),
-                                item_ratings,
-                                url: Some(source.url.clone()),
-                            }
-                        }
-                    }
-                    RefreshButton {
-                        title: "Re-classify article",
-                        onclick: move |_| async move {
-                            if reclassify_articles(vec![id]).await.is_ok()
-                                && let Ok(updated) = get_user_articles().await
-                            {
-                                articles.set(updated);
-                            }
-                        },
-                    }
-                }
+                        gap: "1.5rem",
+                        margin_bottom: "1.25rem",
+                        justify_content: "space-between",
 
-                // Description
-                p {
-                    font_size: "0.925rem",
-                    color: "var(--text)",
-                    line_height: "1.65",
-                    margin: "0 0 2rem",
-                    font_style: "italic",
-                    padding_left: "1rem",
-                    border_left: "3px solid var(--accent)",
-                    opacity: "0.85",
-                    "{description}"
-                }
-
-                // Content sections
-                if let Some(entry) = &article.entry {
-                    for section in &entry.sections {
-                        {render_section(section)}
-                    }
-                } else {
-                    p {
-                        color: "var(--subtext0)",
-                        font_size: "0.875rem",
-                        font_style: "italic",
-                        margin_bottom: "1rem",
-                        "Generating summary…"
-                    }
-                    if let Some(s) = article.sources.first() {
                         div {
-                            font_size: "0.825rem",
+                            display: "flex",
+                            align_items: "center",
+                            gap: "0.375rem",
+                            if status != ArticleStatus::Stored {
+                                ActionBtn {
+                                    icon: fa_solid_icons::FaBookmark,
+                                    title: "Save to ReadL",
+                                    color: "var(--accent)",
+                                    onclick: move |_| async move {
+                                        let _ = set_article_status(id, ArticleStatus::Stored).await;
+                                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                                            a.status = ArticleStatus::Stored;
+                                        }
+                                    },
+                                }
+                            }
+                            if status != ArticleStatus::Binned {
+                                ActionBtn {
+                                    icon: fa_solid_icons::FaTrash,
+                                    title: "Move to Bin",
+                                    color: "var(--overlay0)",
+                                    onclick: move |_| async move {
+                                        let _ = set_article_status(id, ArticleStatus::Binned).await;
+                                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                                            a.status = ArticleStatus::Binned;
+                                        }
+                                    },
+                                }
+                            }
+                        }
+                        span { font_size: "0.7rem", color: "var(--subtext0)",
+                            {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
+                        }
+                        StarRating { current: rating, id, articles }
+                        div {
+                            display: "flex",
+                            align_items: "center",
+                            gap: "0.375rem",
+                            RatingPill {
+                                label: article.category.to_string(),
+                                item_key: format!("category:{}", article.category),
+                                item_ratings,
+                            }
+                            for source in &article.sources {
+                                RatingPill {
+                                    key: "{source.url}",
+                                    label: source.source.clone(),
+                                    item_key: format!("source:{}", source.source),
+                                    item_ratings,
+                                    url: Some(source.url.clone()),
+                                }
+                            }
+                        }
+                        RefreshButton {
+                            title: "Re-classify article",
+                            onclick: move |_| async move {
+                                if reclassify_articles(vec![id]).await.is_ok()
+                                    && let Ok(updated) = get_user_articles().await
+                                {
+                                    articles.set(updated);
+                                }
+                            },
+                        }
+                    }
+
+                    // Description
+                    p {
+                        font_size: "0.925rem",
+                        color: "var(--text)",
+                        line_height: "1.65",
+                        margin: "0 0 2rem",
+                        font_style: "italic",
+                        padding_left: "1rem",
+                        border_left: "3px solid var(--accent)",
+                        opacity: "0.85",
+                        "{description}"
+                    }
+
+                    // Content sections
+                    if let Some(entry) = &article.entry {
+                        for section in &entry.sections {
+                            {render_section(section)}
+                        }
+                    } else {
+                        p {
                             color: "var(--subtext0)",
-                            line_height: "1.65",
-                            white_space: "pre-wrap",
-                            "{s.content}"
+                            font_size: "0.875rem",
+                            font_style: "italic",
+                            margin_bottom: "1rem",
+                            "Generating summary…"
+                        }
+                        if let Some(s) = article.sources.first() {
+                            div {
+                                font_size: "0.825rem",
+                                color: "var(--subtext0)",
+                                line_height: "1.65",
+                                white_space: "pre-wrap",
+                                "{s.content}"
+                            }
                         }
                     }
                 }
@@ -313,7 +318,6 @@ fn render_box_item(item: &str) -> Element {
         .map_or((None, item), |(h, t)| (Some(h), t));
     rsx! {
         div {
-            background_color: "var(--mantle)",
             border: "1px solid var(--base)",
             border_radius: "0.375rem",
             padding: "0.625rem 0.875rem",

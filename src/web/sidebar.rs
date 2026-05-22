@@ -67,7 +67,7 @@ fn category_icon(category: Category, size: u32) -> Element {
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let mut articles: Signal<Vec<ArticleData>> = use_context();
 
-    let processed_data = use_memo(move || {
+    let (counts, all_groups) = use_memo(use_reactive!(|articles| {
         let data = articles.read();
         let mut counts = (0, 0, 0);
         let mut groups: BTreeMap<ArticleStatus, BTreeMap<Category, Vec<ArticleData>>> =
@@ -87,21 +87,17 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 .push(a.clone());
         }
         (counts, groups)
-    });
+    }))
+    .read()
+    .clone();
 
-    let counts = processed_data.read().0;
     let current_status = match tab.as_str() {
         "stored" => ArticleStatus::Stored,
         "binned" => ArticleStatus::Binned,
         _ => ArticleStatus::New,
     };
 
-    let current_groups = processed_data
-        .read()
-        .1
-        .get(&current_status)
-        .cloned()
-        .unwrap_or_default();
+    let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
 
     let cat_heights: Vec<(Category, f64)> = current_groups
         .iter()
@@ -115,10 +111,10 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
         .collect();
 
     let mut scroll_top_val = use_signal(|| 0.0);
-    let x_offset = match tab.as_str() {
-        "stored" => "0%",
-        "new" => "-33.333%",
-        _ => "-66.666%",
+    let tab_index = match tab.as_str() {
+        "stored" => 0,
+        "new" => 1,
+        _ => 2,
     };
 
     rsx! {
@@ -126,9 +122,8 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
             width: SIDEBAR_WIDTH,
             display: "flex",
             flex_direction: "column",
-            background_color: "var(--accent)",
-            position: "relative",
             overflow: "hidden",
+            padding: "10px",
 
             div {
                 id: "sidebar-header",
@@ -136,8 +131,6 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 flex_direction: "column",
                 gap: "0.8rem",
                 padding: "0.8rem",
-                background_color: "var(--mantle)",
-                z_index: "10",
 
                 div {
                     display: "flex",
@@ -182,17 +175,22 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 flex: "1",
                 overflow: "hidden",
                 position: "relative",
+                background_color: "var(--mantle)",
+                border_radius: "20px 40px 0px 0px",
                 div {
                     display: "flex",
-                    width: "300%",
+                    width: "100%",
                     height: "100%",
-                    transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                    transform: "translateX({x_offset})",
+                    transition: "transform 1.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                    transform: "translateX(calc(-{tab_index} * 100% - {tab_index} * 40px))",
 
-                    for status in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned] {
+                    for (i, status) in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned]
+                        .into_iter()
+                        .enumerate()
+                    {
                         div {
                             key: "{status}",
-                            width: "33.333%",
+                            flex: "0 0 100%",
                             height: "100%",
                             overflow_y: "auto",
                             onscroll: move |e: ScrollEvent| {
@@ -200,20 +198,18 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                                     scroll_top_val.set(e.scroll_top());
                                 }
                             },
-                            if status == current_status {
-                                for (category, items) in current_groups.iter() {
-                                    CategoryGroup {
-                                        key: "{category}",
-                                        category: *category,
-                                        for a in items {
-                                            ArticleItem {
-                                                key: "{a.id}",
-                                                id: a.id,
-                                                rating: a.rating,
-                                                article: a.article.clone(),
-                                                selected: selected_id,
-                                                tab: tab.clone(),
-                                            }
+                            margin_right: if i < 2 { "40px" } else { "0" },
+
+                            for (category, items) in all_groups.get(&status).into_iter().flatten() {
+                                CategoryGroup { key: "{category}", category: *category,
+                                    for a in items {
+                                        ArticleItem {
+                                            key: "{a.id}",
+                                            id: a.id,
+                                            rating: a.rating,
+                                            article: a.article.clone(),
+                                            selected: selected_id,
+                                            tab: tab.clone(),
                                         }
                                     }
                                 }
@@ -229,9 +225,9 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 #[component]
 fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usize) -> Element {
     let bubble_left = match tab.as_str() {
-        "stored" => "0",
-        "new" => "calc((100% - 0.5rem) / 3 + 0.25rem)",
-        _ => "calc((100% - 0.5rem) * 2 / 3 + 0.5rem)",
+        "stored" => "0rem",
+        "new" => "calc(100% / 3)",
+        _ => "calc(100% * 2 / 3)",
     };
 
     let mut trigger_anim = use_signal(|| false);
@@ -241,7 +237,14 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
     }));
 
     rsx! {
-        div { position: "relative", display: "flex", gap: "0.25rem",
+        div {
+            position: "relative",
+            display: "flex",
+            gap: "0.25rem",
+            background_color: "var(--surface0)",
+            border: "2px solid var(--surface1)",
+            border_radius: "2rem",
+
             div {
                 class: if trigger_anim() { "tab-bubble-active" },
                 onanimationend: move |_| trigger_anim.set(false),
@@ -249,7 +252,7 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 top: "0",
                 bottom: "0",
                 left: "{bubble_left}",
-                width: "calc((100% - 0.5rem) / 3)",
+                width: "calc(100% / 3)",
                 background_color: "var(--accent)",
                 border_radius: "2rem",
                 transition: "left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
@@ -278,6 +281,7 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
 fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool) -> Element {
     let nav = use_navigator();
     let mut pressed = use_signal(|| false);
+    let mut hovered = use_signal(|| false);
 
     rsx! {
         button {
@@ -289,18 +293,22 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
             justify_content: "center",
             gap: "0.375rem",
             padding: "0.5rem",
-            border_radius: "9999px",
             border: "none",
-            background_color: if active { "transparent" } else { "var(--surface0)" },
+            background_color: "transparent",
             cursor: "pointer",
             color: "var(--text)",
             font_size: "0.875rem",
             font_weight: "700",
-            transform: if pressed() { "scale(0.94)" } else { "scale(1)" },
-            transition: "background-color 0.15s ease, transform 0.1s ease",
+            text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+            transform: if hovered() { "scale(1.05)" } else if pressed() { "scale(0.94)" } else { "scale(1)" },
+            transition: "transform 0.1s ease",
+            onmouseenter: move |_| hovered.set(true),
+            onmouseleave: move |_| {
+                hovered.set(false);
+                pressed.set(false);
+            },
             onmousedown: move |_| pressed.set(true),
             onmouseup: move |_| pressed.set(false),
-            onmouseleave: move |_| pressed.set(false),
             onclick: move |_| {
                 nav.push(Route::TabHome {
                     tab: slug.to_string(),
@@ -308,10 +316,11 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
             },
             "{label}"
             span {
-                background_color: "rgba(255,255,255,0.12)",
+                background_color: "rgba(0,0,0,0.2)",
                 border_radius: "9999px",
                 padding: "0.125rem 0.4rem",
                 font_size: "0.72rem",
+                text_shadow: "none",
                 "{count}"
             }
         }
@@ -351,16 +360,17 @@ fn CategoryScrollbar(
         let mut cumulative_adj = 0.0;
         let mut pos = 0.0;
         for (i, (_, h)) in cat_heights.iter().enumerate() {
-            if st < cumulative_content + h || i == categories.len() - 1 {
-                let t = if *h > 0.0 {
-                    ((st - cumulative_content) / h).clamp(0.0, 1.0)
+            let segment_h = *h;
+            if st < cumulative_content + segment_h || i == categories.len() - 1 {
+                let t = if segment_h > 0.0 {
+                    ((st - cumulative_content) / segment_h).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
                 pos = cumulative_adj + t * segment_pcts[i];
                 break;
             }
-            cumulative_content += h;
+            cumulative_content += segment_h;
             cumulative_adj += segment_pcts[i];
         }
         pos
@@ -382,10 +392,9 @@ fn CategoryScrollbar(
                 position: "absolute",
                 left: "{dot_pct:.2}%",
                 height: "100%",
-                aspect_ratio: "1",
+                aspect_ratio: "1.2",
                 background_color: "var(--accent)",
                 border_radius: "9999px",
-                filter: "blur(2px)",
                 z_index: "0",
                 transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
             }
@@ -402,6 +411,7 @@ fn CategoryScrollbar(
                     cursor: "pointer",
                     title: "{category}",
                     z_index: "1",
+                    transition: "flex-basis 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
                     onclick: move |_| {
                         #[cfg(target_arch = "wasm32")]
                         if let Some(el) = web_sys::window()
@@ -442,10 +452,12 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
         div {
             id: "category-group-{category}",
             display: "flex",
-            border_bottom: "{CATEGORY_BORDER_PX}px solid var(--base)",
-            background_color: "var(--surface0)",
+            border_bottom: "{CATEGORY_BORDER_PX}px solid var(--mantle)",
 
-            div { width: LABEL_WIDTH, background_color: "var(--surface0)",
+            div {
+                width: LABEL_WIDTH,
+                background_color: "var(--surface0)",
+                border_radius: "20px 0px 0px 20px",
                 div {
                     position: "sticky",
                     top: "0",
@@ -472,6 +484,8 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
                 flex_direction: "column",
                 gap: "{ARTICLE_GAP_PX}px",
                 padding: "{ARTICLE_GAP_PX}px",
+                background_color: "var(--accent)",
+                border_radius: "0px 40px 40px 0px",
                 {children}
             }
         }
@@ -504,20 +518,39 @@ fn ArticleItem(
 
     let time_ago = {
         let diff = chrono::Utc::now().signed_duration_since(article.published);
-        if diff.num_days() > 0 {
-            format!("{}d", diff.num_days())
-        } else if diff.num_hours() > 0 {
-            format!("{}h", diff.num_hours())
-        } else {
-            format!("{}m", diff.num_minutes().max(1))
+        match () {
+            () if diff.num_days() > 0 => format!("{}d", diff.num_days()),
+            () if diff.num_hours() > 0 => format!("{}h", diff.num_hours()),
+            () => format!("{}m", diff.num_minutes().max(1)),
         }
+    };
+
+    // For the text overlay
+    let start_color = if is_selected {
+        "color-mix(in srgb, var(--accent) 40%, var(--mantle))"
+    } else {
+        "var(--mantle)"
+    };
+    let end_color = if is_selected {
+        "color-mix(in srgb, var(--accent) 40%, var(--surface0))"
+    } else {
+        "var(--surface0)"
     };
 
     rsx! {
         div {
-            style: "content-visibility:auto;contain-intrinsic-size:auto {ARTICLE_HEIGHT_PX}px;",
+            id: "article-{id}",
+            height: "{ARTICLE_HEIGHT_PX}px",
+            // style: "content-visibility:auto; contain-intrinsic-size:auto {ARTICLE_HEIGHT_PX}px;",
             cursor: "pointer",
-            border_radius: "0.625rem",
+            overflow: "hidden",
+            border_radius: "2rem",
+            border: "2px solid var(--surface1)",
+            display: "flex",
+            flex_direction: "column",
+            justify_content: "flex-end",
+            padding: "0px",
+            margin: "0px",
             transform: if pressed() { "scale(0.98)" } else if hovered() { "scale(1.01)" } else { "scale(1)" },
             box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
@@ -535,78 +568,62 @@ fn ArticleItem(
                         id,
                     });
             },
-            div {
-                id: "article-{id}",
-                position: "relative",
-                border_radius: "0.625rem",
-                height: "{ARTICLE_HEIGHT_PX}px",
-                overflow: "hidden",
-                background_color: if is_selected { "color-mix(in srgb, var(--accent) 22%, var(--crust))" } else { "var(--crust)" },
-                border: "2px solid",
-                border_color: if hovered() { "rgba(255,255,255,0.3)" } else { "rgba(255,255,255,0.18)" },
-                transition: "border-color 0.2s ease, background-color 0.2s ease",
 
-                if let Some(img_url) = hero_image {
-                    img {
-                        src: "{img_url}",
-                        position: "absolute",
-                        width: "100%",
-                        height: "100%",
-                        object_fit: "cover",
-                        object_position: "center 35%",
-                        transform: if hovered() { "scale(1.05)" } else { "scale(1)" },
-                        transition: "transform 0.4s ease",
-                    }
+            if let Some(img_url) = hero_image {
+                img {
+                    src: "{img_url}",
+                    position: "absolute",
+                    width: "100%",
+                    height: "100%",
+                    object_fit: "cover",
+                    object_position: "center 35%",
+                    transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
+                    transition: "transform 0.4s ease",
                 }
+            }
 
-                if let Some(r) = rating {
-                    div {
-                        position: "absolute",
-                        top: "0",
-                        left: "0",
-                        width: "40px",
-                        height: "40px",
-                        z_index: 2,
-                        div {
-                            width: "100%",
-                            height: "100%",
-                            background_color: rating_color(r),
-                            clip_path: "polygon(0 0, 100% 0, 0 100%)",
-                        }
-                    }
-                }
-
+            if let Some(r) = rating {
                 div {
                     position: "absolute",
-                    bottom: "0",
+                    top: "0",
                     left: "0",
-                    right: "0",
-                    padding: "0.75rem 1rem 0.875rem 1rem",
-                    background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
-                    backdrop_filter: "blur(16px)",
-                    z_index: "1",
-                    h3 {
-                        font_size: "1rem",
-                        font_weight: "700",
-                        color: "#fff",
-                        margin: "0 0 0.4rem 0",
-                        "{title}"
+                    width: "70px",
+                    height: "50px",
+                    div {
+                        width: "100%",
+                        height: "100%",
+                        background_color: "color-mix(in srgb, {rating_color(r)} 70%, transparent)",
+                        backdrop_filter: "blur(8px)",
+                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
                     }
-                    p {
-                        font_size: "0.75rem",
-                        color: "rgba(255,255,255,0.85)",
-                        font_weight: "600",
-                        margin: "0",
-                        span {
-                            font_size: "0.65rem",
-                            color: "rgba(255,255,255,0.7)",
-                            font_weight: "900",
-                            text_transform: "uppercase",
-                            margin_right: "0.6rem",
-                            "{time_ago}"
-                        }
-                        "{description_truncated}"
+                }
+            }
+
+            div {
+                padding: "0.75rem",
+                background: "linear-gradient(to top, color-mix(in srgb, {start_color} 90%, transparent) 0%, color-mix(in srgb, {end_color} 70%, transparent) 100%)",
+                backdrop_filter: "blur(8px)",
+                text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+                h3 {
+                    font_size: "1rem",
+                    font_weight: "700",
+                    color: "var(--text)",
+                    margin: "0 0 0.4rem 0",
+                    "{title}"
+                }
+                p {
+                    font_size: "0.75rem",
+                    color: "var(--subtext1)",
+                    font_weight: "600",
+                    margin: "0",
+                    span {
+                        font_size: "0.65rem",
+                        font_weight: "900",
+                        text_transform: "uppercase",
+                        margin_right: "0.4rem",
+                        "{time_ago}"
                     }
+                    "{description_truncated}"
                 }
             }
         }
