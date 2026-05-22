@@ -1,8 +1,22 @@
-use super::rating_color;
 use crate::shared::{Rating, server_functions::set_item_rating};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
 use std::collections::HashMap;
+
+#[component]
+pub fn CenteredMessage(text: String) -> Element {
+    rsx! {
+        div {
+            display: "flex",
+            align_items: "center",
+            justify_content: "center",
+            min_height: "100%",
+            color: "var(--subtext0)",
+            font_size: "0.875rem",
+            "{text}"
+        }
+    }
+}
 
 #[component]
 pub fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Element {
@@ -27,8 +41,7 @@ pub fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Elemen
     }
 }
 
-/// A rating pill that stays fixed in place on hover and expands rating buttons
-/// to either side via absolute positioning + clip-path animation.
+/// A rating pill that expands with rating buttons on hover.
 #[component]
 pub fn RatingPill(
     label: String,
@@ -36,8 +49,8 @@ pub fn RatingPill(
     item_ratings: Signal<HashMap<String, Rating>>,
     url: Option<String>,
 ) -> Element {
-    let current = item_ratings.read().get(&item_key).copied();
-    let bg = rating_color(current.unwrap_or(Rating::Neutral));
+    let current = item_ratings().get(&item_key).copied();
+    let bg = current.unwrap_or(Rating::Neutral).color();
     let mut hovered = use_signal(|| false);
 
     rsx! {
@@ -49,20 +62,31 @@ pub fn RatingPill(
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
 
-            // Left buttons: grow leftward from behind the pill
+            // Expanding background — grows to cover button panels, carries the border
             div {
                 position: "absolute",
-                right: "calc(100% - 0.5rem)",
+                left: if hovered() { "-3rem" } else { "0" },
+                right: if hovered() { "-3rem" } else { "0" },
+                top: "0",
+                bottom: "0",
+                background_color: bg,
+                border_radius: "9999px",
+                box_shadow: if hovered() { "0 0 0 3px var(--base)" } else { "none" },
+                transition: "left 0.2s ease, right 0.2s ease, box-shadow 0.15s ease",
+                z_index: "-1",
+            }
+
+            // Left buttons — right edge flush with pill left edge
+            div {
+                position: "absolute",
+                right: "100%",
                 top: "0",
                 bottom: "0",
                 display: "flex",
                 align_items: "center",
-                background_color: bg,
-                border_radius: "9999px 0 0 9999px",
-                padding: "0.2rem 0.25rem 0.2rem 0.5rem",
-                // Reveal from right (pill edge) outward to left
-                clip_path: if hovered() { "inset(0 0% 0 0)" } else { "inset(0 0% 0 100%)" },
-                transition: "clip-path 0.2s ease",
+                opacity: if hovered() { "1" } else { "0" },
+                pointer_events: if hovered() { "auto" } else { "none" },
+                transition: "opacity 0.15s ease 0.05s",
                 RatingPillBtn {
                     icon: fa_solid_icons::FaAnglesLeft,
                     target: Rating::Hated,
@@ -79,7 +103,7 @@ pub fn RatingPill(
                 }
             }
 
-            // Core pill — never moves, gains a dark outline ring on hover to mask neighbors
+            // Core pill label — in-flow, sets the wrapper's size
             div {
                 display: "inline-flex",
                 align_items: "center",
@@ -89,10 +113,7 @@ pub fn RatingPill(
                 color: "var(--text)",
                 font_size: "0.62rem",
                 font_weight: "700",
-                position: "relative",
-                z_index: "1",
-                box_shadow: if hovered() { "0 0 0 3px var(--crust)" } else { "none" },
-                transition: "box-shadow 0.12s ease",
+                white_space: "nowrap",
                 if let Some(href) = url {
                     a {
                         href: "{href}",
@@ -107,20 +128,17 @@ pub fn RatingPill(
                 }
             }
 
-            // Right buttons: grow rightward from behind the pill
+            // Right buttons — left edge flush with pill right edge
             div {
                 position: "absolute",
-                left: "calc(100% - 0.5rem)",
+                left: "100%",
                 top: "0",
                 bottom: "0",
                 display: "flex",
                 align_items: "center",
-                background_color: bg,
-                border_radius: "0 9999px 9999px 0",
-                padding: "0.2rem 0.5rem 0.2rem 0.25rem",
-                // Reveal from left (pill edge) outward to right
-                clip_path: if hovered() { "inset(0 0 0 0%)" } else { "inset(0 0 0 100%)" },
-                transition: "clip-path 0.2s ease",
+                opacity: if hovered() { "1" } else { "0" },
+                pointer_events: if hovered() { "auto" } else { "none" },
+                transition: "opacity 0.15s ease 0.05s",
                 RatingPillBtn {
                     icon: fa_solid_icons::FaAngleRight,
                     target: Rating::Liked,

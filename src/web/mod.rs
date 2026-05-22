@@ -7,20 +7,11 @@ use crate::shared::{
     server_functions::{get_all_item_ratings, get_user_articles},
 };
 use article::ArticleDetail;
+use components::CenteredMessage;
 use dioxus::prelude::*;
 use sidebar::{SIDEBAR_STYLES, Sidebar};
 use std::collections::HashMap;
 use uuid::Uuid;
-
-const fn rating_color(r: Rating) -> &'static str {
-    match r {
-        Rating::Hated => "#873535",
-        Rating::Disliked => "#A3674E",
-        Rating::Neutral => "#494d64",
-        Rating::Liked => "#5D7D31",
-        Rating::Loved => "#3E6E2F",
-    }
-}
 
 #[component]
 fn AppHead() -> Element {
@@ -67,15 +58,7 @@ enum Route {
 #[component]
 fn TabHome(tab: String) -> Element {
     rsx! {
-        div {
-            display: "flex",
-            align_items: "center",
-            justify_content: "center",
-            height: "100%",
-            color: "var(--subtext0)",
-            font_size: "0.875rem",
-            "Select an article to read"
-        }
+        CenteredMessage { text: "Select an article to read" }
     }
 }
 
@@ -84,8 +67,7 @@ fn Article(tab: String, id: Uuid) -> Element {
     let articles = use_context::<Signal<Vec<ArticleData>>>();
     let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
 
-    let found = articles
-        .read()
+    let found = articles()
         .iter()
         .find(|a| a.id == id)
         .map(|a| (a.status, a.rating, a.article.clone()));
@@ -101,15 +83,7 @@ fn Article(tab: String, id: Uuid) -> Element {
             }
         },
         None => rsx! {
-            div {
-                display: "flex",
-                align_items: "center",
-                justify_content: "center",
-                height: "100%",
-                color: "var(--subtext0)",
-                font_size: "0.875rem",
-                "Article not found"
-            }
+            CenteredMessage { text: "Article not found" }
         },
     }
 }
@@ -148,7 +122,6 @@ fn MainLayout() -> Element {
         Route::TabHome { tab } => (tab, None),
     };
 
-    // Scroll to the selected article on mount
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         if let Some(target_id) = selected_id {
@@ -156,15 +129,12 @@ fn MainLayout() -> Element {
                 use wasm_bindgen::JsCast;
                 let window = web_sys::window().unwrap();
                 let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+                let document = window.document().unwrap();
                 if let (Some(scroll_el), Some(art_el)) = (
-                    window
-                        .document()
-                        .unwrap()
+                    document
                         .get_element_by_id("article-scroll-container")
                         .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
-                    window
-                        .document()
-                        .unwrap()
+                    document
                         .get_element_by_id(&format!("article-{target_id}"))
                         .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
                 ) {
@@ -190,7 +160,16 @@ fn MainLayout() -> Element {
             overflow: "hidden",
             color: "var(--text)",
             Sidebar { tab, selected_id }
-            main { flex: "1", overflow_y: "auto", Outlet::<Route> {} }
+            main { flex: "1", overflow: "hidden", padding: "10px",
+
+                div {
+                    background_color: "var(--base)",
+                    border_radius: "20px",
+                    height: "100%",
+                    overflow_y: "auto",
+                    Outlet::<Route> {}
+                }
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-use super::{Route, components::RefreshButton, rating_color};
+use super::{Route, components::RefreshButton};
 use crate::shared::{
     ArticleData, ArticleStatus, Category, Rating, StoredArticle,
     server_functions::{get_user_articles, reclassify_articles},
@@ -302,7 +302,6 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
             text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
             transform: if hovered() { "scale(1.05)" } else if pressed() { "scale(0.94)" } else { "scale(1)" },
             transition: "transform 0.1s ease",
-            // OPTIMIZATION: Micro-button scale interactions drop layout overhead.
             will_change: "transform",
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
@@ -508,27 +507,17 @@ fn ArticleItem(
     let mut pressed = use_signal(|| false);
 
     let title = article.display_title();
-    let description = article.display_description();
-    let description_truncated = description.chars().take(200).collect::<String>();
+    let description_truncated = article.display_description();
+    let hero_image = article.hero_image();
 
-    let hero_image = article.sources.iter().find_map(|s| {
-        s.images
-            .first()?
-            .split('|')
-            .next()
-            .filter(|u| !u.is_empty())
-    });
-
-    let time_ago = use_memo(move || {
-        let d = chrono::Utc::now().signed_duration_since(article.published);
-        if d.num_days() > 0 {
-            format!("{}d", d.num_days())
-        } else if d.num_hours() > 0 {
-            format!("{}h", d.num_hours())
-        } else {
-            format!("{}m", d.num_minutes().max(1))
-        }
-    });
+    let d = chrono::Utc::now().signed_duration_since(article.published);
+    let time_ago = if d.num_days() > 0 {
+        format!("{}d", d.num_days())
+    } else if d.num_hours() > 0 {
+        format!("{}h", d.num_hours())
+    } else {
+        format!("{}m", d.num_minutes().max(1))
+    };
 
     rsx! {
         div {
@@ -539,6 +528,12 @@ fn ArticleItem(
             border: "2px solid var(--surface1)",
             box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
             transition: "box-shadow 0.2s ease",
+            overflow: "hidden",
+            display: "flex",
+            flex_direction: "column",
+            // Safari requires mask-image to correctly clip transformed children at border-radius
+            style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black);",
+            transform: "translateZ(0)",
 
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
@@ -555,73 +550,61 @@ fn ArticleItem(
                     });
             },
 
-            div {
-                width: "100%",
-                height: "100%",
-                border_radius: "calc(2rem - 2px)",
-                overflow: "hidden",
-                display: "flex",
-                flex_direction: "column",
-                // Fixes clipping issues
-                style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black);",
-                transform: "translateZ(0)",
+            div { flex: "1", overflow: "hidden", position: "relative",
 
-                div { flex: "1", overflow: "hidden", position: "relative",
-
-                    if let Some(img_url) = hero_image {
-                        img {
-                            src: "{img_url}",
-                            width: "100%",
-                            height: "100%",
-                            object_fit: "cover",
-                            object_position: "center 35%",
-                            transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
-                            transition: "transform 0.4s ease",
-                            will_change: "transform",
-                            decoding: "async",
-                        }
-                    }
-
-                    if let Some(r) = rating {
-                        div {
-                            position: "absolute",
-                            top: "0",
-                            left: "0",
-                            width: "70px",
-                            height: "50px",
-                            clip_path: "polygon(0 0, 100% 0, 0 100%)",
-                            background_color: "color-mix(in srgb, {rating_color(r)} 70%, transparent)",
-                            backdrop_filter: "blur(8px)",
-                        }
+                if let Some(img_url) = hero_image {
+                    img {
+                        src: "{img_url}",
+                        width: "100%",
+                        height: "100%",
+                        object_fit: "cover",
+                        object_position: "center 35%",
+                        transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
+                        transition: "transform 0.4s ease",
+                        will_change: "transform",
+                        decoding: "async",
                     }
                 }
 
-                div {
-                    padding: "0.75rem",
-                    background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, var(--mantle))" } else { "var(--mantle)" },
-                    text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
-                    transition: "background 0.5s ease",
-                    h3 {
-                        font_size: "1rem",
-                        font_weight: "700",
-                        color: "var(--text)",
-                        margin: "0 0 0.4rem 0",
-                        "{title}"
+                if let Some(r) = rating {
+                    div {
+                        position: "absolute",
+                        top: "0",
+                        left: "0",
+                        width: "70px",
+                        height: "50px",
+                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
+                        background_color: "color-mix(in srgb, {r.color()} 70%, transparent)",
+                        backdrop_filter: "blur(8px)",
                     }
-                    p {
-                        font_size: "0.75rem",
-                        color: "var(--subtext1)",
-                        font_weight: "600",
-                        margin: "0",
-                        span {
-                            font_size: "0.65rem",
-                            font_weight: "900",
-                            text_transform: "uppercase",
-                            margin_right: "0.4rem",
-                            "{time_ago}"
-                        }
-                        "{description_truncated}"
+                }
+            }
+
+            div {
+                padding: "0.75rem",
+                background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, var(--mantle))" } else { "var(--mantle)" },
+                text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+                transition: "background 0.5s ease",
+                h3 {
+                    font_size: "1rem",
+                    font_weight: "700",
+                    color: "var(--text)",
+                    margin: "0 0 0.4rem 0",
+                    "{title}"
+                }
+                p {
+                    font_size: "0.75rem",
+                    color: "var(--subtext1)",
+                    font_weight: "600",
+                    margin: "0",
+                    span {
+                        font_size: "0.65rem",
+                        font_weight: "900",
+                        text_transform: "uppercase",
+                        margin_right: "0.4rem",
+                        "{time_ago}"
                     }
+                    "{description_truncated}"
                 }
             }
         }

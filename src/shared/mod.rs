@@ -46,6 +46,16 @@ impl StoredArticle {
             |e| e.description.as_str(),
         )
     }
+
+    pub fn hero_image(&self) -> Option<String> {
+        self.sources.iter().find_map(|s| {
+            s.images
+                .first()
+                .and_then(|img| img.split('|').next())
+                .filter(|u| !u.is_empty())
+                .map(str::to_string)
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -177,4 +187,16 @@ pub enum Rating {
     Neutral,
     Liked,
     Loved,
+}
+
+impl Rating {
+    pub const fn color(self) -> &'static str {
+        match self {
+            Self::Hated => "#873535",
+            Self::Disliked => "#A3674E",
+            Self::Neutral => "#494d64",
+            Self::Liked => "#5D7D31",
+            Self::Loved => "#3E6E2F",
+        }
+    }
 }
