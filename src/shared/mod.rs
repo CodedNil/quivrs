@@ -165,8 +165,8 @@ pub enum Category {
     Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
 )]
 pub enum ArticleStatus {
-    New,
     Stored,
+    New,
     Binned,
 }
 

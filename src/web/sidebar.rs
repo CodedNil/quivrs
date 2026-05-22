@@ -68,17 +68,16 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let mut articles: Signal<Vec<ArticleData>> = use_context();
 
     let (counts, all_groups) = use_memo(use_reactive!(|articles| {
-        let data = articles.read();
-        let mut counts = (0, 0, 0);
-        let mut groups: BTreeMap<ArticleStatus, BTreeMap<Category, Vec<ArticleData>>> =
-            BTreeMap::new();
-
-        for a in data.iter() {
-            match a.status {
-                ArticleStatus::New => counts.0 += 1,
-                ArticleStatus::Stored => counts.1 += 1,
-                ArticleStatus::Binned => counts.2 += 1,
-            }
+        let (mut counts, mut groups) = (
+            (0, 0, 0),
+            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<ArticleData>>>::new(),
+        );
+        for a in &articles() {
+            *match a.status {
+                ArticleStatus::New => &mut counts.0,
+                ArticleStatus::Stored => &mut counts.1,
+                ArticleStatus::Binned => &mut counts.2,
+            } += 1;
             groups
                 .entry(a.status)
                 .or_default()
@@ -87,9 +86,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 .push(a.clone());
         }
         (counts, groups)
-    }))
-    .read()
-    .clone();
+    }))();
 
     let current_status = match tab.as_str() {
         "stored" => ArticleStatus::Stored,
@@ -98,24 +95,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     };
 
     let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
-
-    let cat_heights: Vec<(Category, f64)> = current_groups
-        .iter()
-        .map(|(&cat, items)| {
-            let h = (items.len() as f64).mul_add(
-                f64::from(ARTICLE_HEIGHT_PX + ARTICLE_GAP_PX),
-                f64::from(ARTICLE_GAP_PX + CATEGORY_BORDER_PX),
-            );
-            (cat, h)
-        })
-        .collect();
-
     let scroll_top_val = use_signal(|| 0.0);
-    let tab_index = match tab.as_str() {
-        "stored" => 0,
-        "new" => 1,
-        _ => 2,
-    };
 
     rsx! {
         div {
@@ -147,7 +127,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     RefreshButton {
                         title: "Re-classify all articles",
                         onclick: move |_| async move {
-                            let ids = articles.read().iter().map(|a| a.id).collect();
+                            let ids = articles().iter().map(|a| a.id).collect();
                             if reclassify_articles(ids).await.is_ok()
                                 && let Ok(new_articles) = get_user_articles().await
                             {
@@ -164,10 +144,9 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     binned_count: counts.2,
                 }
                 CategoryScrollbar {
-                    categories: current_groups.keys().copied().collect(),
+                    groups: current_groups,
                     status: current_status,
                     scroll_top: scroll_top_val,
-                    cat_heights,
                 }
             }
 
@@ -184,19 +163,14 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     width: "100%",
                     height: "100%",
                     transition: "transform 1.4s cubic-bezier(0.4, 0, 0.2, 1)",
-                    transform: "translateX(calc(-{tab_index} * 100% - {tab_index} * 40px))",
-                    // OPTIMIZATION: Promotes the massive horizontal lane container to its own GPU layer.
+                    transform: "translateX(calc(-{current_status as usize} * 100% - {current_status as usize} * 40px))",
                     will_change: "transform",
 
-                    for (i, status) in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned]
-                        .into_iter()
-                        .enumerate()
-                    {
+                    for status in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned] {
                         StatusLane {
                             key: "{status}",
                             status,
-                            current_status,
-                            is_last_lane: i == 2,
+                            active: current_status == status,
                             groups: all_groups.get(&status).cloned().unwrap_or_default(),
                             selected_id,
                             tab: tab.clone(),
@@ -212,8 +186,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 #[component]
 fn StatusLane(
     status: ArticleStatus,
-    current_status: ArticleStatus,
-    is_last_lane: bool,
+    active: bool,
     groups: BTreeMap<Category, Vec<ArticleData>>,
     selected_id: Option<Uuid>,
     tab: String,
@@ -224,9 +197,9 @@ fn StatusLane(
             flex: "0 0 100%",
             height: "100%",
             overflow_y: "auto",
-            margin_right: if is_last_lane { "0" } else { "40px" },
+            margin_right: if status == ArticleStatus::Binned { "0" } else { "40px" },
             onscroll: move |e: ScrollEvent| {
-                if status == current_status {
+                if active {
                     scroll_top_val.set(e.scroll_top());
                 }
             },
@@ -252,9 +225,9 @@ fn StatusLane(
 #[component]
 fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usize) -> Element {
     let bubble_left = match tab.as_str() {
-        "stored" => "0rem",
-        "new" => "calc(100% / 3)",
-        _ => "calc(100% * 2 / 3)",
+        "stored" => "0%",
+        "new" => "33.33%",
+        _ => "66.66%",
     };
 
     let mut trigger_anim = use_signal(|| false);
@@ -267,7 +240,6 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
         div {
             position: "relative",
             display: "flex",
-            gap: "0.25rem",
             background_color: "var(--surface0)",
             border: "2px solid var(--surface1)",
             border_radius: "2rem",
@@ -279,13 +251,12 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 top: "0",
                 bottom: "0",
                 left: "{bubble_left}",
-                width: "calc(100% / 3)",
+                width: "33.33%",
                 background_color: "var(--accent)",
                 border_radius: "2rem",
                 transition: "left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
                 pointer_events: "none",
                 z_index: "1",
-                // OPTIMIZATION: Informs the browser that this active background bubble is highly dynamic.
                 will_change: "left, transform",
             }
 
@@ -360,55 +331,51 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
 
 #[component]
 fn CategoryScrollbar(
-    categories: Vec<Category>,
+    groups: BTreeMap<Category, Vec<ArticleData>>,
     status: ArticleStatus,
     scroll_top: Signal<f64>,
-    cat_heights: Vec<(Category, f64)>,
 ) -> Element {
-    if categories.is_empty() {
+    if groups.is_empty() {
         return rsx! {};
     }
 
+    let cat_heights: Vec<f64> = groups
+        .values()
+        .map(|items| {
+            (items.len() as f64).mul_add(
+                f64::from(ARTICLE_HEIGHT_PX + ARTICLE_GAP_PX),
+                f64::from(ARTICLE_GAP_PX + CATEGORY_BORDER_PX),
+            )
+        })
+        .collect();
+
     let segment_pcts = use_memo(use_reactive!(|cat_heights| {
-        let total_h: f64 = cat_heights.iter().map(|(_, v)| v).sum();
+        let total_h: f64 = cat_heights.iter().sum();
         if total_h <= 0.0 {
             return vec![0.0; cat_heights.len()];
         }
         let bumped: Vec<f64> = cat_heights
             .iter()
-            .map(|(_, h)| {
-                if *h > 0.0 {
-                    (*h / total_h * 100.0).max(MIN_CATEGORY_PCT)
-                } else {
-                    0.0
-                }
-            })
+            .map(|h| (*h / total_h * 100.0).max(MIN_CATEGORY_PCT))
             .collect();
         let sum: f64 = bumped.iter().sum();
         bumped.into_iter().map(|p| p / sum * 100.0).collect()
     }));
 
     let dot_pct = use_memo(use_reactive!(|scroll_top, cat_heights, segment_pcts| {
-        let st = *scroll_top.read();
-        let mut cumulative_content = 0.0;
-        let mut cumulative_adj = 0.0;
-        let mut pos = 0.0;
-        let pcts = segment_pcts.read();
-        for (i, (_, h)) in cat_heights.iter().enumerate() {
-            let segment_h = *h;
-            if st < cumulative_content + segment_h || i == cat_heights.len() - 1 {
-                let t = if segment_h > 0.0 {
-                    ((st - cumulative_content) / segment_h).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                pos = cumulative_adj + t * pcts[i];
-                break;
+        let st = scroll_top();
+        let (mut cur_h, mut cur_adj) = (0.0, 0.0);
+        let pcts = segment_pcts();
+
+        for (i, h) in cat_heights.iter().enumerate() {
+            if st < cur_h + *h || i == cat_heights.len() - 1 {
+                let t = if *h > 0.0 { (st - cur_h) / *h } else { 0.0 };
+                return t.clamp(0.0, 1.0).mul_add(pcts[i], cur_adj);
             }
-            cumulative_content += segment_h;
-            cumulative_adj += pcts[i];
+            cur_h += *h;
+            cur_adj += pcts[i];
         }
-        pos
+        0.0
     }));
 
     rsx! {
@@ -430,15 +397,14 @@ fn CategoryScrollbar(
                 aspect_ratio: "1.2",
                 background_color: "var(--accent)",
                 border_radius: "9999px",
-                z_index: "0",
                 transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
                 will_change: "left",
             }
 
-            for (i, &category) in categories.iter().enumerate() {
+            for (i, &category) in groups.keys().enumerate() {
                 div {
                     key: "{category}",
-                    flex: "0 0 {segment_pcts.read()[i]:.4}%",
+                    flex: "0 0 {segment_pcts()[i]:.4}%",
                     display: "flex",
                     height: "100%",
                     align_items: "center",
@@ -460,8 +426,7 @@ fn CategoryScrollbar(
                         }
                     },
 
-                    // Visual separator
-                    if i + 1 < categories.len() {
+                    if i + 1 < groups.len() {
                         div {
                             position: "absolute",
                             right: "0",
@@ -551,15 +516,17 @@ fn ArticleItem(
             .first()?
             .split('|')
             .next()
-            .filter(|url| !url.is_empty())
+            .filter(|u| !u.is_empty())
     });
 
     let time_ago = use_memo(move || {
-        let diff = chrono::Utc::now().signed_duration_since(article.published);
-        match () {
-            () if diff.num_days() > 0 => format!("{}d", diff.num_days()),
-            () if diff.num_hours() > 0 => format!("{}h", diff.num_hours()),
-            () => format!("{}m", diff.num_minutes().max(1)),
+        let d = chrono::Utc::now().signed_duration_since(article.published);
+        if d.num_days() > 0 {
+            format!("{}d", d.num_days())
+        } else if d.num_hours() > 0 {
+            format!("{}h", d.num_hours())
+        } else {
+            format!("{}m", d.num_minutes().max(1))
         }
     });
 
@@ -593,52 +560,45 @@ fn ArticleItem(
                 height: "100%",
                 border_radius: "calc(2rem - 2px)",
                 overflow: "hidden",
-                display: "grid",
-                grid_template_columns: "1fr",
-                grid_template_rows: "1fr",
+                display: "flex",
+                flex_direction: "column",
                 // Fixes clipping issues
                 style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black);",
                 transform: "translateZ(0)",
 
-                if let Some(img_url) = hero_image {
-                    img {
-                        src: "{img_url}",
-                        grid_column: "1",
-                        grid_row: "1",
-                        width: "100%",
-                        height: "100%",
-                        object_fit: "cover",
-                        object_position: "center 35%",
-                        transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
-                        transition: "transform 0.4s ease",
-                        // OPTIMIZATION: Separates image scale effects from text element rendering layers.
-                        will_change: "transform",
-                        // OPTIMIZATION: Helps browser schedule heavy image decoding off the main thread.
-                        decoding: "async",
-                    }
-                }
+                div { flex: "1", overflow: "hidden", position: "relative",
 
-                if let Some(r) = rating {
-                    div {
-                        grid_column: "1",
-                        grid_row: "1",
-                        justify_self: "start",
-                        align_self: "start",
-                        width: "70px",
-                        height: "50px",
-                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
-                        background_color: "color-mix(in srgb, {rating_color(r)} 70%, transparent)",
-                        backdrop_filter: "blur(8px)",
+                    if let Some(img_url) = hero_image {
+                        img {
+                            src: "{img_url}",
+                            width: "100%",
+                            height: "100%",
+                            object_fit: "cover",
+                            object_position: "center 35%",
+                            transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
+                            transition: "transform 0.4s ease",
+                            will_change: "transform",
+                            decoding: "async",
+                        }
+                    }
+
+                    if let Some(r) = rating {
+                        div {
+                            position: "absolute",
+                            top: "0",
+                            left: "0",
+                            width: "70px",
+                            height: "50px",
+                            clip_path: "polygon(0 0, 100% 0, 0 100%)",
+                            background_color: "color-mix(in srgb, {rating_color(r)} 70%, transparent)",
+                            backdrop_filter: "blur(8px)",
+                        }
                     }
                 }
 
                 div {
-                    grid_column: "1",
-                    grid_row: "1",
-                    align_self: "end",
                     padding: "0.75rem",
-                    background_color: if is_selected { "color-mix(in srgb, color-mix(in srgb, var(--accent) 40%, var(--mantle)) 90%, transparent)" } else { "color-mix(in srgb, var(--mantle) 90%, transparent)" },
-                    backdrop_filter: "blur(8px)",
+                    background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, var(--mantle))" } else { "var(--mantle)" },
                     text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
                     transition: "background 0.5s ease",
                     h3 {
