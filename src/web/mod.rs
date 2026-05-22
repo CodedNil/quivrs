@@ -13,11 +13,6 @@ use dioxus::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-mod style {
-    pub const RADIUS_CARD: &str = "0.625rem";
-    pub const RADIUS_GROUP: &str = "0.875rem";
-}
-
 const fn rating_color(r: Rating) -> &'static str {
     match r {
         Rating::Hated => "#873535",
@@ -38,17 +33,23 @@ fn AppHead() -> Element {
         // <https://raw.githubusercontent.com/chriskempson/base16/refs/heads/main/styling.md>
         // Colours base00 to base07 are typically variations of a shade and run from darkest to lightest. These colours are used for foreground and background, status bars, line highlighting and such. colours base08 to base0F are typically individual colours used for types, operators, names and variables. In order to create a dark theme, colours base00 to base07 should span from dark to light. For a light theme, these colours should span from light to dark.
         document::Style {
-            "body {{
-                --base00: #24273a; --base01: #1e2030; --base02: #363a4f; --base03: #494d64;
-                --base04: #5b6078; --base05: #cad3f5; --base06: #f4dbd6; --base07: #b7bdf8;
-                --base08: #ed8796; --base09: #f5a97f; --base0a: #eed49f; --base0b: #a6da95;
-                --base0c: #8bd5ca; --base0d: #8aadf4; --base0e: #c6a0f6; --base0f: #f0c6c6;
+            "*, *::before, *::after {{ box-sizing: border-box; }}
+            body {{
+                --crust: #181926;
+                --mantle: #1e2030;
+                --base: #24273a;
+                --surface0: #363a4f;
+                --surface1: #494d64;
+                --surface2: #5b6078;
+                --overlay0: #6e738d;
+                --overlay1: #8087a2;
+                --overlay2: #939ab7;
+                --text: #cad3f5;
+                --subtext0: #a5adcb;
+                --subtext1: #b8c0e0;
+                --accent: #8aadf4;
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0;
-            }}
-            ::selection {{
-                background-color: color-mix(in srgb, var(--base0d) 40%, transparent);
-                color: var(--base05);
             }}"
         }
     }
@@ -72,7 +73,7 @@ fn TabHome(tab: String) -> Element {
             align_items: "center",
             justify_content: "center",
             height: "100%",
-            color: "var(--base04)",
+            color: "var(--subtext0)",
             font_size: "0.875rem",
             "Select an article to read"
         }
@@ -106,7 +107,7 @@ fn Article(tab: String, id: Uuid) -> Element {
                 align_items: "center",
                 justify_content: "center",
                 height: "100%",
-                color: "var(--base04)",
+                color: "var(--subtext0)",
                 font_size: "0.875rem",
                 "Article not found"
             }
@@ -177,8 +178,8 @@ fn MainLayout() -> Element {
             display: "flex",
             height: "100vh",
             overflow: "hidden",
-            background_color: "var(--base00)",
-            color: "var(--base05)",
+            background_color: "var(--crust)",
+            color: "var(--text)",
             Sidebar { tab, selected_id, active_status }
             main { flex: "1", overflow_y: "auto", Outlet::<Route> {} }
         }

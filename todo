@@ -28,3 +28,5 @@ only merge into articles we havent read yet
 support youtube feeds, subreddits as sources
 
 widgets for things like current polling trackers
+maybe we do consistent widgets that are in the side display of articles
+like if the article talks about a major politician we could add widget for that persons approval rating, or widget for current polling, which are consistent across articles and are updated with new data from feed inputs

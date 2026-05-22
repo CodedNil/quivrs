@@ -51,7 +51,7 @@ pub fn ArticleDetail(
                     font_size: "1.625rem",
                     font_weight: "800",
                     line_height: "1.2",
-                    color: "var(--base05)",
+                    color: "var(--text)",
                     margin: "0 0 0.75rem",
                     letter_spacing: "-0.01em",
                     "{title}"
@@ -73,7 +73,7 @@ pub fn ArticleDetail(
                             ActionBtn {
                                 icon: fa_solid_icons::FaBookmark,
                                 title: "Save to ReadL",
-                                color: "var(--base0b)",
+                                color: "var(--accent)",
                                 onclick: move |_| async move {
                                     let _ = set_article_status(id, ArticleStatus::Stored).await;
                                     if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
@@ -86,7 +86,7 @@ pub fn ArticleDetail(
                             ActionBtn {
                                 icon: fa_solid_icons::FaTrash,
                                 title: "Move to Bin",
-                                color: "var(--base08)",
+                                color: "var(--overlay0)",
                                 onclick: move |_| async move {
                                     let _ = set_article_status(id, ArticleStatus::Binned).await;
                                     if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
@@ -96,7 +96,7 @@ pub fn ArticleDetail(
                             }
                         }
                     }
-                    span { font_size: "0.7rem", color: "var(--base04)",
+                    span { font_size: "0.7rem", color: "var(--subtext0)",
                         {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                     }
                     StarRating { current: rating, id, articles }
@@ -134,12 +134,12 @@ pub fn ArticleDetail(
                 // Description
                 p {
                     font_size: "0.925rem",
-                    color: "var(--base05)",
+                    color: "var(--text)",
                     line_height: "1.65",
                     margin: "0 0 2rem",
                     font_style: "italic",
                     padding_left: "1rem",
-                    border_left: "3px solid var(--base0d)",
+                    border_left: "3px solid var(--accent)",
                     opacity: "0.85",
                     "{description}"
                 }
@@ -151,7 +151,7 @@ pub fn ArticleDetail(
                     }
                 } else {
                     p {
-                        color: "var(--base04)",
+                        color: "var(--subtext0)",
                         font_size: "0.875rem",
                         font_style: "italic",
                         margin_bottom: "1rem",
@@ -160,7 +160,7 @@ pub fn ArticleDetail(
                     if let Some(s) = article.sources.first() {
                         div {
                             font_size: "0.825rem",
-                            color: "var(--base04)",
+                            color: "var(--subtext0)",
                             line_height: "1.65",
                             white_space: "pre-wrap",
                             "{s.content}"
@@ -185,8 +185,8 @@ fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
             padding: "0.375rem",
             border_radius: "0.375rem",
             border: "none",
-            background_color: if hovered() { "var(--base02)" } else { "transparent" },
-            color: if hovered() { color } else { "var(--base04)" },
+            background_color: if hovered() { "var(--base)" } else { "transparent" },
+            color: if hovered() { color } else { "var(--subtext0)" },
             cursor: "pointer",
             transition: "background-color 0.15s, color 0.15s",
             display: "flex",
@@ -240,9 +240,9 @@ fn StarRating(
                             cursor: "pointer",
                             font_size: "1.2rem",
                             line_height: "1",
-                            color: if filled { "#f5c518" } else { "var(--base03)" },
+                            color: if filled { "#f5c518" } else { "var(--surface0)" },
                             transform: if is_hover { "scale(1.35)" } else if filled { "scale(1.05)" } else { "scale(1)" },
-                            transition: "color 0.1s, transform 0.12s, text-shadow 0.15s",
+                            transition: "color 0.1s, transform 0.12s",
                             display: "inline-block",
                             onmouseenter: move |_| hover_idx.set(Some(i)),
                             onmouseleave: move |_| hover_idx.set(None),
@@ -313,8 +313,8 @@ fn render_box_item(item: &str) -> Element {
         .map_or((None, item), |(h, t)| (Some(h), t));
     rsx! {
         div {
-            background_color: "var(--base01)",
-            border: "1px solid var(--base02)",
+            background_color: "var(--mantle)",
+            border: "1px solid var(--base)",
             border_radius: "0.375rem",
             padding: "0.625rem 0.875rem",
             height: "100%",
@@ -322,7 +322,7 @@ fn render_box_item(item: &str) -> Element {
                 div {
                     font_size: "0.62rem",
                     font_weight: "700",
-                    color: "var(--base03)",
+                    color: "var(--subtext1)",
                     text_transform: "uppercase",
                     letter_spacing: "0.08em",
                     margin_bottom: "0.25rem",
@@ -331,7 +331,7 @@ fn render_box_item(item: &str) -> Element {
             }
             div {
                 font_size: "0.875rem",
-                color: "var(--base05)",
+                color: "var(--text)",
                 line_height: "1.5",
                 {render_inline(text)}
             }
@@ -345,7 +345,7 @@ fn render_section(section: &Section) -> Element {
             h2 {
                 font_size: "0.8rem",
                 font_weight: "700",
-                color: "var(--base05)",
+                color: "var(--text)",
                 text_transform: "uppercase",
                 letter_spacing: "0.1em",
                 margin: "2.5rem 0 0.8rem",
@@ -355,7 +355,7 @@ fn render_section(section: &Section) -> Element {
         Section::Paragraph(text) => rsx! {
             p {
                 font_size: "0.875rem",
-                color: "var(--base05)",
+                color: "var(--text)",
                 line_height: "1.75",
                 margin: "0 0 1rem",
                 {render_inline(text)}
@@ -374,7 +374,7 @@ fn render_section(section: &Section) -> Element {
                     }
                     figcaption {
                         font_size: "0.7rem",
-                        color: "var(--base03)",
+                        color: "var(--subtext1)",
                         margin_top: "0.375rem",
                         text_align: "center",
                         "{caption}"
@@ -392,7 +392,7 @@ fn render_section(section: &Section) -> Element {
                 for item in items {
                     li {
                         font_size: "0.875rem",
-                        color: "var(--base05)",
+                        color: "var(--text)",
                         line_height: "1.6",
                         if let Some((h, t)) = item.split_once('|') {
                             span { font_weight: "700", "{h}" }
