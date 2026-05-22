@@ -2,14 +2,13 @@ mod article;
 mod components;
 mod sidebar;
 
-use article::ArticleDetail;
-use sidebar::Sidebar;
-
 use crate::shared::{
-    ArticleData, ArticleStatus, Rating,
+    ArticleData, Rating,
     server_functions::{get_all_item_ratings, get_user_articles},
 };
+use article::ArticleDetail;
 use dioxus::prelude::*;
+use sidebar::{SIDEBAR_STYLES, Sidebar};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -30,8 +29,6 @@ fn AppHead() -> Element {
             rel: "stylesheet",
             href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap",
         }
-        // <https://raw.githubusercontent.com/chriskempson/base16/refs/heads/main/styling.md>
-        // Colours base00 to base07 are typically variations of a shade and run from darkest to lightest. These colours are used for foreground and background, status bars, line highlighting and such. colours base08 to base0F are typically individual colours used for types, operators, names and variables. In order to create a dark theme, colours base00 to base07 should span from dark to light. For a light theme, these colours should span from light to dark.
         document::Style {
             "*, *::before, *::after {{ box-sizing: border-box; }}
             body {{
@@ -50,7 +47,8 @@ fn AppHead() -> Element {
                 --accent: #8aadf4;
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0;
-            }}"
+            }}
+            {SIDEBAR_STYLES}"
         }
     }
 }
@@ -148,12 +146,8 @@ fn MainLayout() -> Element {
         Route::Article { tab, id } => (tab, Some(id)),
         Route::TabHome { tab } => (tab, None),
     };
-    let active_status = match tab.as_str() {
-        "stored" => ArticleStatus::Stored,
-        "binned" => ArticleStatus::Binned,
-        _ => ArticleStatus::New,
-    };
 
+    // Scroll to the selected article on mount
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         if let Some(target_id) = selected_id {
@@ -161,13 +155,28 @@ fn MainLayout() -> Element {
                 use wasm_bindgen::JsCast;
                 let window = web_sys::window().unwrap();
                 let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-                if let Some(el) = window
-                    .document()
-                    .unwrap()
-                    .get_element_by_id(&format!("article-{target_id}"))
-                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
-                {
-                    el.scroll_into_view();
+                if let (Some(scroll_el), Some(art_el)) = (
+                    window
+                        .document()
+                        .unwrap()
+                        .get_element_by_id("article-scroll-container")
+                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
+                    window
+                        .document()
+                        .unwrap()
+                        .get_element_by_id(&format!("article-{target_id}"))
+                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
+                ) {
+                    let sr = scroll_el.get_bounding_client_rect();
+                    let ar = art_el.get_bounding_client_rect();
+                    let target_top = scroll_el.scroll_top() as f64 + ar.top() - sr.top();
+                    let final_top = (target_top - f64::from(sidebar::ARTICLE_GAP_PX)).max(0.0);
+
+                    scroll_el.scroll_to_with_scroll_to_options(
+                        web_sys::ScrollToOptions::new()
+                            .top(final_top)
+                            .behavior(web_sys::ScrollBehavior::Instant),
+                    );
                 }
             });
         }
@@ -180,7 +189,7 @@ fn MainLayout() -> Element {
             overflow: "hidden",
             background_color: "var(--crust)",
             color: "var(--text)",
-            Sidebar { tab, selected_id, active_status }
+            Sidebar { tab, selected_id }
             main { flex: "1", overflow_y: "auto", Outlet::<Route> {} }
         }
     }

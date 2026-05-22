@@ -3,7 +3,6 @@ use crate::shared::ArticleSource;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tracing::info;
 
 const FXTWITTER_API: &str = "https://api.fxtwitter.com/2";
 
