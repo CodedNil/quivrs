@@ -77,7 +77,31 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
 
     let mut bar_fraction: Signal<f64> = use_signal(|| 0.0);
     let mut cat_heights: Signal<Vec<(Category, f64)>> = use_signal(Vec::new);
+    #[cfg(target_arch = "wasm32")]
     let cats_for_scroll = categories.clone();
+    #[cfg(target_arch = "wasm32")]
+    let cats_for_effect = categories.clone();
+
+    // Initialise category heights once the DOM is ready, so the minimap shows proportional sizes before the user scrolls.
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        let cats = cats_for_effect.clone();
+        spawn(async move {
+            let _ = gloo_timers::future::TimeoutFuture::new(80).await;
+            let doc = web_sys::window().and_then(|w| w.document());
+            let heights: Vec<(Category, f64)> = cats
+                .iter()
+                .filter_map(|&cat| {
+                    doc.as_ref()
+                        .and_then(|d| d.get_element_by_id(&format!("category-group-{cat}")))
+                        .map(|el| (cat, el.get_bounding_client_rect().height()))
+                })
+                .collect();
+            if !heights.is_empty() {
+                cat_heights.set(heights);
+            }
+        });
+    });
 
     rsx! {
         div {
@@ -94,8 +118,8 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                 flex_direction: "column",
                 gap: "0.8rem",
                 padding: "0.8rem",
-                background_color: "var(--base0d)",
-                box_shadow: "0 4px 20px rgba(0,0,0,0.4)",
+                background_color: "var(--base01)",
+                box_shadow: "0 4px 20px rgba(0,0,0,0.5)",
 
                 div {
                     display: "flex",
@@ -143,21 +167,15 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                         let scroll_el = doc
                             .as_ref()
                             .and_then(|d| d.get_element_by_id("article-scroll-container"));
-                        let overlay_el = doc
-                            .as_ref()
-                            .and_then(|d| d.get_element_by_id("sidebar-overlay"));
-                        if let (Some(scroll_el), Some(overlay_el)) = (scroll_el, overlay_el) {
+                        if let Some(scroll_el) = scroll_el {
                             let scroll_top = scroll_el.scroll_top() as f64;
                             let max =
                                 (scroll_el.scroll_height() - scroll_el.client_height()) as f64;
                             if max <= 0.0 {
                                 return;
                             }
-                            let overlay_h = overlay_el.client_height() as f64;
-                            let visible_top = scroll_top + overlay_h;
                             let sr = scroll_el.get_bounding_client_rect();
 
-                            // Single DOM pass: position + height for each category
                             let segments: Vec<(Category, f64, f64)> = cats_for_scroll
                                 .iter()
                                 .filter_map(|&cat| {
@@ -186,9 +204,9 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                             let mut found = false;
                             for &(_cat, cat_top, cat_h) in &segments {
                                 let section_w = cat_h / total_h;
-                                if cat_top <= visible_top && visible_top < cat_top + cat_h {
+                                if cat_top <= scroll_top && scroll_top < cat_top + cat_h {
                                     let progress = if cat_h > 0.0 {
-                                        (visible_top - cat_top) / cat_h
+                                        (scroll_top - cat_top) / cat_h
                                     } else {
                                         0.0
                                     };
@@ -197,7 +215,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
                                     found = true;
                                     break;
                                 }
-                                if cat_top > visible_top {
+                                if cat_top > scroll_top {
                                     bar_fraction.set(cum_bar);
                                     found = true;
                                     break;
@@ -218,40 +236,27 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>, active_status: ArticleSta
 
 #[component]
 fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usize) -> Element {
-    let clip = match tab.as_str() {
-        "stored" => {
-            "inset(0 calc(100% - 0.625rem - (100% - 1.75rem) / 3) 0.625rem 0.625rem round 0.5rem)"
-        }
-        "new" => {
-            "inset(0 calc(100% - 0.875rem - (100% - 1.75rem) / 3 * 2) 0.625rem calc(0.875rem + (100% - 1.75rem) / 3) round 0.5rem)"
-        }
-        _ => "inset(0 0.625rem 0.625rem calc(1.125rem + (100% - 1.75rem) / 3 * 2) round 0.5rem)",
+    let bubble_left = match tab.as_str() {
+        "stored" => "0",
+        "new" => "calc((100% - 0.5rem) / 3 + 0.25rem)",
+        _ => "calc((100% - 0.5rem) * 2 / 3 + 0.5rem)",
     };
 
     rsx! {
         div { position: "relative", display: "flex", gap: "0.25rem",
 
-            // Sliding blue bubble — clipped to active button, sits behind the button text
+            // Sliding bubble — sits behind button text, animates between tabs
             div {
                 position: "absolute",
                 top: "0",
-                left: "0",
-                right: "0",
                 bottom: "0",
-                clip_path: clip,
-                transition: "clip-path 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                left: "{bubble_left}",
+                width: "calc((100% - 0.5rem) / 3)",
+                background_color: "color-mix(in srgb, var(--base0d) 80%, var(--base01))",
+                border_radius: "0.5rem",
+                transition: "left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
                 pointer_events: "none",
                 z_index: "1",
-                div {
-                    key: "{tab}",
-                    position: "absolute",
-                    top: "0",
-                    left: "0",
-                    right: "0",
-                    bottom: "0",
-                    background_color: "color-mix(in srgb, var(--base0d) 80%, var(--base01))",
-                    animation: "tab-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                }
             }
 
             TabButton {
@@ -401,24 +406,28 @@ fn CategoryScrollBar(
                 }
             },
 
+            // Position dot — behind the icon segments so it doesn't clutter
+            // the label readability; the glow bleeds through the semi-transparent
+            // segment backgrounds creating a lit-up effect
             div {
                 position: "absolute",
                 top: "50%",
-                left: "calc(0.5rem + {frac_pct:.2}% - {fraction:.4}rem)",
+                left: "clamp(0rem, calc({frac_pct:.2}% - 0.6rem), calc(100% - 1.2rem))",
                 width: "1.2rem",
                 height: "1.2rem",
-                transform: "translateY(-50%) translateX(-50%)",
-                background_color: "var(--base0d)",
+                transform: "translateY(-50%)",
+                background_color: "var(--base05)",
                 border_radius: "9999px",
                 pointer_events: "none",
-                z_index: "0",
+                z_index: "1",
+                transition: "left 0.06s ease",
             }
 
             for &(category, flex) in &category_flexes {
                 div {
                     flex: "{flex:.1}",
                     position: "relative",
-                    z_index: "1",
+                    z_index: "2",
                     display: "flex",
                     align_items: "center",
                     justify_content: "flex-start",
@@ -431,7 +440,7 @@ fn CategoryScrollBar(
                     onclick: move |e| {
                         e.stop_propagation();
                         #[cfg(target_arch = "wasm32")]
-                        if let (Some(scroll_el), Some(cat_el), Some(overlay_el)) = (
+                        if let (Some(scroll_el), Some(cat_el)) = (
                             web_sys::window()
                                 .and_then(|w| w.document())
                                 .and_then(|d| d.get_element_by_id("article-scroll-container")),
@@ -440,15 +449,10 @@ fn CategoryScrollBar(
                                 .and_then(|d| {
                                     d.get_element_by_id(&format!("category-group-{category}"))
                                 }),
-                            web_sys::window()
-                                .and_then(|w| w.document())
-                                .and_then(|d| d.get_element_by_id("sidebar-overlay")),
                         ) {
-                            let overlay_h = overlay_el.client_height() as f64;
                             let sr = scroll_el.get_bounding_client_rect();
                             let cr = cat_el.get_bounding_client_rect();
                             let new_top = scroll_el.scroll_top() as f64 + cr.top() - sr.top()
-                                - overlay_h
                                 - 8.0;
                             scroll_el.set_scroll_top(new_top.max(0.0) as i32);
                         }
@@ -522,6 +526,7 @@ fn ArticleItem(
             None => full,
         }
     };
+
     let hero_image = article.sources.iter().find_map(|s| {
         s.images
             .first()
@@ -530,26 +535,36 @@ fn ArticleItem(
             .map(str::to_string)
     });
 
-    let bg = if is_selected {
-        style::CARD_BG_SELECTED
-    } else {
-        style::CARD_BG_IDLE
+    let time_ago = {
+        let diff = chrono::Utc::now().signed_duration_since(article.published);
+        if diff.num_days() > 0 {
+            format!("{}d", diff.num_days())
+        } else if diff.num_hours() > 0 {
+            format!("{}h", diff.num_hours())
+        } else {
+            format!("{}m", diff.num_minutes().max(1))
+        }
     };
-    let shadow = if is_pressed {
-        style::CARD_SHADOW_ACTIVE
-    } else if is_hovered {
-        style::CARD_SHADOW_HOVER
-    } else if is_selected {
-        style::CARD_SHADOW_SELECTED
+
+    let bg = if is_selected {
+        "color-mix(in srgb, var(--base0d) 22%, var(--base00))"
     } else {
-        style::CARD_SHADOW_IDLE
+        "var(--base00)"
     };
     let scale = if is_pressed {
-        "scale(0.97)"
-    } else if is_hovered {
-        "scale(1.01)"
+        "scale(0.98)"
     } else {
         "scale(1)"
+    };
+    let shadow = if is_hovered {
+        "0 6px 16px rgba(0,0,0,0.8)"
+    } else {
+        "0 3px 8px rgba(0,0,0,0.6)"
+    };
+    let border_color = if is_hovered {
+        "rgba(255,255,255,0.3)"
+    } else {
+        "rgba(255,255,255,0.18)"
     };
 
     rsx! {
@@ -558,12 +573,14 @@ fn ArticleItem(
             cursor: "pointer",
             position: "relative",
             border_radius: style::RADIUS_CARD,
-            margin: "0.375rem 0.5rem",
+            margin: "0.75rem 0.875rem",
             overflow: "hidden",
             background_color: bg,
+            border: "2px solid {border_color}",
             box_shadow: shadow,
             transform: scale,
-            transition: style::TRANSITION_CARD,
+            transition: "all 0.2s ease-out",
+            aspect_ratio: "16 / 11",
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -582,24 +599,28 @@ fn ArticleItem(
             if let Some(img_url) = hero_image {
                 img {
                     src: "{img_url}",
-                    alt: "",
+                    position: "absolute",
+                    top: "0",
+                    left: "0",
                     width: "100%",
-                    height: "144px",
+                    height: "100%",
                     object_fit: "cover",
-                    display: "block",
+                    object_position: "center 35%",
+                    z_index: "0",
+                    transition: "transform 0.6s cubic-bezier(0.33, 1, 0.68, 1)",
+                    transform: if is_hovered { "scale(1.08)" } else { "scale(1)" },
                 }
             }
 
-            // filter wrapper needed: drop-shadow on clip-path is itself clipped
             if let Some(r) = rating {
                 div {
                     position: "absolute",
                     top: "0",
                     left: "0",
-                    width: "48px",
-                    height: "48px",
-                    z_index: 1,
-                    filter: "drop-shadow(1px 2px 5px rgba(0,0,0,0.75))",
+                    width: "40px",
+                    height: "40px",
+                    z_index: 2,
+                    filter: "drop-shadow(1px 2px 4px rgba(0,0,0,0.5))",
                     div {
                         width: "100%",
                         height: "100%",
@@ -609,20 +630,40 @@ fn ArticleItem(
                 }
             }
 
-            div { padding: "0.625rem 0.75rem",
+            div {
+                position: "absolute",
+                bottom: "0",
+                left: "0",
+                right: "0",
+                padding: "0.75rem 1rem 0.875rem 1rem",
+                background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
+                backdrop_filter: "blur(16px)",
+                z_index: "1",
                 h3 {
-                    font_size: "0.75rem",
-                    font_weight: "600",
-                    color: "var(--base05)",
-                    line_height: "1.375",
-                    margin: "0 0 0.2rem 0",
+                    font_size: "1rem",
+                    font_weight: "700",
+                    color: "#fff",
+                    line_height: "1.2",
+                    margin: "0 0 0.4rem 0",
+                    text_shadow: "0 2px 10px rgba(0,0,0,0.9)",
                     "{title}"
                 }
                 p {
-                    font_size: "0.67rem",
-                    color: "var(--base05)",
-                    line_height: "1.5",
+                    font_size: "0.75rem",
+                    color: "rgba(255,255,255,0.85)",
+                    line_height: "1.4",
                     margin: "0",
+                    overflow: "hidden",
+                    text_shadow: "0 1px 4px rgba(0,0,0,0.8)",
+                    span {
+                        font_size: "0.65rem",
+                        color: "rgba(255,255,255,0.7)",
+                        font_weight: "900",
+                        text_transform: "uppercase",
+                        letter_spacing: "0.05em",
+                        margin_right: "0.6rem",
+                        "{time_ago}"
+                    }
                     "{description}"
                 }
             }

@@ -16,6 +16,7 @@ schemars = "1.2.1"
 chrono = { version = "0.4.44", default-features = false, features = [
     "clock",
     "serde",
+    "wasmbind",
 ] }
 itertools = "0.14.0"
 strum = { version = "0.28.0", features = ["derive"] }

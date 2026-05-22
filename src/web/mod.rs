@@ -16,15 +16,6 @@ use uuid::Uuid;
 mod style {
     pub const RADIUS_CARD: &str = "0.625rem";
     pub const RADIUS_GROUP: &str = "0.875rem";
-    pub const CARD_BG_IDLE: &str = "var(--base00)";
-    pub const CARD_BG_SELECTED: &str = "color-mix(in srgb, var(--base0d) 22%, var(--base00))";
-    pub const CARD_SHADOW_IDLE: &str = "0 1px 3px rgba(0,0,0,0.22)";
-    pub const CARD_SHADOW_HOVER: &str = "0 4px 14px rgba(0,0,0,0.3)";
-    pub const CARD_SHADOW_SELECTED: &str =
-        "0 4px 18px rgba(0,0,0,0.38), 0 2px 8px color-mix(in srgb, var(--base0d) 30%, transparent)";
-    pub const CARD_SHADOW_ACTIVE: &str = "0 1px 2px rgba(0,0,0,0.18)";
-    pub const TRANSITION_CARD: &str =
-        "transform 0.12s ease, box-shadow 0.18s ease, background-color 0.15s ease";
 }
 
 const fn rating_color(r: Rating) -> &'static str {
@@ -58,13 +49,6 @@ fn AppHead() -> Element {
             ::selection {{
                 background-color: color-mix(in srgb, var(--base0d) 40%, transparent);
                 color: var(--base05);
-            }}
-            @keyframes tab-pop {{
-                0%   {{ transform: scale(0.4); opacity: 0.5; }}
-                55%  {{ transform: scale(1.14); opacity: 1; }}
-                75%  {{ transform: scale(0.95); }}
-                90%  {{ transform: scale(1.03); }}
-                100% {{ transform: scale(1); }}
             }}"
         }
     }
