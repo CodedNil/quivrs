@@ -165,6 +165,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 }
                 CategoryScrollbar {
                     categories: current_groups.keys().copied().collect(),
+                    status: current_status,
                     scroll_top: scroll_top_val,
                     cat_heights,
                 }
@@ -231,7 +232,7 @@ fn StatusLane(
             },
 
             for (category, items) in groups {
-                CategoryGroup { key: "{category}", category,
+                CategoryGroup { key: "{category}-{status}", category, status,
                     for a in items {
                         ArticleItem {
                             key: "{a.id}",
@@ -360,6 +361,7 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
 #[component]
 fn CategoryScrollbar(
     categories: Vec<Category>,
+    status: ArticleStatus,
     scroll_top: Signal<f64>,
     cat_heights: Vec<(Category, f64)>,
 ) -> Element {
@@ -450,7 +452,9 @@ fn CategoryScrollbar(
                         #[cfg(target_arch = "wasm32")]
                         if let Some(el) = web_sys::window()
                             .and_then(|w| w.document())
-                            .and_then(|d| d.get_element_by_id(&format!("category-group-{category}")))
+                            .and_then(|d| {
+                                d.get_element_by_id(&format!("category-group-{category}-{status}"))
+                            })
                         {
                             el.scroll_into_view();
                         }
@@ -481,10 +485,10 @@ fn CategoryScrollbar(
 }
 
 #[component]
-fn CategoryGroup(category: Category, children: Element) -> Element {
+fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -> Element {
     rsx! {
         div {
-            id: "category-group-{category}",
+            id: "category-group-{category}-{status}",
             display: "flex",
             border_bottom: "{CATEGORY_BORDER_PX}px solid var(--mantle)",
 
@@ -559,18 +563,6 @@ fn ArticleItem(
         }
     });
 
-    // For the text overlay
-    let start_color = if is_selected {
-        "color-mix(in srgb, var(--accent) 40%, var(--mantle))"
-    } else {
-        "var(--mantle)"
-    };
-    let end_color = if is_selected {
-        "color-mix(in srgb, var(--accent) 40%, var(--surface0))"
-    } else {
-        "var(--surface0)"
-    };
-
     rsx! {
         div {
             id: "article-{id}",
@@ -578,11 +570,8 @@ fn ArticleItem(
             cursor: "pointer",
             border_radius: "2rem",
             border: "2px solid var(--surface1)",
-            transform: if pressed() { "scale(0.98)" } else if hovered() { "scale(1.01)" } else { "scale(1)" },
             box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
-            transition: "transform 0.2s ease, box-shadow 0.2s ease",
-            // OPTIMIZATION: Isolates the card onto its own layer so scaling won't repaint the whole sidebar.
-            will_change: "transform",
+            transition: "box-shadow 0.2s ease",
 
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
@@ -648,9 +637,10 @@ fn ArticleItem(
                     grid_row: "1",
                     align_self: "end",
                     padding: "0.75rem",
-                    background: "linear-gradient(to top, color-mix(in srgb, {start_color} 90%, transparent) 0%, color-mix(in srgb, {end_color} 70%, transparent) 100%)",
+                    background_color: if is_selected { "color-mix(in srgb, color-mix(in srgb, var(--accent) 40%, var(--mantle)) 90%, transparent)" } else { "color-mix(in srgb, var(--mantle) 90%, transparent)" },
                     backdrop_filter: "blur(8px)",
                     text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+                    transition: "background 0.5s ease",
                     h3 {
                         font_size: "1rem",
                         font_weight: "700",
