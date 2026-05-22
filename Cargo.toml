@@ -67,6 +67,7 @@ sqlx = { version = "0.9.0", features = [
     "uuid",
     "derive",
 ] }
+ammonia = "4.0.0"
 dom_smoothie = "0.17.0"
 scraper = "0.27.0"
 futures = "0.3.32"

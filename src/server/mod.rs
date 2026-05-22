@@ -68,9 +68,9 @@ pub fn start() {
             if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }
-            // if let Err(err) = articles::regenerate_articles().await {
-            //     error!("Article regeneration failed: {err}");
-            // }
+            if let Err(err) = articles::regenerate_articles().await {
+                error!("Article regeneration failed: {err}");
+            }
             if let Err(err) = database::cleanup_binned(7).await {
                 error!("Cleanup failed: {err}");
             }

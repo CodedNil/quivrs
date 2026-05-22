@@ -205,12 +205,48 @@ async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<Article
         .join("\n");
 
     let context = format!(
-        "Synthesise all sources into a single cohesive article in the output json_schema. \
-         Use a few web searches for the title of each source to gather the latest information. \
-         EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.\n\n{articles_content}"
+        r#"Synthesise all sources into a single cohesive article.
+Use a few web searches for the title of each source to gather the latest information.
+
+Output the result in the following JSON schema:
+{{
+  "title": "Concise and descriptive title, max 8 words",
+  "description": "Short informative summary, a few sentences max, no newlines",
+  "content": "HTML article content"
+}}
+
+The "content" field should be written in high-quality HTML.
+Structure it like a professional digital publication with clear sections using headings (h1 to h6) and paragraphs and subheadings etc.
+You should gain a good overview of the article in the first few paragraphs, then you gain more depth as you progress.
+Multiple paragraphs are recommended when there is a lot of content, cover it in depth without repeating yourself.
+Try to include all the images available, have the hero image near the top of the article. Favour the highest resolution images available.
+Make sure all the images have an `alt` attribute and are wrapped in <figure> with a <figcaption> for the caption where available.
+
+When relevant, include:
+Heading of "Timeline" followed by a bullet points of history leading up to this article. Each bullet point should start with the date, for example "2026" or "January 2026" or "13th January 2026". Followed by the event description, which should be max one sentence.
+Heading of "Highlights" followed by a div of class 'flexbox-columns' containing up to 4 short highlights each in a div with class 'box' that give an overview of this article and key details. Each with a title and text, using the box layout.
+Heading of "Perspectives" followed by a div of class 'flexbox-rows' containing up to 4 different perspectives on this article each in a div with class 'box'. Each formatted with a name, the person or organization that is presenting this perspective, could also be a viewpoint like "Skeptics" that provides a critical view. And text describing the perspective.
+Quotes using the 'quote' class.
+
+You have free control over the layout to make it visually engaging.
+EVERYTHING must be entirely factual and based on the sources provided, no assumptions or guesswork.
+
+Sources:
+{articles_content}"#
     );
 
-    run::<ArticleEntry>(&context)
+    let entry = run::<ArticleEntry>(&context)
         .await
-        .map_err(|e| anyhow!("Article generation failed: {e}"))
+        .map_err(|e| anyhow!("Article generation failed: {e}"))?;
+
+    // Clean the content using ammonia to prevent XSS attacks
+    let sanitizer = ammonia::Builder::default()
+        .add_generic_attributes(&["class"])
+        .clean(&entry.content)
+        .to_string();
+
+    Ok(ArticleEntry {
+        content: sanitizer,
+        ..entry
+    })
 }

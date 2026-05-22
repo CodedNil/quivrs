@@ -1,6 +1,6 @@
 use super::components::RatingPill;
 use crate::shared::{
-    ArticleData, ArticleStatus, Rating, Section, StoredArticle,
+    ArticleData, ArticleStatus, Rating, StoredArticle,
     server_functions::{set_article_status, set_rating},
 };
 use dioxus::prelude::*;
@@ -120,8 +120,12 @@ pub fn ArticleDetail(
             }
 
             if let Some(entry) = &article.entry {
-                for section in &entry.sections {
-                    {render_section(section)}
+                style {
+                    "{ARTICLE_CSS}"
+                }
+                div {
+                    class: "article-content",
+                    dangerous_inner_html: "{entry.content}"
                 }
             } else {
                 p {
@@ -144,6 +148,59 @@ pub fn ArticleDetail(
         }
     }
 }
+
+const ARTICLE_CSS: &str = r"
+    .article-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        color: var(--text);
+        line-height: 1.75;
+        font-size: 0.9375rem;
+    }
+    .article-content h1 { font-size: 1.5rem; font-weight: 800; margin: 2rem 0 0.5rem; color: var(--text); }
+    .article-content h2 { font-size: 1.25rem; font-weight: 700; margin: 1.5rem 0 0.5rem; color: var(--text); }
+    .article-content h3 { font-size: 1.1rem; font-weight: 700; margin: 1rem 0 0.5rem; color: var(--text); }
+    .article-content p { margin: 0; }
+    .article-content img { width: 100%; border-radius: 12px; display: block; margin: 1rem 0; }
+    .article-content ul { margin: 0; padding-left: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+    .article-content .box {
+        border: 1px solid var(--surface0);
+        border-radius: 10px;
+        padding: 1rem;
+        background: var(--mantle);
+    }
+    .article-content .flexbox-columns {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .article-content .flexbox-rows {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .article-content .flexbox-rows .box {
+        flex: 1;
+        min-width: 200px;
+    }
+    .article-content .quote {
+        font-style: italic;
+        padding-left: 1.25rem;
+        border-left: 4px solid var(--accent);
+        color: var(--subtext1);
+        margin: 1rem 0;
+    }
+    .article-content figure { margin: 1.25rem 0; }
+    .article-content figcaption {
+        font_size: 0.75rem;
+        color: var(--subtext1);
+        margin-top: 0.5rem;
+        text-align: center;
+        line-height: 1.4;
+    }
+";
 
 #[component]
 fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
@@ -226,172 +283,5 @@ fn StarRating(
                 }
             }
         }
-    }
-}
-
-fn render_inline(text: &str) -> Element {
-    let mut elements: Vec<Element> = Vec::new();
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    let mut plain_start = 0;
-
-    while i < bytes.len() {
-        let b = bytes[i];
-        if (b == b'*' || b == b'_')
-            && let Some(rel_end) = bytes[i + 1..].iter().position(|&x| x == b)
-        {
-            let end = rel_end + i + 1;
-            if i > plain_start {
-                let s = text[plain_start..i].to_string();
-                elements.push(rsx! {
-                    span { "{s}" }
-                });
-            }
-            let s = text[i + 1..end].to_string();
-            elements.push(if b == b'*' {
-                rsx! {
-                    span { font_weight: "700", "{s}" }
-                }
-            } else {
-                rsx! {
-                    span { font_style: "italic", "{s}" }
-                }
-            });
-            i = end + 1;
-            plain_start = i;
-            continue;
-        }
-        i += 1;
-    }
-    if plain_start < bytes.len() {
-        let s = text[plain_start..].to_string();
-        elements.push(rsx! {
-            span { "{s}" }
-        });
-    }
-    rsx! {
-        {elements.into_iter()}
-    }
-}
-
-fn render_box_item(item: &str) -> Element {
-    let (header, text) = item
-        .split_once('|')
-        .map_or((None, item), |(h, t)| (Some(h), t));
-    rsx! {
-        div {
-            border: "1px solid var(--base)",
-            border_radius: "0.375rem",
-            padding: "0.625rem 0.875rem",
-            height: "100%",
-            if let Some(h) = header {
-                div {
-                    font_size: "0.62rem",
-                    font_weight: "700",
-                    color: "var(--subtext1)",
-                    text_transform: "uppercase",
-                    letter_spacing: "0.08em",
-                    margin_bottom: "0.25rem",
-                    "{h}"
-                }
-            }
-            div {
-                font_size: "0.875rem",
-                color: "var(--text)",
-                line_height: "1.5",
-                {render_inline(text)}
-            }
-        }
-    }
-}
-
-fn render_section(section: &Section) -> Element {
-    match section {
-        Section::Header(s) => rsx! {
-            h2 {
-                font_size: "0.8rem",
-                font_weight: "700",
-                color: "var(--text)",
-                text_transform: "uppercase",
-                letter_spacing: "0.1em",
-                margin: "2.5rem 0 0.8rem",
-                "{s}"
-            }
-        },
-        Section::Paragraph(text) => rsx! {
-            p {
-                font_size: "0.875rem",
-                color: "var(--text)",
-                line_height: "1.75",
-                margin: "0 0 1rem",
-                {render_inline(text)}
-            }
-        },
-        Section::Image(raw) => {
-            let (url, caption) = raw.split_once('|').unwrap_or(("", raw));
-            rsx! {
-                figure { margin: "1.25rem 0",
-                    img {
-                        src: "{url}",
-                        alt: "{caption}",
-                        width: "100%",
-                        border_radius: "0.375rem",
-                        display: "block",
-                    }
-                    figcaption {
-                        font_size: "0.7rem",
-                        color: "var(--subtext1)",
-                        margin_top: "0.375rem",
-                        text_align: "center",
-                        "{caption}"
-                    }
-                }
-            }
-        }
-        Section::List(items) => rsx! {
-            ul {
-                margin: "0 0 1.25rem",
-                padding_left: "1.25rem",
-                display: "flex",
-                flex_direction: "column",
-                gap: "0.375rem",
-                for item in items {
-                    li {
-                        font_size: "0.875rem",
-                        color: "var(--text)",
-                        line_height: "1.6",
-                        if let Some((h, t)) = item.split_once('|') {
-                            span { font_weight: "700", "{h}" }
-                            " "
-                            {render_inline(t)}
-                        } else {
-                            {render_inline(item)}
-                        }
-                    }
-                }
-            }
-        },
-        Section::RowBoxes(items) => rsx! {
-            div {
-                display: "flex",
-                flex_direction: "column",
-                gap: "0.5rem",
-                margin: "0 0 1.25rem",
-                for item in items {
-                    {render_box_item(item)}
-                }
-            }
-        },
-        Section::ColumnBoxes(items) => rsx! {
-            div {
-                display: "flex",
-                flex_wrap: "wrap",
-                gap: "0.5rem",
-                margin: "0 0 1.25rem",
-                for item in items {
-                    div { flex: "1", min_width: "0", {render_box_item(item)} }
-                }
-            }
-        },
     }
 }
