@@ -48,7 +48,7 @@ impl StoredArticle {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct ArticleData {
     pub id: Uuid,
     pub status: ArticleStatus,
@@ -161,7 +161,9 @@ pub enum Category {
     Gaming,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(
+    Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
+)]
 pub enum ArticleStatus {
     New,
     Stored,

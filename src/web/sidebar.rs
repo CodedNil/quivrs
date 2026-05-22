@@ -23,7 +23,10 @@ pub const ARTICLE_GAP_PX: u32 = 12;
 /// Separator border thickness below each category group.
 const CATEGORY_BORDER_PX: u32 = 12;
 
-/// Styles for the sidebar, including animations.
+/// Minimum size of a category in the horizontal scrollbar.
+const MIN_CATEGORY_PCT: f64 = 6.0;
+
+/// Styles for the sidebar.
 pub const SIDEBAR_STYLES: &str = "
     @keyframes bubble-pop {
         0% { transform: scale(1, 1); }
@@ -35,9 +38,6 @@ pub const SIDEBAR_STYLES: &str = "
         animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 ";
-
-/// Minimum percentage width for a category segment in the scrollbar to ensure icons remain visible and clickable.
-const MIN_CATEGORY_PCT: f64 = 6.0;
 
 fn category_icon(category: Category, size: u32) -> Element {
     macro_rules! ico {
@@ -66,84 +66,55 @@ fn category_icon(category: Category, size: u32) -> Element {
 #[component]
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let mut articles: Signal<Vec<ArticleData>> = use_context();
-    let data = articles.read().clone();
 
-    let new_count = data
-        .iter()
-        .filter(|a| a.status == ArticleStatus::New)
-        .count();
-    let stored_count = data
-        .iter()
-        .filter(|a| a.status == ArticleStatus::Stored)
-        .count();
-    let binned_count = data
-        .iter()
-        .filter(|a| a.status == ArticleStatus::Binned)
-        .count();
+    let processed_data = use_memo(move || {
+        let data = articles.read();
+        let mut counts = (0, 0, 0);
+        let mut groups: BTreeMap<ArticleStatus, BTreeMap<Category, Vec<ArticleData>>> =
+            BTreeMap::new();
 
-    let render_list = {
-        let data = data.clone();
-        let tab = tab.clone();
-        move |status: ArticleStatus| {
-            let active: Vec<&ArticleData> = data.iter().filter(|a| a.status == status).collect();
-            let mut groups: BTreeMap<Category, Vec<&ArticleData>> = BTreeMap::new();
-            for a in &active {
-                groups.entry(a.article.category).or_default().push(a);
+        for a in data.iter() {
+            match a.status {
+                ArticleStatus::New => counts.0 += 1,
+                ArticleStatus::Stored => counts.1 += 1,
+                ArticleStatus::Binned => counts.2 += 1,
             }
-            let tab = tab.clone();
-            rsx! {
-                for (category, items) in groups {
-                    CategoryGroup { category,
-                        for a in items {
-                            ArticleItem {
-                                key: "{a.id}",
-                                id: a.id,
-                                rating: a.rating,
-                                article: a.article.clone(),
-                                selected: selected_id,
-                                tab: tab.clone(),
-                            }
-                        }
-                    }
-                }
-            }
+            groups
+                .entry(a.status)
+                .or_default()
+                .entry(a.article.category)
+                .or_default()
+                .push(a.clone());
         }
-    };
+        (counts, groups)
+    });
 
-    let all_categories: Vec<Category> = data
-        .iter()
-        .map(|a| a.article.category)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-
+    let counts = processed_data.read().0;
     let current_status = match tab.as_str() {
         "stored" => ArticleStatus::Stored,
         "binned" => ArticleStatus::Binned,
         _ => ArticleStatus::New,
     };
 
-    let cat_heights: Vec<(Category, f64)> = all_categories
+    let current_groups = processed_data
+        .read()
+        .1
+        .get(&current_status)
+        .cloned()
+        .unwrap_or_default();
+
+    let cat_heights: Vec<(Category, f64)> = current_groups
         .iter()
-        .map(|&cat| {
-            let count = data
-                .iter()
-                .filter(|a| a.status == current_status && a.article.category == cat)
-                .count();
-            let h = if count > 0 {
-                (count as f64).mul_add(
-                    f64::from(ARTICLE_HEIGHT_PX + ARTICLE_GAP_PX),
-                    f64::from(ARTICLE_GAP_PX + CATEGORY_BORDER_PX),
-                )
-            } else {
-                0.0
-            };
+        .map(|(&cat, items)| {
+            let h = (items.len() as f64).mul_add(
+                f64::from(ARTICLE_HEIGHT_PX + ARTICLE_GAP_PX),
+                f64::from(ARTICLE_GAP_PX + CATEGORY_BORDER_PX),
+            );
             (cat, h)
         })
         .collect();
 
-    let mut scroll_top_val: Signal<f64> = use_signal(|| 0.0);
-
+    let mut scroll_top_val = use_signal(|| 0.0);
     let x_offset = match tab.as_str() {
         "stored" => "0%",
         "new" => "-33.333%",
@@ -175,7 +146,6 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     h1 {
                         font_size: "2rem",
                         font_weight: "800",
-                        letter_spacing: "0.05em",
                         color: "var(--text)",
                         text_transform: "uppercase",
                         margin: "0",
@@ -196,12 +166,12 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 
                 TabNav {
                     tab: tab.clone(),
-                    new_count,
-                    stored_count,
-                    binned_count,
+                    new_count: counts.0,
+                    stored_count: counts.1,
+                    binned_count: counts.2,
                 }
-                CategoryScrollBar {
-                    categories: all_categories,
+                CategoryScrollbar {
+                    categories: current_groups.keys().copied().collect(),
                     scroll_top: scroll_top_val,
                     cat_heights,
                 }
@@ -219,47 +189,36 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                     transform: "translateX({x_offset})",
 
-                    div {
-                        width: "33.333%",
-                        height: "100%",
-                        overflow_y: "auto",
-                        onscroll: {
-                            let tab = tab.clone();
-                            move |e: ScrollEvent| {
-                                if tab == "stored" {
+                    for status in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned] {
+                        div {
+                            key: "{status}",
+                            width: "33.333%",
+                            height: "100%",
+                            overflow_y: "auto",
+                            onscroll: move |e: ScrollEvent| {
+                                if status == current_status {
                                     scroll_top_val.set(e.scroll_top());
                                 }
-                            }
-                        },
-                        {render_list(ArticleStatus::Stored)}
-                    }
-                    div {
-                        width: "33.333%",
-                        height: "100%",
-                        overflow_y: "auto",
-                        onscroll: {
-                            let tab = tab.clone();
-                            move |e: ScrollEvent| {
-                                if tab == "new" {
-                                    scroll_top_val.set(e.scroll_top());
+                            },
+                            if status == current_status {
+                                for (category, items) in current_groups.iter() {
+                                    CategoryGroup {
+                                        key: "{category}",
+                                        category: *category,
+                                        for a in items {
+                                            ArticleItem {
+                                                key: "{a.id}",
+                                                id: a.id,
+                                                rating: a.rating,
+                                                article: a.article.clone(),
+                                                selected: selected_id,
+                                                tab: tab.clone(),
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                        },
-                        {render_list(ArticleStatus::New)}
-                    }
-                    div {
-                        width: "33.333%",
-                        height: "100%",
-                        overflow_y: "auto",
-                        onscroll: {
-                            let tab = tab;
-                            move |e: ScrollEvent| {
-                                if tab == "binned" {
-                                    scroll_top_val.set(e.scroll_top());
-                                }
-                            }
-                        },
-                        {render_list(ArticleStatus::Binned)}
+                        }
                     }
                 }
             }
@@ -275,20 +234,16 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
         _ => "calc((100% - 0.5rem) * 2 / 3 + 0.5rem)",
     };
 
-    let mut last_tab = use_signal(|| tab.clone());
     let mut trigger_anim = use_signal(|| false);
-
-    if *last_tab.read() != tab {
-        last_tab.set(tab.clone());
+    use_memo(use_reactive!(|tab| {
+        let _ = tab;
         trigger_anim.set(true);
-    }
+    }));
 
     rsx! {
         div { position: "relative", display: "flex", gap: "0.25rem",
-
-            // Sliding bubble — sits behind button text, animates between tabs
             div {
-                class: if *trigger_anim.read() { "tab-bubble-active" },
+                class: if trigger_anim() { "tab-bubble-active" },
                 onanimationend: move |_| trigger_anim.set(false),
                 position: "absolute",
                 top: "0",
@@ -302,44 +257,27 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 z_index: "1",
             }
 
-            TabButton {
-                slug: "stored",
-                label: "Stored",
-                count: stored_count,
-                active: tab.clone(),
-            }
-            TabButton {
-                slug: "new",
-                label: "New",
-                count: new_count,
-                active: tab.clone(),
-            }
-            TabButton {
-                slug: "binned",
-                label: "Binned",
-                count: binned_count,
-                active: tab,
+            for (slug, label, count) in [
+                ("stored", "Stored", stored_count),
+                ("new", "New", new_count),
+                ("binned", "Binned", binned_count),
+            ]
+            {
+                TabButton {
+                    slug,
+                    label,
+                    count,
+                    active: tab == slug,
+                }
             }
         }
     }
 }
 
 #[component]
-fn TabButton(slug: &'static str, label: &'static str, count: usize, active: String) -> Element {
-    let is_active = active.as_str() == slug;
+fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool) -> Element {
     let nav = use_navigator();
-    let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
-    let is_hovered = *hovered.read();
-    let is_pressed = *pressed.read();
-
-    let bg = if is_pressed {
-        "rgba(255,255,255,0.14)"
-    } else if is_hovered && !is_active {
-        "rgba(255,255,255,0.11)"
-    } else {
-        "rgba(255,255,255,0.06)"
-    };
 
     rsx! {
         button {
@@ -353,21 +291,16 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
             padding: "0.5rem",
             border_radius: "9999px",
             border: "none",
-            background_color: bg,
+            background_color: if active { "transparent" } else { "var(--surface0)" },
             cursor: "pointer",
             color: "var(--text)",
             font_size: "0.875rem",
             font_weight: "700",
-            transform: if is_pressed { "scale(0.94)" } else { "scale(1)" },
+            transform: if pressed() { "scale(0.94)" } else { "scale(1)" },
             transition: "background-color 0.15s ease, transform 0.1s ease",
-            filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
-            onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| {
-                hovered.set(false);
-                pressed.set(false);
-            },
             onmousedown: move |_| pressed.set(true),
             onmouseup: move |_| pressed.set(false),
+            onmouseleave: move |_| pressed.set(false),
             onclick: move |_| {
                 nav.push(Route::TabHome {
                     tab: slug.to_string(),
@@ -376,7 +309,6 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
             "{label}"
             span {
                 background_color: "rgba(255,255,255,0.12)",
-                color: "var(--text)",
                 border_radius: "9999px",
                 padding: "0.125rem 0.4rem",
                 font_size: "0.72rem",
@@ -387,7 +319,7 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: Stri
 }
 
 #[component]
-fn CategoryScrollBar(
+fn CategoryScrollbar(
     categories: Vec<Category>,
     scroll_top: Signal<f64>,
     cat_heights: Vec<(Category, f64)>,
@@ -396,60 +328,42 @@ fn CategoryScrollBar(
         return rsx! {};
     }
 
-    let n = categories.len();
-    let scroll_top = *scroll_top.read();
-
     let total_h: f64 = cat_heights.iter().map(|(_, v)| v).sum();
-    let equal_pct = 100.0 / n as f64;
 
-    let bumped: Vec<f64> = categories
-        .iter()
-        .map(|&cat| {
-            let height = cat_heights
-                .iter()
-                .find(|(c, _)| *c == cat)
-                .map_or(0.0, |(_, v)| *v);
-
-            if height > 0.0 {
-                let raw = if total_h > 0.0 {
-                    height / total_h * 100.0
+    let segment_pcts: Vec<f64> = {
+        let bumped: Vec<f64> = cat_heights
+            .iter()
+            .map(|(_, h)| {
+                if *h > 0.0 {
+                    (*h / total_h * 100.0).max(MIN_CATEGORY_PCT)
                 } else {
-                    equal_pct
-                };
-                raw.max(MIN_CATEGORY_PCT)
-            } else {
-                0.0
-            }
-        })
-        .collect();
+                    0.0
+                }
+            })
+            .collect();
+        let sum: f64 = bumped.iter().sum();
+        bumped.into_iter().map(|p| p / sum * 100.0).collect()
+    };
 
-    let bumped_sum: f64 = bumped.iter().sum();
-    let segment_pcts: Vec<f64> = bumped.iter().map(|&p| p / bumped_sum * 100.0).collect();
-
-    let dot_pct = if total_h > 0.0 {
-        let mut cumulative_content = 0.0f64;
-        let mut cumulative_adj = 0.0f64;
-        let mut result = 100.0f64;
-        for (i, &cat) in categories.iter().enumerate() {
-            let height = cat_heights
-                .iter()
-                .find(|(c, _)| *c == cat)
-                .map_or(0.0, |(_, v)| *v);
-            if scroll_top < cumulative_content + height || i + 1 == n {
-                let t = if height > 0.0 {
-                    ((scroll_top - cumulative_content) / height).clamp(0.0, 1.0)
+    let dot_pct = {
+        let st = *scroll_top.read();
+        let mut cumulative_content = 0.0;
+        let mut cumulative_adj = 0.0;
+        let mut pos = 0.0;
+        for (i, (_, h)) in cat_heights.iter().enumerate() {
+            if st < cumulative_content + h || i == categories.len() - 1 {
+                let t = if *h > 0.0 {
+                    ((st - cumulative_content) / h).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
-                result = (cumulative_adj + t * segment_pcts[i]).clamp(0.0, 100.0);
+                pos = cumulative_adj + t * segment_pcts[i];
                 break;
             }
-            cumulative_content += height;
+            cumulative_content += h;
             cumulative_adj += segment_pcts[i];
         }
-        result
-    } else {
-        0.0
+        pos
     };
 
     rsx! {
@@ -457,59 +371,64 @@ fn CategoryScrollBar(
             id: "category-scroll-bar",
             position: "relative",
             display: "flex",
-            height: "1.2rem",
+            height: "1.4rem",
+            background_color: "var(--surface0)",
+            border: "2px solid var(--surface1)",
+            border_radius: "9999px",
+            align_items: "center",
+            overflow: "hidden",
 
             div {
                 position: "absolute",
                 left: "{dot_pct:.2}%",
-                aspect_ratio: "1 / 1",
                 height: "100%",
-                transform: "translateX(-50%)",
-                background_color: "color-mix(in srgb, var(--accent) 60%, transparent)",
-                backdrop_filter: "blur(1px)",
+                aspect_ratio: "1",
+                background_color: "var(--accent)",
                 border_radius: "9999px",
-                z_index: "1",
+                filter: "blur(2px)",
+                z_index: "0",
                 transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
             }
 
             for (i, &category) in categories.iter().enumerate() {
-                {
-                    let pct = segment_pcts[i];
-                    let is_hidden = pct < 0.1;
-                    rsx! {
-                        div {
-                            flex: "0 0 {pct:.4}%",
-                            min_width: "0",
-                            overflow: "hidden",
-                            display: "flex",
-                            align_items: "center",
-                            justify_content: "center",
-                            background_color: "rgba(255,255,255,0.08)",
-                            border_right: if i + 1 < n { "2px solid var(--base)" } else { "none" },
-                            border_radius: if i == 0 { "0.3rem 0 0 0.3rem" } else if i + 1 == n { "0 0.3rem 0.3rem 0" } else { "0" },
-                            color: "var(--text)",
-                            cursor: "pointer",
-                            title: "{category}",
-                            transition: "flex 0.3s ease, opacity 0.3s ease",
-                            opacity: if is_hidden { "0" } else { "1" },
-                            pointer_events: if is_hidden { "none" } else { "auto" },
-                            onclick: move |_| {
-                                #[cfg(target_arch = "wasm32")]
-                                if let Some(cat_el) = web_sys::window()
-                                    .and_then(|w| w.document())
-                                    .and_then(|d| d.get_element_by_id(&format!("category-group-{category}")))
-                                {
-                                    cat_el.scroll_into_view();
-                                }
-                            },
-                            span {
-                                position: "relative",
-                                z_index: "2",
-                                pointer_events: "none",
-                                filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
-                                {category_icon(category, 13)}
-                            }
+                div {
+                    key: "{category}",
+                    flex: "0 0 {segment_pcts[i]:.4}%",
+                    display: "flex",
+                    height: "100%",
+                    align_items: "center",
+                    justify_content: "center",
+                    position: "relative",
+                    cursor: "pointer",
+                    title: "{category}",
+                    z_index: "1",
+                    onclick: move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(el) = web_sys::window()
+                            .and_then(|w| w.document())
+                            .and_then(|d| d.get_element_by_id(&format!("category-group-{category}")))
+                        {
+                            el.scroll_into_view();
                         }
+                    },
+
+                    // Visual separator
+                    if i + 1 < categories.len() {
+                        div {
+                            position: "absolute",
+                            right: "0",
+                            top: "15%",
+                            bottom: "15%",
+                            width: "1.5px",
+                            transform: "translateX(50%)",
+                            background_color: "var(--overlay0)",
+                            filter: "blur(0.5px)",
+                            z_index: "-1",
+                        }
+                    }
+
+                    span { filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
+                        {category_icon(category, 13)}
                     }
                 }
             }
@@ -524,26 +443,23 @@ fn CategoryGroup(category: Category, children: Element) -> Element {
             id: "category-group-{category}",
             display: "flex",
             border_bottom: "{CATEGORY_BORDER_PX}px solid var(--base)",
-            background_color: "rgba(54, 58, 79, 0.15)",
+            background_color: "var(--surface0)",
 
             div { width: LABEL_WIDTH, background_color: "var(--surface0)",
                 div {
                     position: "sticky",
                     top: "0",
-                    width: "100%",
                     display: "flex",
                     flex_direction: "column",
                     align_items: "center",
                     padding: "0.8rem",
                     gap: "0.75rem",
-                    color: "var(--text)",
                     {category_icon(category, 24)}
                     div {
                         writing_mode: "vertical-rl",
                         transform: "rotate(180deg)",
                         font_size: "1.2rem",
                         font_weight: "800",
-                        color: "var(--text)",
                         text_transform: "uppercase",
                         letter_spacing: "0.12em",
                         "{category}"
@@ -573,20 +489,16 @@ fn ArticleItem(
     let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
-    let is_hovered = *hovered.read();
-    let is_pressed = *pressed.read();
 
     let title = article.display_title();
     let description = article.display_description();
-    let description_truncated = match description.char_indices().nth(200) {
-        Some((idx, _)) => &description[..idx],
-        None => description,
-    };
+    let description_truncated = description.chars().take(200).collect::<String>();
 
     let hero_image = article.sources.iter().find_map(|s| {
         s.images
-            .first()
-            .and_then(|img| img.split('|').next())
+            .first()?
+            .split('|')
+            .next()
             .filter(|url| !url.is_empty())
     });
 
@@ -601,37 +513,14 @@ fn ArticleItem(
         }
     };
 
-    let bg = if is_selected {
-        "color-mix(in srgb, var(--accent) 22%, var(--crust))"
-    } else {
-        "var(--crust)"
-    };
-    let scale = if is_pressed {
-        "scale(0.98)"
-    } else if is_hovered {
-        "scale(1.01)"
-    } else {
-        "scale(1)"
-    };
-    let shadow = if is_hovered {
-        "1px 2px 6px rgba(0,0,0,0.8)"
-    } else {
-        "0.5px 1px 4px rgba(0,0,0,0.6)"
-    };
-    let border_color = if is_hovered {
-        "rgba(255,255,255,0.3)"
-    } else {
-        "rgba(255,255,255,0.18)"
-    };
-
     rsx! {
         div {
-            style: "content-visibility:auto;contain-intrinsic-size:auto {ARTICLE_HEIGHT_PX}px;will-change:transform",
+            style: "content-visibility:auto;contain-intrinsic-size:auto {ARTICLE_HEIGHT_PX}px;",
             cursor: "pointer",
             border_radius: "0.625rem",
-            box_shadow: shadow,
-            transform: scale,
-            transition: "transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), box-shadow 0.2s ease-out",
+            transform: if pressed() { "scale(0.98)" } else if hovered() { "scale(1.01)" } else { "scale(1)" },
+            box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
+            transition: "transform 0.2s ease, box-shadow 0.2s ease",
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -652,23 +541,21 @@ fn ArticleItem(
                 border_radius: "0.625rem",
                 height: "{ARTICLE_HEIGHT_PX}px",
                 overflow: "hidden",
-                background_color: bg,
-                border: "2px solid {border_color}",
-                transition: "border-color 0.2s ease-out, background-color 0.2s ease-out",
+                background_color: if is_selected { "color-mix(in srgb, var(--accent) 22%, var(--crust))" } else { "var(--crust)" },
+                border: "2px solid",
+                border_color: if hovered() { "rgba(255,255,255,0.3)" } else { "rgba(255,255,255,0.18)" },
+                transition: "border-color 0.2s ease, background-color 0.2s ease",
 
                 if let Some(img_url) = hero_image {
                     img {
                         src: "{img_url}",
                         position: "absolute",
-                        top: "0",
-                        left: "0",
                         width: "100%",
                         height: "100%",
                         object_fit: "cover",
                         object_position: "center 35%",
-                        z_index: "0",
-                        transition: "transform 0.4s cubic-bezier(0.2, 0, 0.2, 1)",
-                        transform: if is_hovered { "scale(1.05)" } else { "scale(1)" },
+                        transform: if hovered() { "scale(1.05)" } else { "scale(1)" },
+                        transition: "transform 0.4s ease",
                     }
                 }
 
@@ -680,7 +567,6 @@ fn ArticleItem(
                         width: "40px",
                         height: "40px",
                         z_index: 2,
-                        filter: "drop-shadow(1px 2px 4px rgba(0,0,0,0.5))",
                         div {
                             width: "100%",
                             height: "100%",
@@ -703,23 +589,19 @@ fn ArticleItem(
                         font_size: "1rem",
                         font_weight: "700",
                         color: "#fff",
-                        line_height: "1.2",
                         margin: "0 0 0.4rem 0",
                         "{title}"
                     }
                     p {
                         font_size: "0.75rem",
                         color: "rgba(255,255,255,0.85)",
-                        line_height: "1.4",
                         font_weight: "600",
                         margin: "0",
-                        overflow: "hidden",
                         span {
                             font_size: "0.65rem",
                             color: "rgba(255,255,255,0.7)",
                             font_weight: "900",
                             text_transform: "uppercase",
-                            letter_spacing: "0.05em",
                             margin_right: "0.6rem",
                             "{time_ago}"
                         }
