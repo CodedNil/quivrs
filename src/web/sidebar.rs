@@ -110,7 +110,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
         })
         .collect();
 
-    let mut scroll_top_val = use_signal(|| 0.0);
+    let scroll_top_val = use_signal(|| 0.0);
     let tab_index = match tab.as_str() {
         "stored" => 0,
         "new" => 1,
@@ -177,43 +177,69 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 position: "relative",
                 background_color: "var(--mantle)",
                 border_radius: "20px 40px 0px 0px",
+
                 div {
                     display: "flex",
                     width: "100%",
                     height: "100%",
                     transition: "transform 1.4s cubic-bezier(0.4, 0, 0.2, 1)",
                     transform: "translateX(calc(-{tab_index} * 100% - {tab_index} * 40px))",
+                    // OPTIMIZATION: Promotes the massive horizontal lane container to its own GPU layer.
+                    will_change: "transform",
 
                     for (i, status) in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned]
                         .into_iter()
                         .enumerate()
                     {
-                        div {
+                        StatusLane {
                             key: "{status}",
-                            flex: "0 0 100%",
-                            height: "100%",
-                            overflow_y: "auto",
-                            onscroll: move |e: ScrollEvent| {
-                                if status == current_status {
-                                    scroll_top_val.set(e.scroll_top());
-                                }
-                            },
-                            margin_right: if i < 2 { "40px" } else { "0" },
+                            status,
+                            current_status,
+                            is_last_lane: i == 2,
+                            groups: all_groups.get(&status).cloned().unwrap_or_default(),
+                            selected_id,
+                            tab: tab.clone(),
+                            scroll_top_val,
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-                            for (category, items) in all_groups.get(&status).into_iter().flatten() {
-                                CategoryGroup { key: "{category}", category: *category,
-                                    for a in items {
-                                        ArticleItem {
-                                            key: "{a.id}",
-                                            id: a.id,
-                                            rating: a.rating,
-                                            article: a.article.clone(),
-                                            selected: selected_id,
-                                            tab: tab.clone(),
-                                        }
-                                    }
-                                }
-                            }
+#[component]
+fn StatusLane(
+    status: ArticleStatus,
+    current_status: ArticleStatus,
+    is_last_lane: bool,
+    groups: BTreeMap<Category, Vec<ArticleData>>,
+    selected_id: Option<Uuid>,
+    tab: String,
+    mut scroll_top_val: Signal<f64>,
+) -> Element {
+    rsx! {
+        div {
+            flex: "0 0 100%",
+            height: "100%",
+            overflow_y: "auto",
+            margin_right: if is_last_lane { "0" } else { "40px" },
+            onscroll: move |e: ScrollEvent| {
+                if status == current_status {
+                    scroll_top_val.set(e.scroll_top());
+                }
+            },
+
+            for (category, items) in groups {
+                CategoryGroup { key: "{category}", category,
+                    for a in items {
+                        ArticleItem {
+                            key: "{a.id}",
+                            id: a.id,
+                            rating: a.rating,
+                            article: a.article,
+                            selected: selected_id,
+                            tab: tab.clone(),
                         }
                     }
                 }
@@ -258,6 +284,8 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 transition: "left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
                 pointer_events: "none",
                 z_index: "1",
+                // OPTIMIZATION: Informs the browser that this active background bubble is highly dynamic.
+                will_change: "left, transform",
             }
 
             for (slug, label, count) in [
@@ -302,6 +330,8 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
             text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
             transform: if hovered() { "scale(1.05)" } else if pressed() { "scale(0.94)" } else { "scale(1)" },
             transition: "transform 0.1s ease",
+            // OPTIMIZATION: Micro-button scale interactions drop layout overhead.
+            will_change: "transform",
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -337,9 +367,11 @@ fn CategoryScrollbar(
         return rsx! {};
     }
 
-    let total_h: f64 = cat_heights.iter().map(|(_, v)| v).sum();
-
-    let segment_pcts: Vec<f64> = {
+    let segment_pcts = use_memo(use_reactive!(|cat_heights| {
+        let total_h: f64 = cat_heights.iter().map(|(_, v)| v).sum();
+        if total_h <= 0.0 {
+            return vec![0.0; cat_heights.len()];
+        }
         let bumped: Vec<f64> = cat_heights
             .iter()
             .map(|(_, h)| {
@@ -352,29 +384,30 @@ fn CategoryScrollbar(
             .collect();
         let sum: f64 = bumped.iter().sum();
         bumped.into_iter().map(|p| p / sum * 100.0).collect()
-    };
+    }));
 
-    let dot_pct = {
+    let dot_pct = use_memo(use_reactive!(|scroll_top, cat_heights, segment_pcts| {
         let st = *scroll_top.read();
         let mut cumulative_content = 0.0;
         let mut cumulative_adj = 0.0;
         let mut pos = 0.0;
+        let pcts = segment_pcts.read();
         for (i, (_, h)) in cat_heights.iter().enumerate() {
             let segment_h = *h;
-            if st < cumulative_content + segment_h || i == categories.len() - 1 {
+            if st < cumulative_content + segment_h || i == cat_heights.len() - 1 {
                 let t = if segment_h > 0.0 {
                     ((st - cumulative_content) / segment_h).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
-                pos = cumulative_adj + t * segment_pcts[i];
+                pos = cumulative_adj + t * pcts[i];
                 break;
             }
             cumulative_content += segment_h;
-            cumulative_adj += segment_pcts[i];
+            cumulative_adj += pcts[i];
         }
         pos
-    };
+    }));
 
     rsx! {
         div {
@@ -397,12 +430,13 @@ fn CategoryScrollbar(
                 border_radius: "9999px",
                 z_index: "0",
                 transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
+                will_change: "left",
             }
 
             for (i, &category) in categories.iter().enumerate() {
                 div {
                     key: "{category}",
-                    flex: "0 0 {segment_pcts[i]:.4}%",
+                    flex: "0 0 {segment_pcts.read()[i]:.4}%",
                     display: "flex",
                     height: "100%",
                     align_items: "center",
@@ -516,14 +550,14 @@ fn ArticleItem(
             .filter(|url| !url.is_empty())
     });
 
-    let time_ago = {
+    let time_ago = use_memo(move || {
         let diff = chrono::Utc::now().signed_duration_since(article.published);
         match () {
             () if diff.num_days() > 0 => format!("{}d", diff.num_days()),
             () if diff.num_hours() > 0 => format!("{}h", diff.num_hours()),
             () => format!("{}m", diff.num_minutes().max(1)),
         }
-    };
+    });
 
     // For the text overlay
     let start_color = if is_selected {
@@ -541,19 +575,15 @@ fn ArticleItem(
         div {
             id: "article-{id}",
             height: "{ARTICLE_HEIGHT_PX}px",
-            // style: "content-visibility:auto; contain-intrinsic-size:auto {ARTICLE_HEIGHT_PX}px;",
             cursor: "pointer",
-            overflow: "hidden",
             border_radius: "2rem",
             border: "2px solid var(--surface1)",
-            display: "flex",
-            flex_direction: "column",
-            justify_content: "flex-end",
-            padding: "0px",
-            margin: "0px",
             transform: if pressed() { "scale(0.98)" } else if hovered() { "scale(1.01)" } else { "scale(1)" },
             box_shadow: if hovered() { "1px 2px 6px rgba(0,0,0,0.8)" } else { "0.5px 1px 4px rgba(0,0,0,0.6)" },
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
+            // OPTIMIZATION: Isolates the card onto its own layer so scaling won't repaint the whole sidebar.
+            will_change: "transform",
+
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -569,61 +599,79 @@ fn ArticleItem(
                     });
             },
 
-            if let Some(img_url) = hero_image {
-                img {
-                    src: "{img_url}",
-                    position: "absolute",
-                    width: "100%",
-                    height: "100%",
-                    object_fit: "cover",
-                    object_position: "center 35%",
-                    transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
-                    transition: "transform 0.4s ease",
-                }
-            }
+            div {
+                width: "100%",
+                height: "100%",
+                border_radius: "calc(2rem - 2px)",
+                overflow: "hidden",
+                display: "grid",
+                grid_template_columns: "1fr",
+                grid_template_rows: "1fr",
+                // Fixes clipping issues
+                style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black);",
+                transform: "translateZ(0)",
 
-            if let Some(r) = rating {
-                div {
-                    position: "absolute",
-                    top: "0",
-                    left: "0",
-                    width: "70px",
-                    height: "50px",
-                    div {
+                if let Some(img_url) = hero_image {
+                    img {
+                        src: "{img_url}",
+                        grid_column: "1",
+                        grid_row: "1",
                         width: "100%",
                         height: "100%",
+                        object_fit: "cover",
+                        object_position: "center 35%",
+                        transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
+                        transition: "transform 0.4s ease",
+                        // OPTIMIZATION: Separates image scale effects from text element rendering layers.
+                        will_change: "transform",
+                        // OPTIMIZATION: Helps browser schedule heavy image decoding off the main thread.
+                        decoding: "async",
+                    }
+                }
+
+                if let Some(r) = rating {
+                    div {
+                        grid_column: "1",
+                        grid_row: "1",
+                        justify_self: "start",
+                        align_self: "start",
+                        width: "70px",
+                        height: "50px",
+                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
                         background_color: "color-mix(in srgb, {rating_color(r)} 70%, transparent)",
                         backdrop_filter: "blur(8px)",
-                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
                     }
                 }
-            }
 
-            div {
-                padding: "0.75rem",
-                background: "linear-gradient(to top, color-mix(in srgb, {start_color} 90%, transparent) 0%, color-mix(in srgb, {end_color} 70%, transparent) 100%)",
-                backdrop_filter: "blur(8px)",
-                text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
-                h3 {
-                    font_size: "1rem",
-                    font_weight: "700",
-                    color: "var(--text)",
-                    margin: "0 0 0.4rem 0",
-                    "{title}"
-                }
-                p {
-                    font_size: "0.75rem",
-                    color: "var(--subtext1)",
-                    font_weight: "600",
-                    margin: "0",
-                    span {
-                        font_size: "0.65rem",
-                        font_weight: "900",
-                        text_transform: "uppercase",
-                        margin_right: "0.4rem",
-                        "{time_ago}"
+                div {
+                    grid_column: "1",
+                    grid_row: "1",
+                    align_self: "end",
+                    padding: "0.75rem",
+                    background: "linear-gradient(to top, color-mix(in srgb, {start_color} 90%, transparent) 0%, color-mix(in srgb, {end_color} 70%, transparent) 100%)",
+                    backdrop_filter: "blur(8px)",
+                    text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
+                    h3 {
+                        font_size: "1rem",
+                        font_weight: "700",
+                        color: "var(--text)",
+                        margin: "0 0 0.4rem 0",
+                        "{title}"
                     }
-                    "{description_truncated}"
+                    p {
+                        font_size: "0.75rem",
+                        color: "var(--subtext1)",
+                        font_weight: "600",
+                        margin: "0",
+                        span {
+                            font_size: "0.65rem",
+                            font_weight: "900",
+                            text_transform: "uppercase",
+                            margin_right: "0.4rem",
+                            "{time_ago}"
+                        }
+                        "{description_truncated}"
+                    }
                 }
             }
         }
