@@ -48,36 +48,68 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
     };
 
     let base_url = Url::parse(&url).ok();
-    let (m, images) = collect_page_metadata(&html, base_url.as_ref());
+    let (metadata, mut images) = collect_page_metadata(&html, base_url.as_ref());
 
     let get = |keys: &[&str]| -> String {
         keys.iter()
-            .find_map(|k| m.get(*k))
+            .find_map(|k| metadata.get(*k))
             .cloned()
             .unwrap_or_default()
     };
     let title = get(&["sl_headline", "og_title", "basic_title"]);
     let summary = get(&["sl_description", "og_description", "basic_description"]);
-    let content = {
-        let from_jsonld = get(&["sl_body"]);
-        if from_jsonld.is_empty() {
+    let content = Some(get(&["sl_body"]))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
             Readability::new(html.as_str(), Some(url.as_str()), None)
                 .ok()
                 .and_then(|mut r| r.parse().ok())
-                .map(|a| a.text_content.to_string())
+                .map(|a| {
+                    let doc = Html::parse_fragment(&a.content);
+                    let sel = Selector::parse("img").unwrap();
+                    images.clear();
+                    for img in doc.select(&sel) {
+                        let src = img
+                            .value()
+                            .attr("srcset")
+                            .and_then(|srcset| {
+                                srcset
+                                    .split(',')
+                                    .filter_map(|s| {
+                                        let parts: Vec<_> = s.split_whitespace().collect();
+                                        if parts.is_empty() {
+                                            return None;
+                                        }
+                                        let url = parts[0];
+                                        let width = parts
+                                            .get(1)
+                                            .and_then(|w| w.strip_suffix('w'))
+                                            .and_then(|w| w.parse::<u32>().ok())
+                                            .unwrap_or(0);
+                                        Some((url, width))
+                                    })
+                                    .max_by_key(|&(_, width)| width)
+                                    .map(|(url, _)| url.to_string())
+                            })
+                            .or_else(|| img.value().attr("src").map(String::from));
+
+                        if let Some(src) = src {
+                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
+                            images.push((resolve_url(base_url.as_ref(), &src), alt));
+                        }
+                    }
+                    a.text_content.to_string()
+                })
                 .unwrap_or_default()
-        } else {
-            from_jsonld
-        }
-    };
-    let date = m
+        });
+    let date = metadata
         .get("sl_date")
-        .or_else(|| m.get("og_date"))
+        .or_else(|| metadata.get("og_date"))
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map_or_else(Utc::now, |d| d.with_timezone(&Utc));
-    let tags = m
+    let tags = metadata
         .get("sl_keywords")
-        .or_else(|| m.get("parsely_tags"))
+        .or_else(|| metadata.get("parsely_tags"))
         .map(|s| {
             s.split(',')
                 .map(str::trim)
@@ -85,7 +117,7 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         })
-        .or_else(|| m.get("sl_section").map(|s| vec![s.clone()]))
+        .or_else(|| metadata.get("sl_section").map(|s| vec![s.clone()]))
         .unwrap_or_default();
 
     if !title.is_empty() && BOT_TITLES.iter().any(|t| title.to_lowercase().contains(t)) {

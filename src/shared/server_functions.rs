@@ -44,3 +44,10 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<(), ServerFnError> {
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))
 }
+
+#[server]
+pub async fn regenerate_article(id: Uuid) -> Result<(), ServerFnError> {
+    crate::server::database::regenerate_article(id)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))
+}

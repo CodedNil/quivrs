@@ -36,6 +36,9 @@ fn AppHead() -> Element {
                 --subtext0: #a5adcb;
                 --subtext1: #b8c0e0;
                 --accent: #8aadf4;
+
+                --mantle-transparent: color-mix(in srgb, var(--mantle) 30%, transparent);
+
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0px;
                 background-color: var(--mantle);
@@ -130,23 +133,14 @@ fn MainLayout() -> Element {
                 let window = web_sys::window().unwrap();
                 let _ = gloo_timers::future::TimeoutFuture::new(100).await;
                 let document = window.document().unwrap();
-                if let (Some(scroll_el), Some(art_el)) = (
-                    document
-                        .get_element_by_id("article-scroll-container")
-                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
-                    document
-                        .get_element_by_id(&format!("article-{target_id}"))
-                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok()),
-                ) {
-                    let sr = scroll_el.get_bounding_client_rect();
-                    let ar = art_el.get_bounding_client_rect();
-                    let target_top = scroll_el.scroll_top() as f64 + ar.top() - sr.top();
-                    let final_top = (target_top - f64::from(sidebar::ARTICLE_GAP_PX)).max(0.0);
-
-                    scroll_el.scroll_to_with_scroll_to_options(
-                        web_sys::ScrollToOptions::new()
-                            .top(final_top)
-                            .behavior(web_sys::ScrollBehavior::Instant),
+                if let Some(art_el) = document
+                    .get_element_by_id(&format!("article-{target_id}"))
+                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+                {
+                    art_el.scroll_into_view_with_scroll_into_view_options(
+                        web_sys::ScrollIntoViewOptions::new()
+                            .behavior(web_sys::ScrollBehavior::Instant)
+                            .block(web_sys::ScrollLogicalPosition::Center),
                     );
                 }
             });

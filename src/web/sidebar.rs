@@ -508,7 +508,7 @@ fn ArticleItem(
 
     let title = article.display_title();
     let description = article.display_description();
-    let hero_image = article.hero_image();
+    let thumbnail = article.thumbnail_image();
 
     let d = chrono::Utc::now().signed_duration_since(article.published);
     let time_ago = if d.num_days() > 0 {
@@ -549,7 +549,7 @@ fn ArticleItem(
 
             div { flex: "1", overflow: "hidden", position: "relative",
 
-                if let Some(img_url) = hero_image {
+                if let Some(img_url) = thumbnail {
                     img {
                         src: "{img_url}",
                         width: "100%",

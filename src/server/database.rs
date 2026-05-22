@@ -2,6 +2,7 @@ use crate::server::embeddings::{
     MODEL_NAME, article_text, category_label, classify, embed_label_texts,
     generate_article_embeddings, label_hash, seed_label_cache,
 };
+use crate::server::parsers::websites::fetch_source_content;
 use crate::shared::{
     ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Category, Rating, StoredArticle,
 };
@@ -502,4 +503,42 @@ pub async fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
                 .map_err(|e| anyhow!("{e}"))
         })
         .collect()
+}
+
+/// Resets an article's generated entry to NULL and refreshes its sources.
+pub async fn regenerate_article(article_id: Uuid) -> Result<()> {
+    let raw = sqlx::query!("SELECT sources FROM articles WHERE id = ?", article_id)
+        .fetch_one(&*DB)
+        .await?
+        .sources;
+
+    let sources: Vec<ArticleSource> = from_bytes(&raw)?;
+    let mut updated_sources = Vec::with_capacity(sources.len());
+
+    for source in sources {
+        let updated = fetch_source_content(source.url.clone()).await;
+
+        match updated {
+            Ok(Some(s)) => updated_sources.push(s),
+            _ => updated_sources.push(source),
+        }
+    }
+
+    let sources_bytes = to_allocvec(&updated_sources)?;
+    let updated_at = Utc::now().timestamp();
+
+    sqlx::query!(
+        "UPDATE articles SET entry = NULL, sources = ?, updated_at = ? WHERE id = ?",
+        sources_bytes,
+        updated_at,
+        article_id,
+    )
+    .execute(&*DB)
+    .await?;
+
+    if let Err(err) = super::articles::regenerate_articles().await {
+        error!("Article regeneration failed: {err}");
+    }
+
+    Ok(())
 }

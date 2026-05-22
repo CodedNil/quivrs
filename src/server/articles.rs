@@ -206,18 +206,22 @@ async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<Article
 
     let context = format!(
         r#"Synthesise all sources into a single cohesive article.
-Use a few web searches for the title of each source to gather the latest information.
+Use a few web searches gather the latest information and deep dive of the subject.
+EVERYTHING must be entirely factual and based on the sources provided.
 
 Output the result in the following JSON schema:
 {{
-  "title": "Concise and descriptive title, max 8 words",
-  "description": "Short informative summary, a few sentences max, no newlines",
-  "content": "HTML article content",
-  "sidebar": "HTML for a wiki-style sidebar"
+  "title": Concise and descriptive title, max 8 words
+  "description": Short informative summary, a few sentences max, no newlines
+  "thumbnail": URL for an image to represent the thumbnail, ideally without people and complexity, needs to look good with text over it
+  "popout_image": URL for an image to represent the popout image, ideally the key subject of the article, might be displayed over the thumbnail
+  "content": HTML article content
+  "sidebar": HTML sidebar content
 }}
 
 ### Main Content Guidelines ("content" field)
 The content should be written in high-quality HTML. Structure it like a professional digital publication with clear sections using headings (h2 to h6) and paragraphs. Do NOT include a main <h1> title.
+Many paragraphs are recommended when there is a lot of content, cover the article in depth without repeating yourself.
 
 #### Available Components:
 - **Box Component**: A <div> with class 'box'. MUST have a <strong> title on its own row, followed by a <p> for the text.
@@ -232,19 +236,17 @@ The content should be written in high-quality HTML. Structure it like a professi
 4. **Perspectives (Optional)**: Use the heading "Perspectives". Use 'flexbox-rows' component with up to 4 boxes near the end to show different viewpoints. The box **title** should be the name of the person, organization, or the specific viewpoint (e.g., "Skeptics", "Industry Experts", "The CEO of X").
 
 Images:
-Include all available images in the main content. Place the hero image near the top. Favour high resolution. Wrap in <figure> with an <img> (including `alt`) and a <figcaption>.
+Include every available image, don't leave any provided image unused. Place the hero image near the top, and the rest of the images throughout the article as appropriate. Favour high resolution if there are multiple of the same image provided. Wrap in <figure> with an <img> (including `alt`) and a <figcaption>.
+You can include multiple images side by side, in a grid etc where appropriate.
 
 ### Sidebar Guidelines ("sidebar" field)
 The sidebar should be a concise wiki-style summary that adapts to the article type.
-- **Container**: Use a <div> with class 'sidebar-content'.
+- **Headings**: Use a h1 to h6 to separate sections.
 - **Metadata Table**: Use a <table> with class 'info-table' for key data points.
     - News: "Date", "Location", "Key Figures".
     - Reviews: "Specs", "Price", "Rating".
     - Entities: "Founded", "Headquarters", "Key People".
 - **Highlights (Optional)**: A "Quick Highlights" section using a simple <ul> of key takeaways.
-- **Media**: Include a small thumbnail image if available.
-
-EVERYTHING must be entirely factual and based on the sources provided.
 
 Sources:
 {articles_content}"#

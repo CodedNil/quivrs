@@ -47,7 +47,7 @@ impl StoredArticle {
         )
     }
 
-    pub fn hero_image(&self) -> Option<String> {
+    pub fn first_image(&self) -> Option<String> {
         self.sources.iter().find_map(|s| {
             s.images
                 .first()
@@ -55,6 +55,14 @@ impl StoredArticle {
                 .filter(|u| !u.is_empty())
                 .map(str::to_string)
         })
+    }
+
+    pub fn thumbnail_image(&self) -> Option<String> {
+        self.entry
+            .as_ref()
+            .map(|e| e.thumbnail.clone())
+            .filter(|t| !t.is_empty())
+            .or_else(|| self.first_image())
     }
 }
 
@@ -96,6 +104,12 @@ impl std::hash::Hash for ArticleSource {
 pub struct ArticleEntry {
     /// Article's title, kept concise and descriptive, max 8 words.
     pub title: String,
+
+    /// URL for the article's thumbnail image.
+    pub thumbnail: String,
+
+    /// URL for the article's popout image.
+    pub popout_image: String,
 
     /// Short informative summary, a few sentences max and no newlines.
     pub description: String,
