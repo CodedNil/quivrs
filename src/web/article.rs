@@ -74,7 +74,7 @@ pub fn ArticleDetail(
                         src: "{url}",
                         width: "110%",
                         height: "110%",
-                        object_fit: "fill",
+                        object_fit: "cover",
                         filter: "blur(80px) saturate(3)",
                         opacity: "0.15",
                         display: "block",
@@ -197,9 +197,6 @@ pub fn ArticleDetail(
 
                         div {
                             class: "article-content",
-                            display: "flex",
-                            flex: "1",
-                            flex_direction: "column",
                             gap: "1.5rem",
                             color: "var(--text)",
                             line_height: "1.8",
@@ -215,7 +212,6 @@ pub fn ArticleDetail(
                                 class: "article-sidebar",
                                 width: "20rem",
                                 height: "fit-content",
-                                flex_shrink: "0",
                                 background: "var(--mantle-transparent)",
                                 border_radius: "16px",
                                 padding: "1.25rem",

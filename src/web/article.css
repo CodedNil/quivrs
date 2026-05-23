@@ -1,4 +1,5 @@
-.article-content {
+.article-content,
+.article-sidebar {
     h2 {
         font-size: 1.5rem;
         font-weight: 800;
@@ -19,8 +20,9 @@
         margin: 1rem 0 0.5rem;
         color: var(--text);
     }
-    p {
-        margin: 0;
+
+    div {
+        margin-bottom: 0.5rem;
     }
 
     a {
@@ -55,6 +57,32 @@
     }
     li::marker {
         color: var(--accent);
+    }
+
+    .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.25rem;
+
+        tr {
+            border-bottom: 1px solid var(--surface1);
+        }
+
+        th,
+        td {
+            padding: 0.5rem 0.25rem;
+            text-align: left;
+        }
+
+        th {
+            color: var(--subtext0);
+            font-weight: 600;
+            width: 40%;
+        }
+
+        td {
+            color: var(--text);
+        }
     }
 
     .box {
@@ -104,7 +132,11 @@
         border-left: 6px solid var(--accent);
         color: var(--text);
         font-size: 1.15rem;
-        background: linear-gradient(to right, var(--crust), var(--mantle));
+        background: linear-gradient(
+            to right,
+            var(--crust-transparent),
+            var(--mantle-transparent)
+        );
         border-radius: 0 16px 16px 0;
         position: relative;
         line-height: 1.6;
@@ -166,6 +198,7 @@
 
     figure {
         margin: 0;
+        margin-bottom: 20px;
         figcaption {
             font-size: 0.85rem;
             color: var(--subtext0);
@@ -187,58 +220,5 @@
     &:hover {
         border-color: var(--accent);
         transform: translateY(-2px);
-    }
-
-    h3 {
-        margin: 0 0 1rem;
-        font-size: 1.1rem;
-        text-align: center;
-        color: var(--accent);
-        border-bottom: 1px solid var(--surface0);
-        padding-bottom: 0.5rem;
-    }
-
-    h4 {
-        margin: 1.25rem 0 0.5rem;
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--text);
-    }
-
-    img {
-        width: 100%;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-    }
-
-    ul {
-        padding-left: 1.2rem;
-        margin: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-    }
-
-    .info-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 1.25rem;
-
-        tr {
-            border-bottom: 1px solid var(--surface1);
-        }
-
-        th {
-            text-align: left;
-            padding: 0.5rem 0.25rem;
-            color: var(--subtext0);
-            font-weight: 600;
-            width: 40%;
-        }
-
-        td {
-            padding: 0.5rem 0.25rem;
-            color: var(--text);
-        }
     }
 }

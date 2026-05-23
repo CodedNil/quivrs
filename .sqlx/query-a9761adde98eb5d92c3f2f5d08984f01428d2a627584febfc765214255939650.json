@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT sources FROM articles WHERE id = ?",
+  "query": "SELECT sources as \"sources: Json<Vec<ArticleSource>>\" FROM articles WHERE id = ?",
   "describe": {
     "columns": [
       {
-        "name": "sources",
+        "name": "sources: Json<Vec<ArticleSource>>",
         "ordinal": 0,
         "type_info": "Blob",
         "origin": {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "bbe4b325f17b29a32024c29e65974dbcbfb7d658455fb1537554aca6b3a9657b"
+  "hash": "a9761adde98eb5d92c3f2f5d08984f01428d2a627584febfc765214255939650"
 }

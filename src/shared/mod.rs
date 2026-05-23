@@ -2,7 +2,6 @@
 pub mod server_functions;
 
 use chrono::{DateTime, Utc};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
@@ -100,24 +99,12 @@ impl std::hash::Hash for ArticleSource {
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ArticleEntry {
-    /// Article's title, kept concise and descriptive, max 8 words.
     pub title: String,
-
-    /// URL for the article's thumbnail image.
-    pub thumbnail: String,
-
-    /// URL for the article's popout image.
-    pub popout_image: String,
-
-    /// Short informative summary, a few sentences max and no newlines.
     pub description: String,
-
-    /// The article's content, written in HTML.
     pub content: String,
-
-    /// A wiki-style sidebar for key facts, summaries, or metadata, written in HTML.
+    pub thumbnail: String,
     pub sidebar: Option<String>,
 }
 

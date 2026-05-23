@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", sources FROM articles\n         WHERE embedding_model != ? OR embedding IS NULL",
+  "query": "SELECT id as \"id!: Uuid\", sources as \"sources: Json<Vec<ArticleSource>>\" FROM articles\n         WHERE embedding_model != ? OR embedding IS NULL",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
         }
       },
       {
-        "name": "sources",
+        "name": "sources: Json<Vec<ArticleSource>>",
         "ordinal": 1,
         "type_info": "Blob",
         "origin": {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "947a7bd84b7753473b46671a04feaeddde80f19e9a66327d49fe266e014535b2"
+  "hash": "479468c9a499a70fadfb6f32d964dfcfc20b67ba013dd1ba2320cc2c13cec02b"
 }

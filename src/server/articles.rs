@@ -154,7 +154,7 @@ pub async fn regenerate_articles() -> Result<()> {
 
     let mut article_stream = stream::iter(targets)
         .map(|(id, sources)| async move { (id, generate_article_content(sources).await) })
-        .buffer_unordered(3);
+        .buffer_unordered(6);
 
     while let Some((id, result)) = article_stream.next().await {
         match result {
@@ -187,7 +187,7 @@ async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<Article
         .join(" ");
 
     let articles_content = sources
-        .into_iter()
+        .iter()
         .enumerate()
         .map(|(i, source)| {
             format!(
@@ -202,52 +202,55 @@ async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<Article
         .join("\n");
 
     let context = format!(
-        r#"Synthesise all sources into a single cohesive article.
-Use a few web searches gather the latest information and deep dive of the subject.
-EVERYTHING must be entirely factual and based on the sources provided.
+        r#"You are a professional digital editor journalist. Synthesize the provided sources into a high-quality, long-form digital article.
 
-Output the result in the following JSON schema:
+### OUTPUT FORMAT
+You MUST return a JSON object with this exact structure:
 {{
-  "title": Concise and descriptive title, max 8 words
-  "description": Short informative summary, a few sentences max, no newlines
-  "thumbnail": URL for an image to represent the thumbnail, ideally without people and complexity, needs to look good with text over it
-  "popout_image": URL for an image to represent the popout image, ideally the key subject of the article, might be displayed over the thumbnail
-  "content": HTML article content
-  "sidebar": HTML sidebar content
+  "title": "Articles title, kept concise and descriptive, max 8 words",
+  "description": "Short informative summary, a few sentences max and no newlines",
+  "thumbnail": "URL for the thumbnail image, landscapes/architectural/unpopulated/scenic/low complexity image preferred",
+  "content": "HTML string for the main article body",
+  "sidebar": "HTML string for the sidebar, key facts, summaries, or metadata, written in HTML"
 }}
 
-### Main Content Guidelines ("content" field)
-The content should be written in high-quality HTML. Structure it like a professional digital publication with clear sections using headings (h2 to h6) and paragraphs. Do NOT include a main <h1> title.
-Many paragraphs are recommended when there is a lot of content, cover the article in depth without repeating yourself.
+### CONTENT COMPONENT LIBRARY
+Use these HTML patterns to structure the "content" and "sidebar" fields:
 
-#### Available Components:
-- **Box Component**: A <div> with class 'box'. MUST have a <strong> title on its own row, followed by a <p> for the text.
-- **Layout Containers**: Use 'flexbox-columns' for vertical stacks of boxes, or 'flexbox-rows' for horizontal grids of boxes (div with class 'box').
-- **Timeline**: A <div> with class 'timeline' containing <div>s with class 'timeline-item'. Each item has a <span class='date'> and a <span class='event'>.
-- **Quotes**: A <blockquote> with class 'quote'.
+1. **Standard Text**: Use <h2> through <h6> for sections. Use <p> for body text.
+2. **Feature Box**: <div class="box"><strong>Title</strong><p>Description</p></div>
+3. **Layout Grids**:
+   - Vertical Stack: <div class="flexbox-columns">...</div>
+   - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
+4. **Visuals**: <figure><img src="..." alt="..." /><figcaption>Caption</figcaption></figure>
+5. **Data Table**: <table class="info-table"><tr><th>Key</th><td>Value</td></tr></table>
+6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">YYYY</span><span class="event">Event</span></div></div>
+7. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
 
-#### Content Structure:
-1. **Overview**: Start with a good overview in the first few paragraphs.
-2. **Deep Dive**: Increase depth as you progress, including links to sources and embedded media (videos/iframes) where relevant.
-3. **Timeline (Optional)**: Include where chronologically relevant. Use the heading "Timeline".
-4. **Perspectives (Optional)**: Use the heading "Perspectives". Use 'flexbox-rows' component with up to 4 boxes near the end to show different viewpoints. The box **title** should be the name of the person, organization, or the specific viewpoint (e.g., "Skeptics", "Industry Experts", "The CEO of X").
+### EDITORIAL REQUIREMENTS
+- **Image Usage**: Use most images provided, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding.
+- **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose.
 
-Images:
-Include every available image, don't leave any provided image unused. Place the hero image near the top, and the rest of the images throughout the article as appropriate. Favour high resolution if there are multiple of the same image provided. Wrap in <figure> with an <img> (including `alt`) and a <figcaption>.
-You can include multiple images side by side, in a grid etc where appropriate.
-Available images provided by sources: {images}
+- **Content: Main Body**:
+  - Start with a 2-3 paragraph overview.
+  - Increase depth and detail as the article progresses.
+  - **Timeline (Optional)**: Include a "Timeline" section if the subject has a clear chronological history.
+  - **Perspectives (Optional)**: Include a "Perspectives" section at the end using <div class="flexbox-rows"> with <div class="box"> elements to show different viewpoints (e.g., "Critics", "Supporters", "Experts").
+- **Tone**: Professional, objective, and deeply informative.
 
-### Sidebar Guidelines ("sidebar" field)
-The sidebar should be a summary of facts and key information that adapts to the article type.
-- **Headings**: Use a h1 to h6 to separate sections.
-- **Metadata Table**: Use a <table> with class 'info-table' for key data points.
-    - News: "Date", "Location", "Key Figures".
-    - Reviews: "Specs", "Price", "Rating". "Pros", "Cons".
+- **Sidebar: Key Details**:
+  - **Maps/Infographics**: If a map or small infographic is available, place it here.
+  - **Metadata Table**: Use an `info-table` for key data points. Examples:
+    - News/Events: "Date", "Location", "Key Figures".
+    - Reviews: "Price", "Rating", "Pros", "Cons".
     - Entities: "Founded", "Headquarters", "Key People".
-- **Highlights (Optional)**: A "Quick Highlights" section using a simple <ul> of key takeaways.
-- **Images**: Include maps here if available.
+  - **Quick Highlights**: A <ul> of key takeaways or highlights.
 
-Sources:
+### DATA INPUTS
+Available Images:
+{images}
+
+Sources with information:
 {articles_content}"#
     );
 

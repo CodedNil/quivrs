@@ -1,47 +1,21 @@
 use super::HTTP_CLIENT;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::{env, error::Error};
-use tap::Tap;
 use tracing::info;
 
 pub async fn run<T>(message: &str) -> Result<T, Box<dyn Error + Send + Sync>>
 where
-    T: JsonSchema + DeserializeOwned,
+    T: DeserializeOwned,
 {
-    let schema_object = SchemaGenerator::new(SchemaSettings::openapi3().with(|s| {
-        s.inline_subschemas = true;
-    }))
-    .into_root_schema_for::<T>()
-    .tap_mut(|s| {
-        s.remove("$schema");
-    });
-
     let payload = json!({
-        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "google/gemini-3.1-flash-lite".to_string()),
-        "service_tier": "flex",
-        "provider": { "only": ["Google"] },
+        "model": env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-v4-flash".to_string()),
+        "provider": { "only": ["siliconflow/fp8", "atlas-cloud/fp8"] },
         "input": message,
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": "output",
-                "strict": true,
-                "schema": schema_object
-            },
-            "verbosity": "low"
-        },
         "reasoning": {
-            "enabled": false
+            "enabled": true
         },
-        "tools": [
-            {
-                "type": "openrouter:web_search",
-                "parameters": { "engine": "native" },
-            }
-        ]
     });
 
     // Write payload to payload.json

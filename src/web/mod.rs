@@ -37,7 +37,9 @@ fn AppHead() -> Element {
                 --subtext1: #b8c0e0;
                 --accent: #8aadf4;
 
+                --crust-transparent: color-mix(in srgb, var(--crust) 30%, transparent);
                 --mantle-transparent: color-mix(in srgb, var(--mantle) 30%, transparent);
+                --base-transparent: color-mix(in srgb, var(--base) 30%, transparent);
 
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0px;

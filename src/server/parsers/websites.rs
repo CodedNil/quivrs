@@ -62,10 +62,10 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
                 let mut block_content = String::new();
                 let mut block_images = Vec::new();
 
-                let text_sel = Selector::parse(r#"div[data-block="text"], div[data-block="headline"], div[data-block="subheadline"]"#).unwrap();
-                let img_sel = Selector::parse(r#"div[data-block="image"]"#).unwrap();
+                let text_sel = Selector::parse(r#"div[data-block="text"], div[data-block="headline"], div[data-block="subheadline"], div[data-component="text-block"], div[data-component="headline-block"]"#).unwrap();
+                let img_sel = Selector::parse(r#"div[data-block="image"], div[data-component="image-block"]"#).unwrap();
 
-                for block in article.select(&Selector::parse(r"div[data-block]").unwrap()) {
+                for block in article.select(&Selector::parse(r"div[data-block], div[data-component]").unwrap()) {
                     if text_sel.matches(&block) {
                         for p in block.select(&Selector::parse("p, h1, h2, h3").unwrap()) {
                             let text = p.text().collect::<Vec<_>>().join(" ");
@@ -74,14 +74,35 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
                                 block_content.push_str("\n\n");
                             }
                         }
-                    } else if img_sel.matches(&block)
-                        && let Some(img) = block.select(&Selector::parse("img").unwrap()).next() {
-                            let src = img.value().attr("src").map(String::from);
-                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
+                    } else if img_sel.matches(&block) {
+                        for img in block.select(&Selector::parse("img").unwrap()) {
+                            let src = img.value().attr("srcset")
+                                .and_then(|srcset| {
+                                    srcset.split(',')
+                                        .filter_map(|s| {
+                                            let parts: Vec<_> = s.split_whitespace().collect();
+                                            if parts.is_empty() { return None; }
+                                            let url = parts[0];
+                                            let width = parts.get(1)
+                                                .and_then(|w| w.strip_suffix('w'))
+                                                .and_then(|w| w.parse::<u32>().ok())
+                                                .unwrap_or(0);
+                                            Some((url, width))
+                                        })
+                                        .max_by_key(|&(_, width)| width)
+                                        .map(|(url, _)| url.to_string())
+                                })
+                                .or_else(|| img.value().attr("src").map(String::from));
+
                             if let Some(src) = src {
+                                if src.contains("placeholder") {
+                                    continue;
+                                }
+                                let alt = img.value().attr("alt").unwrap_or_default().to_string();
                                 block_images.push((resolve_url(base_url.as_ref(), &src), alt));
                             }
                         }
+                    }
                 }
 
                 if !block_content.is_empty() {
