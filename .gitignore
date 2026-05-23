@@ -2,6 +2,5 @@
 /data
 /.direnv
 /.fastembed_cache
-/.sqlx
 .env
 quivrs.db*

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT sources FROM articles WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "sources",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "sources"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bbe4b325f17b29a32024c29e65974dbcbfb7d658455fb1537554aca6b3a9657b"
+}

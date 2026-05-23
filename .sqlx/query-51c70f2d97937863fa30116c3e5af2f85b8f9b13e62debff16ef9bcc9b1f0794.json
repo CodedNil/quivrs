@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            ua.article_id  as \"id!: Uuid\",\n            ua.status      as \"status!: ArticleStatus\",\n            ar.rating      as \"rating: Rating\",\n            a.sources      as \"sources!: Json<Vec<ArticleSource>>\",\n            a.estimated_liked,\n            a.entry        as \"entry: Json<ArticleEntry>\",\n            a.published    as \"published!: DateTime<Utc>\",\n            a.updated_at   as \"updated_at!: DateTime<Utc>\",\n            a.category     as \"category!: Category\"\n         FROM user_articles ua\n         JOIN articles a ON ua.article_id = a.id\n         LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id\n         ORDER BY a.published DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_articles",
+            "name": "article_id"
+          }
+        }
+      },
+      {
+        "name": "status!: ArticleStatus",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_articles",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "rating: Rating",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "article_ratings",
+            "name": "rating"
+          }
+        }
+      },
+      {
+        "name": "sources!: Json<Vec<ArticleSource>>",
+        "ordinal": 3,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "sources"
+          }
+        }
+      },
+      {
+        "name": "estimated_liked",
+        "ordinal": 4,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "estimated_liked"
+          }
+        }
+      },
+      {
+        "name": "entry: Json<ArticleEntry>",
+        "ordinal": 5,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "entry"
+          }
+        }
+      },
+      {
+        "name": "published!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "published"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "category!: Category",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "category"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "51c70f2d97937863fa30116c3e5af2f85b8f9b13e62debff16ef9bcc9b1f0794"
+}

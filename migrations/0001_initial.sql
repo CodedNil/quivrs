@@ -38,3 +38,11 @@ CREATE TABLE IF NOT EXISTS label_embeddings (
     hash      TEXT NOT NULL,
     embedding BLOB NOT NULL
 );
+
+CREATE TRIGGER IF NOT EXISTS update_articles_updated_at
+AFTER UPDATE ON articles
+FOR EACH ROW
+BEGIN
+    UPDATE articles SET updated_at = strftime('%s', 'now')
+    WHERE id = OLD.id;
+END;

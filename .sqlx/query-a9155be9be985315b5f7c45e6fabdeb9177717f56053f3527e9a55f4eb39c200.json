@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE articles SET embedding = ?, embedding_model = ?, category = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a9155be9be985315b5f7c45e6fabdeb9177717f56053f3527e9a55f4eb39c200"
+}

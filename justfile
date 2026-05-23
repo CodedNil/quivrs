@@ -13,6 +13,10 @@ db:
 prepare:
     DATABASE_URL=sqlite:quivrs.db cargo sqlx prepare -- --features server
 
+# Check SQL queries without a running database (uses the prepared cache)
+check-sql:
+    cargo sqlx prepare --check -- --features server
+
 # Apply pending migrations against the local database
 migrate:
     DATABASE_URL=sqlite:quivrs.db cargo sqlx migrate run

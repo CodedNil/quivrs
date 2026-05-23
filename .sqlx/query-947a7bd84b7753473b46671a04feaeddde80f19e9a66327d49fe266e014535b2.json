@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!: Uuid\", sources FROM articles\n         WHERE embedding_model != ? OR embedding IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "sources",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "sources"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "947a7bd84b7753473b46671a04feaeddde80f19e9a66327d49fe266e014535b2"
+}

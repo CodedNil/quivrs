@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT key as \"key!\", hash as \"hash!\", embedding as \"embedding!\" FROM label_embeddings",
+  "describe": {
+    "columns": [
+      {
+        "name": "key!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "label_embeddings",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "hash!",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "label_embeddings",
+            "name": "hash"
+          }
+        }
+      },
+      {
+        "name": "embedding!",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "label_embeddings",
+            "name": "embedding"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "7f115326ba304b8d866d3b7692cc976aa688affbdba37c3e036bac559c78695a"
+}

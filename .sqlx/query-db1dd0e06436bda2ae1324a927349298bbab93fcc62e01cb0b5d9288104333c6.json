@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE articles SET entry = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "db1dd0e06436bda2ae1324a927349298bbab93fcc62e01cb0b5d9288104333c6"
+}

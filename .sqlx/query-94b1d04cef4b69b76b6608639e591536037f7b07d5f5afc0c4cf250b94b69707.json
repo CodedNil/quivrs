@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM user_articles WHERE status = 'Binned' AND binned_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "94b1d04cef4b69b76b6608639e591536037f7b07d5f5afc0c4cf250b94b69707"
+}

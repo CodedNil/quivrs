@@ -134,19 +134,17 @@ pub async fn insert_article(
     let embedding_bytes = to_allocvec(embedding)?;
 
     let published = source.published;
-    let updated_at = Utc::now();
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO articles
              (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, category)
-         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, strftime('%s', 'now'), ?)",
         id,
         source.title,
         Json(vec![source]),
         embedding_bytes,
         MODEL_NAME,
         published,
-        updated_at,
         category,
     )
     .execute(&mut *tx)
@@ -177,11 +175,9 @@ pub async fn merge_into_article(article_id: Uuid, source: &ArticleSource) -> Res
     sources.push(source.clone());
 
     let sources_bytes = to_allocvec(&sources)?;
-    let updated_at = Utc::now().timestamp();
     sqlx::query!(
-        "UPDATE articles SET sources = ?, entry = NULL, updated_at = ? WHERE id = ?",
+        "UPDATE articles SET sources = ?, entry = NULL WHERE id = ?",
         sources_bytes,
-        updated_at,
         article_id,
     )
     .execute(&mut *tx)
@@ -243,13 +239,11 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
             );
         }
         let embedding_bytes = to_allocvec(&embeddings)?;
-        let updated_at = Utc::now();
         sqlx::query!(
-            "UPDATE articles SET embedding = ?, embedding_model = ?, category = ?, updated_at = ? WHERE id = ?",
+            "UPDATE articles SET embedding = ?, embedding_model = ?, category = ? WHERE id = ?",
             embedding_bytes,
             MODEL_NAME,
             category,
-            updated_at,
             row.id,
         )
         .execute(&mut *tx)
@@ -287,12 +281,10 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
     let mut tx = DB.begin().await?;
     for (row, embedding) in stale.iter().zip(embeddings) {
         let embedding_bytes = to_allocvec(&embedding)?;
-        let updated_at = Utc::now().timestamp();
         sqlx::query!(
-            "UPDATE articles SET embedding = ?, embedding_model = ?, updated_at = ? WHERE id = ?",
+            "UPDATE articles SET embedding = ?, embedding_model = ? WHERE id = ?",
             embedding_bytes,
             MODEL_NAME,
-            updated_at,
             row.id,
         )
         .execute(&mut *tx)
@@ -315,11 +307,9 @@ pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)
 /// Saves the entry for an article.
 pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
     let entry_bytes = to_allocvec(entry)?;
-    let updated_at = Utc::now().timestamp();
     sqlx::query!(
-        "UPDATE articles SET entry = ?, updated_at = ? WHERE id = ?",
+        "UPDATE articles SET entry = ? WHERE id = ?",
         entry_bytes,
-        updated_at,
         article_id,
     )
     .execute(&*DB)
@@ -520,12 +510,10 @@ pub async fn regenerate_article(article_id: Uuid) -> Result<()> {
     }
 
     let sources_bytes = to_allocvec(&updated_sources)?;
-    let updated_at = Utc::now().timestamp();
 
     sqlx::query!(
-        "UPDATE articles SET entry = NULL, sources = ?, updated_at = ? WHERE id = ?",
+        "UPDATE articles SET entry = NULL, sources = ? WHERE id = ?",
         sources_bytes,
-        updated_at,
         article_id,
     )
     .execute(&*DB)
