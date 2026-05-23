@@ -56,10 +56,46 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
     let content = Some(get(&["sl_body"]))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
+            let doc = Html::parse_document(&html);
+            let article_sel = Selector::parse("article").unwrap();
+            if let Some(article) = doc.select(&article_sel).next() {
+                let mut block_content = String::new();
+                let mut block_images = Vec::new();
+
+                let text_sel = Selector::parse(r#"div[data-block="text"], div[data-block="headline"], div[data-block="subheadline"]"#).unwrap();
+                let img_sel = Selector::parse(r#"div[data-block="image"]"#).unwrap();
+
+                for block in article.select(&Selector::parse(r"div[data-block]").unwrap()) {
+                    if text_sel.matches(&block) {
+                        for p in block.select(&Selector::parse("p, h1, h2, h3").unwrap()) {
+                            let text = p.text().collect::<Vec<_>>().join(" ");
+                            if !text.trim().is_empty() {
+                                block_content.push_str(&text);
+                                block_content.push_str("\n\n");
+                            }
+                        }
+                    } else if img_sel.matches(&block)
+                        && let Some(img) = block.select(&Selector::parse("img").unwrap()).next() {
+                            let src = img.value().attr("src").map(String::from);
+                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
+                            if let Some(src) = src {
+                                block_images.push((resolve_url(base_url.as_ref(), &src), alt));
+                            }
+                        }
+                }
+
+                if !block_content.is_empty() {
+                    images.clear();
+                    images.extend(block_images);
+                    return block_content.trim().to_string();
+                }
+            }
+
             Readability::new(html.as_str(), Some(url), None)
                 .ok()
                 .and_then(|mut r| r.parse().ok())
                 .map(|a| {
+                    info!("Used fallback parser for url: {}", url);
                     let doc = Html::parse_fragment(&a.content);
                     let sel = Selector::parse("img").unwrap();
                     images.clear();
@@ -303,7 +339,6 @@ fn collect_jsonld_object(
     }
     if let Some(v) = obj
         .get("articleBody")
-        .or_else(|| obj.get("description"))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
     {

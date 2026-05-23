@@ -42,8 +42,8 @@ pub async fn init() -> Result<()> {
     Ok(())
 }
 
-fn first_source(blob: &[u8]) -> Result<ArticleSource> {
-    from_bytes::<Vec<ArticleSource>>(blob)?
+fn first_source(blob: Json<Vec<ArticleSource>>) -> Result<ArticleSource> {
+    blob.0
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("Article has no sources"))
@@ -167,17 +167,19 @@ pub async fn insert_article(
 pub async fn merge_into_article(article_id: Uuid, source: &ArticleSource) -> Result<()> {
     let mut tx = DB.begin().await?;
 
-    let raw = sqlx::query!("SELECT sources FROM articles WHERE id = ?", article_id)
-        .fetch_one(&mut *tx)
-        .await?
-        .sources;
-    let mut sources: Vec<ArticleSource> = from_bytes(&raw)?;
+    let raw = sqlx::query!(
+        r#"SELECT sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE id = ?"#,
+        article_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .sources;
+    let mut sources = raw.0;
     sources.push(source.clone());
 
-    let sources_bytes = to_allocvec(&sources)?;
     sqlx::query!(
         "UPDATE articles SET sources = ?, entry = NULL WHERE id = ?",
-        sources_bytes,
+        Json(sources),
         article_id,
     )
     .execute(&mut *tx)
@@ -256,7 +258,7 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
 /// Embeddings generated with an older model will be regenerated.
 pub async fn regenerate_stale_embeddings() -> Result<()> {
     let stale = sqlx::query!(
-        r#"SELECT id as "id!: Uuid", sources FROM articles
+        r#"SELECT id as "id!: Uuid", sources as "sources: Json<Vec<ArticleSource>>" FROM articles
          WHERE embedding_model != ? OR embedding IS NULL"#,
         MODEL_NAME,
     )
@@ -271,7 +273,7 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
 
     let first_sources: Vec<ArticleSource> = stale
         .iter()
-        .map(|row| first_source(&row.sources))
+        .map(|row| first_source(row.sources.clone()))
         .collect::<Result<_>>()?;
 
     let embeddings = generate_article_embeddings(&first_sources)
@@ -296,20 +298,21 @@ pub async fn regenerate_stale_embeddings() -> Result<()> {
 
 /// Finds articles that haven't had a merged entry generated yet.
 pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)>> {
-    sqlx::query!(r#"SELECT id as "id!: Uuid", sources FROM articles WHERE entry IS NULL"#,)
-        .fetch_all(&*DB)
-        .await?
-        .into_iter()
-        .map(|row| Ok((row.id, from_bytes(&row.sources)?)))
-        .collect()
+    sqlx::query!(
+        r#"SELECT id as "id!: Uuid", sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE entry IS NULL"#
+    )
+    .fetch_all(&*DB)
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.id, row.sources.0)))
+    .collect()
 }
 
 /// Saves the entry for an article.
 pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
-    let entry_bytes = to_allocvec(entry)?;
     sqlx::query!(
         "UPDATE articles SET entry = ? WHERE id = ?",
-        entry_bytes,
+        Json(entry),
         article_id,
     )
     .execute(&*DB)
@@ -492,28 +495,27 @@ pub async fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
 
 /// Resets an article's generated entry to NULL and refreshes its sources.
 pub async fn regenerate_article(article_id: Uuid) -> Result<()> {
-    let raw = sqlx::query!("SELECT sources FROM articles WHERE id = ?", article_id)
-        .fetch_one(&*DB)
-        .await?
-        .sources;
-
-    let sources: Vec<ArticleSource> = from_bytes(&raw)?;
+    let raw = sqlx::query!(
+        r#"SELECT sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE id = ?"#,
+        article_id
+    )
+    .fetch_one(&*DB)
+    .await?
+    .sources;
+    let sources = raw.0;
     let mut updated_sources = Vec::with_capacity(sources.len());
 
     for source in sources {
         let updated = fetch_page_content(&source.url).await;
-
         match updated {
             Ok(Some(s)) => updated_sources.push(s),
             _ => updated_sources.push(source),
         }
     }
 
-    let sources_bytes = to_allocvec(&updated_sources)?;
-
     sqlx::query!(
         "UPDATE articles SET entry = NULL, sources = ? WHERE id = ?",
-        sources_bytes,
+        Json(updated_sources),
         article_id,
     )
     .execute(&*DB)

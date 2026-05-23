@@ -173,29 +173,28 @@ pub async fn regenerate_articles() -> Result<()> {
 }
 
 async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<ArticleEntry> {
+    let images = sources
+        .iter()
+        .flat_map(|source| &source.images)
+        .map(|img_str| {
+            let (src, caption) = img_str.split_once('|').unwrap_or((img_str, ""));
+            if caption.is_empty() {
+                format!("[{src}]")
+            } else {
+                format!("[{src}, {caption}]")
+            }
+        })
+        .join(" ");
+
     let articles_content = sources
         .into_iter()
         .enumerate()
         .map(|(i, source)| {
-            let images: String = source
-                .images
-                .iter()
-                .map(|img_str| {
-                    let (src, caption) = img_str.split_once('|').unwrap_or((img_str, ""));
-                    if caption.is_empty() {
-                        format!("[{src}]")
-                    } else {
-                        format!("[{src}, {caption}]")
-                    }
-                })
-                .join(" ");
-
             format!(
-                "Source {} - Title: {} - URL: {} - Images: {} - Content: {}",
+                "Source {} - Title: {} - URL: {} - Content: {}",
                 i + 1,
                 source.title,
                 source.url,
-                images,
                 source.content.replace('\n', " ")
             )
         })
@@ -236,15 +235,17 @@ Many paragraphs are recommended when there is a lot of content, cover the articl
 Images:
 Include every available image, don't leave any provided image unused. Place the hero image near the top, and the rest of the images throughout the article as appropriate. Favour high resolution if there are multiple of the same image provided. Wrap in <figure> with an <img> (including `alt`) and a <figcaption>.
 You can include multiple images side by side, in a grid etc where appropriate.
+Available images provided by sources: {images}
 
 ### Sidebar Guidelines ("sidebar" field)
-The sidebar should be a concise wiki-style summary that adapts to the article type.
+The sidebar should be a summary of facts and key information that adapts to the article type.
 - **Headings**: Use a h1 to h6 to separate sections.
 - **Metadata Table**: Use a <table> with class 'info-table' for key data points.
     - News: "Date", "Location", "Key Figures".
-    - Reviews: "Specs", "Price", "Rating".
+    - Reviews: "Specs", "Price", "Rating". "Pros", "Cons".
     - Entities: "Founded", "Headquarters", "Key People".
 - **Highlights (Optional)**: A "Quick Highlights" section using a simple <ul> of key takeaways.
+- **Images**: Include maps here if available.
 
 Sources:
 {articles_content}"#
