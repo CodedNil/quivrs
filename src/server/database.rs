@@ -1,8 +1,10 @@
-use crate::server::embeddings::{
-    MODEL_NAME, article_text, category_label, classify, embed_label_texts,
-    generate_article_embeddings, label_hash, seed_label_cache,
+use crate::server::{
+    embeddings::{
+        MODEL_NAME, article_text, category_label, classify, embed_label_texts,
+        generate_article_embeddings, label_hash, seed_label_cache,
+    },
+    parsers::fetch_page_content,
 };
-use crate::server::parsers::websites::fetch_source_content;
 use crate::shared::{
     ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Category, Rating, StoredArticle,
 };
@@ -12,6 +14,7 @@ use postcard::{from_bytes, to_allocvec};
 use sqlx::{
     QueryBuilder, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    types::Json,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -49,7 +52,7 @@ fn first_source(blob: &[u8]) -> Result<ArticleSource> {
 pub struct EmbeddingCandidate {
     pub id: Uuid,
     pub title: String,
-    pub category: String,
+    pub category: Category,
     pub embedding: Vec<f32>,
     pub published: i64,
 }
@@ -57,8 +60,8 @@ pub struct EmbeddingCandidate {
 #[derive(sqlx::FromRow)]
 struct ReclassifyRow {
     id: Uuid,
-    sources: Vec<u8>,
-    category: String,
+    sources: Json<Vec<ArticleSource>>,
+    category: Category,
 }
 
 /// Checks if a URL has already been processed, removes if they have.
@@ -100,7 +103,7 @@ pub async fn get_embedding_candidates(
     window_end: i64,
 ) -> Result<Vec<EmbeddingCandidate>> {
     sqlx::query!(
-        r#"SELECT id as "id!: Uuid", title, category, embedding, published
+        r#"SELECT id as "id!: Uuid", title, category as "category!: Category", embedding, published
          FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?"#,
         window_start,
         window_end,
@@ -128,12 +131,10 @@ pub async fn insert_article(
     category: Category,
 ) -> Result<()> {
     let id = Uuid::new_v4();
-    let sources_bytes = to_allocvec(std::slice::from_ref(source))?;
     let embedding_bytes = to_allocvec(embedding)?;
 
-    let published = source.published.timestamp();
-    let updated_at = Utc::now().timestamp();
-    let category = category.to_string();
+    let published = source.published;
+    let updated_at = Utc::now();
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO articles
@@ -141,7 +142,7 @@ pub async fn insert_article(
          VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, ?, ?)",
         id,
         source.title,
-        sources_bytes,
+        Json(vec![source]),
         embedding_bytes,
         MODEL_NAME,
         published,
@@ -154,8 +155,9 @@ pub async fn insert_article(
         .execute(&mut *tx)
         .await?;
     sqlx::query!(
-        "INSERT INTO user_articles (article_id, status) VALUES (?, 'New')",
+        "INSERT INTO user_articles (article_id, status) VALUES (?, ?)",
         id,
+        ArticleStatus::New,
     )
     .execute(&mut *tx)
     .await?;
@@ -216,7 +218,13 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
 
     let first_sources: Vec<ArticleSource> = targets
         .iter()
-        .map(|row| first_source(&row.sources))
+        .map(|row| {
+            row.sources
+                .0
+                .first()
+                .cloned()
+                .ok_or_else(|| anyhow!("Article has no sources"))
+        })
         .collect::<Result<_>>()?;
 
     let embeddings = generate_article_embeddings(&first_sources)
@@ -226,22 +234,21 @@ pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
     let mut tx = DB.begin().await?;
     for ((row, source), embeddings) in targets.iter().zip(&first_sources).zip(embeddings) {
         let category = classify(&embeddings).await?;
-        let new_category = category.to_string();
-        if new_category != row.category {
+        if category != row.category {
             info!(
                 "[RECLASSIFY] '{}' {} → {}",
                 article_text(source, 1),
                 row.category,
-                new_category
+                category
             );
         }
         let embedding_bytes = to_allocvec(&embeddings)?;
-        let updated_at = Utc::now().timestamp();
+        let updated_at = Utc::now();
         sqlx::query!(
             "UPDATE articles SET embedding = ?, embedding_model = ?, category = ?, updated_at = ? WHERE id = ?",
             embedding_bytes,
             MODEL_NAME,
-            new_category,
+            category,
             updated_at,
             row.id,
         )
@@ -322,13 +329,12 @@ pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Resul
 
 /// Updates the user status (new, read, binned) for an article.
 pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
-    let status_str = status.to_string();
-    let binned_at = (status == ArticleStatus::Binned).then(|| Utc::now().timestamp());
+    let binned_at = (status == ArticleStatus::Binned).then(Utc::now);
     sqlx::query!(
         "INSERT INTO user_articles (article_id, status, binned_at) VALUES (?, ?, ?)
          ON CONFLICT(article_id) DO UPDATE SET status = excluded.status, binned_at = excluded.binned_at",
         article_id,
-        status_str,
+        status,
         binned_at,
     )
     .execute(&*DB)
@@ -338,7 +344,6 @@ pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Resu
 
 /// Sets a user rating for an article.
 pub async fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
-    let rating = rating.to_string();
     sqlx::query!(
         "INSERT INTO article_ratings (article_id, rating) VALUES (?, ?)
          ON CONFLICT(article_id) DO UPDATE SET rating = excluded.rating",
@@ -355,14 +360,14 @@ pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
     sqlx::query!(
         r#"SELECT
             ua.article_id  as "id!: Uuid",
-            ua.status      as "status!",
-            ar.rating,
-            a.sources      as "sources!",
+            ua.status      as "status!: ArticleStatus",
+            ar.rating      as "rating: Rating",
+            a.sources      as "sources!: Json<Vec<ArticleSource>>",
             a.estimated_liked,
-            a.entry,
-            a.published    as "published!",
-            a.updated_at   as "updated_at!",
-            a.category     as "category!"
+            a.entry        as "entry: Json<ArticleEntry>",
+            a.published    as "published!: DateTime<Utc>",
+            a.updated_at   as "updated_at!: DateTime<Utc>",
+            a.category     as "category!: Category"
          FROM user_articles ua
          JOIN articles a ON ua.article_id = a.id
          LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
@@ -371,30 +376,20 @@ pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
     .fetch_all(&*DB)
     .await?
     .into_iter()
-    .map(|row| -> Result<ArticleData> {
-        let status = row.status.parse().map_err(|e| anyhow!("{e}"))?;
-        let rating = row
-            .rating
-            .map(|s| s.parse())
-            .transpose()
-            .map_err(|e| anyhow!("{e}"))?;
+    .map(|row| {
         let article = StoredArticle {
             id: row.id,
-            sources: from_bytes(&row.sources)?,
+            sources: row.sources.0,
             estimated_liked: row.estimated_liked as f32,
-            entry: row
-                .entry
-                .map(|b| from_bytes(&b))
-                .transpose()
-                .unwrap_or_default(),
-            published: DateTime::from_timestamp(row.published, 0).unwrap_or_default(),
-            updated_at: DateTime::from_timestamp(row.updated_at, 0).unwrap_or_default(),
-            category: row.category.parse().unwrap_or(Category::Technology),
+            entry: row.entry.map(|e| e.0),
+            published: row.published,
+            updated_at: row.updated_at,
+            category: row.category,
         };
         Ok(ArticleData {
             id: row.id,
-            status,
-            rating,
+            status: row.status,
+            rating: row.rating,
             article,
         })
     })
@@ -516,7 +511,7 @@ pub async fn regenerate_article(article_id: Uuid) -> Result<()> {
     let mut updated_sources = Vec::with_capacity(sources.len());
 
     for source in sources {
-        let updated = fetch_source_content(source.url.clone()).await;
+        let updated = fetch_page_content(&source.url).await;
 
         match updated {
             Ok(Some(s)) => updated_sources.push(s),

@@ -3,7 +3,7 @@ use crate::{
         database,
         embeddings::{article_text, classify, cosine_similarity, generate_article_embeddings},
         llm_functions::run,
-        parsers::{feeds::scan_feed, social::fetch_social_content, websites::fetch_source_content},
+        parsers::{feeds::scan_feed, fetch_page_content},
     },
     shared::{ArticleEntry, ArticleSource},
 };
@@ -48,13 +48,11 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
 
     info!("Fetching content for {} new articles...", new_urls.len());
-    let results = join_all(new_urls.iter().map(|url| async {
-        if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app") {
-            fetch_social_content(url).await
-        } else {
-            fetch_source_content(url.clone()).await
-        }
-    }))
+    let results = join_all(
+        new_urls
+            .iter()
+            .map(|url| async { fetch_page_content(url).await }),
+    )
     .await;
 
     let mut new_entries: Vec<ArticleSource> = vec![];
@@ -111,7 +109,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
                 highest = Some((&c.title, score));
             }
             if score >= SIMILARITY_THRESHOLD
-                && c.category == category.to_string()
+                && c.category == category
                 && best.is_none_or(|(_, _, s)| score > s)
             {
                 best = Some((c.id, &c.title, score));

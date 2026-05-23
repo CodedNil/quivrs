@@ -1,5 +1,5 @@
-use crate::server::parsers::get_cache_path;
-use crate::{server::HTTP_CLIENT, shared::ArticleSource};
+use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
+use crate::shared::ArticleSource;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use dom_smoothie::Readability;
@@ -32,22 +32,17 @@ static SEL_JSONLD: LazyLock<Selector> =
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 
-pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> {
-    let cache_path = get_cache_path(&url, "html");
+const WEBSITE_BLACKLIST: &[&str] = &["bbc.com/news/videos", "bbc.co.uk/news/videos"];
 
-    let html = if let Ok(bytes) = fs::read(&cache_path).await {
-        String::from_utf8_lossy(&bytes).into_owned()
-    } else {
-        let html = HTTP_CLIENT.get(&url).send().await?.text().await?;
-        if let Some(dir) = cache_path.parent()
-            && fs::create_dir_all(dir).await.is_ok()
-        {
-            let _ = fs::write(&cache_path, html.as_bytes()).await;
-        }
-        html
-    };
+pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
+    if WEBSITE_BLACKLIST.iter().any(|s| url.contains(s)) {
+        return Ok(None);
+    }
 
-    let base_url = Url::parse(&url).ok();
+    let cache_path = get_cache_path(url, "html");
+    let html = get_cached_or_fetch_ext(url, "html").await?;
+
+    let base_url = Url::parse(url).ok();
     let (metadata, mut images) = collect_page_metadata(&html, base_url.as_ref());
 
     let get = |keys: &[&str]| -> String {
@@ -61,7 +56,7 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
     let content = Some(get(&["sl_body"]))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
-            Readability::new(html.as_str(), Some(url.as_str()), None)
+            Readability::new(html.as_str(), Some(url), None)
                 .ok()
                 .and_then(|mut r| r.parse().ok())
                 .map(|a| {
@@ -163,7 +158,7 @@ pub async fn fetch_source_content(url: String) -> Result<Option<ArticleSource>> 
         .to_string();
 
     Ok(Some(ArticleSource {
-        url,
+        url: url.to_string(),
         source,
         title,
         summary,
@@ -286,7 +281,11 @@ fn collect_jsonld_object(
     images: &mut Vec<(String, String)>,
     base: Option<&Url>,
 ) {
-    if let Some(v) = obj.get("headline").and_then(Value::as_str) {
+    if let Some(v) = obj
+        .get("headline")
+        .or_else(|| obj.get("name"))
+        .and_then(Value::as_str)
+    {
         let d = decode(v);
         if d.len() > MIN_TITLE_LEN {
             m.entry("sl_headline").or_insert(d);
@@ -304,6 +303,7 @@ fn collect_jsonld_object(
     }
     if let Some(v) = obj
         .get("articleBody")
+        .or_else(|| obj.get("description"))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
     {

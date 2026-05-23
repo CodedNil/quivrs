@@ -74,7 +74,7 @@ pub struct ArticleData {
     pub article: StoredArticle,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ArticleSource {
     pub url: String,
     /// Domain for web articles, handle for social
@@ -100,7 +100,7 @@ impl std::hash::Hash for ArticleSource {
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct ArticleEntry {
     /// Article's title, kept concise and descriptive, max 8 words.
     pub title: String,
@@ -124,6 +124,7 @@ pub struct ArticleEntry {
 #[derive(
     Serialize,
     Deserialize,
+    Debug,
     Clone,
     Copy,
     Display,
@@ -133,6 +134,11 @@ pub struct ArticleEntry {
     Eq,
     PartialOrd,
     Ord,
+)]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    derive(sqlx::Type),
+    sqlx(type_name = "TEXT")
 )]
 pub enum Category {
     Business,
@@ -152,7 +158,12 @@ pub enum Category {
 }
 
 #[derive(
-    Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
+    Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
+)]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    derive(sqlx::Type),
+    sqlx(type_name = "TEXT")
 )]
 pub enum ArticleStatus {
     Stored,
@@ -160,7 +171,12 @@ pub enum ArticleStatus {
     Binned,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    derive(sqlx::Type),
+    sqlx(type_name = "TEXT")
+)]
 pub enum Rating {
     Hated,
     Disliked,

@@ -2,20 +2,32 @@ pub mod feeds;
 pub mod social;
 pub mod websites;
 
+use crate::server::HTTP_CLIENT;
+use crate::shared::ArticleSource;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
+use social::fetch_social_content;
 use std::fmt::Write;
 use std::path::PathBuf;
 use tokio::fs;
+use websites::fetch_source_content;
 
-pub fn sha256_hex(data: &[u8]) -> String {
+pub async fn fetch_page_content(url: &str) -> Result<Option<ArticleSource>> {
+    if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app") {
+        fetch_social_content(url).await
+    } else {
+        fetch_source_content(url).await
+    }
+}
+
+fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data).iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
     })
 }
 
-pub fn get_cache_path(url: &str, extension: &str) -> PathBuf {
+fn get_cache_path(url: &str, extension: &str) -> PathBuf {
     std::env::temp_dir().join("quivrs").join(format!(
         "{}.{}",
         sha256_hex(url.as_bytes()),
@@ -23,19 +35,14 @@ pub fn get_cache_path(url: &str, extension: &str) -> PathBuf {
     ))
 }
 
-pub async fn get_cached_or_fetch_ext(url: &str, ext: &str) -> Result<String> {
+async fn get_cached_or_fetch_ext(url: &str, ext: &str) -> Result<String> {
     let cache_path = get_cache_path(url, ext);
 
     if let Ok(bytes) = fs::read(&cache_path).await {
         return Ok(String::from_utf8_lossy(&bytes).into_owned());
     }
 
-    let text = crate::server::HTTP_CLIENT
-        .get(url)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let text = HTTP_CLIENT.get(url).send().await?.text().await?;
     if let Some(dir) = cache_path.parent()
         && fs::create_dir_all(dir).await.is_ok()
     {
