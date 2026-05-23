@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE article_ratings SET embedding = ?, embedding_model = ? WHERE article_id = (\n                    SELECT article_id FROM article_ratings WHERE embedding_text = ? LIMIT 1\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2ee470baae871dadb9d199cc30ad8062c4606f8768dc5ee8430d48baa6ef2392"
+}

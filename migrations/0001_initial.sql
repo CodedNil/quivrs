@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS articles (
     entry            BLOB,
     embedding        BLOB NOT NULL,
     embedding_model  TEXT NOT NULL DEFAULT '',
+    embedding_text   TEXT NOT NULL DEFAULT '',
     category         TEXT NOT NULL DEFAULT 'Technology',
     published        INTEGER NOT NULL,
     updated_at       INTEGER NOT NULL
@@ -24,8 +25,11 @@ CREATE TABLE IF NOT EXISTS user_articles (
 );
 
 CREATE TABLE IF NOT EXISTS article_ratings (
-    article_id TEXT PRIMARY KEY,
-    rating     TEXT NOT NULL
+    article_id      TEXT PRIMARY KEY,
+    rating          TEXT NOT NULL,
+    embedding       BLOB NOT NULL,
+    embedding_model TEXT NOT NULL,
+    embedding_text  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS item_ratings (

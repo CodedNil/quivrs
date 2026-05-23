@@ -1,10 +1,12 @@
-use crate::shared::{ArticleSource, Category};
+use crate::{
+    server::database::get_rated_article_embeddings,
+    shared::{ArticleSource, Category, Rating},
+};
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
-use std::fmt::Write;
-use std::sync::LazyLock;
+use std::{fmt::Write, sync::LazyLock};
 use strum::IntoEnumIterator;
 use tokio::sync::{Mutex, OnceCell};
 
@@ -37,11 +39,11 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => {
-            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak Trump Putin vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Democrats Republicans Libertarians Mayor Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism by-election turnout benefits welfare social-security DWP"
+            "parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak Trump Putin vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile drone Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Democrats Republicans Libertarians Mayor Congress Senate White-House Pentagon Kremlin Bundestag Elysée sanctions embassy treaty bipartisan gubernatorial impeachment autocracy federalism by-election turnout benefits welfare social-security DWP councillor"
         }
         // Courts, crime, police investigations, and criminal justice
         Category::Law => {
-            "court trial convicted jailed sentenced defendant prosecution verdict jury judge murder stabbing knife beating assault attack grooming exploitation abuse offender indecent coercive stalking fraud theft robbery ASA FCA banned misconduct DWP lawsuit acquitted injunction plaintiff caution probe tribunal litigation legal-action manslaughter burglary shoplifting extradition forensics bailiff subpoena affidavit perjury jurisprudence embezzlement investigation missing-person inquest coroner detective tragedy drowned rescuers tribute police-cordon rape custodial-sentence anonymity-order County-Court"
+            "court trial convicted jailed sentenced defendant prosecution verdict jury judge murder stabbing knife beating assault attack grooming exploitation abuse offender indecent coercive stalking fraud theft robbery ASA FCA banned misconduct DWP lawsuit acquitted injunction plaintiff caution probe tribunal litigation legal-action manslaughter burglary shoplifting extradition forensics bailiff subpoena affidavit perjury jurisprudence embezzlement investigation missing-person inquest coroner detective tragedy drowned rescuers tribute police-cordon rape custodial-sentence anonymity-order County-Court FTC"
         }
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => {
@@ -53,7 +55,7 @@ pub const fn category_label(category: Category) -> &'static str {
         }
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => {
-            "recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding interior skincare bathroom laundry storage hacks tips ants vinegar coffee mortgage rent savings pension budget bills energy loan credit housing property landlord employment job unemployed graduate parenting housekeeping upholstery sourdough minimalism staycation decluttering novel author island-life wardens remote-living"
+            "recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding interior skincare bathroom laundry storage hacks tips ants vinegar coffee mortgage rent savings pension budget bills energy loan credit housing property landlord employment job unemployed graduate parenting housekeeping upholstery sourdough minimalism staycation decluttering novel author island-life wardens remote-living dating"
         }
         // Cars, transport infrastructure, aviation, and commuting
         Category::Transport => {
@@ -184,4 +186,38 @@ pub async fn classify(embedding: &[f32]) -> Result<Category> {
         .unwrap();
 
     Ok(best_cat)
+}
+
+pub async fn estimate_liked(embedding: &[f32]) -> Result<f32> {
+    let rated = get_rated_article_embeddings().await?;
+    if rated.is_empty() {
+        return Ok(0.5);
+    }
+
+    let mut total_weight = 0.0;
+    let mut weighted_sum = 0.0;
+
+    for (rating, rated_emb) in rated {
+        let sim = cosine_similarity(embedding, &rated_emb);
+        if sim > 0.65 {
+            let weight = (sim * 12.0).exp();
+            let score_value = match rating {
+                Rating::Loved => 1.0,
+                Rating::Liked => 0.75,
+                Rating::Neutral => 0.5,
+                Rating::Disliked => 0.25,
+                Rating::Hated => 0.0,
+            };
+
+            weighted_sum += score_value * weight;
+            total_weight += weight;
+        }
+    }
+
+    if total_weight == 0.0 {
+        // If no articles are similar enough, we return a neutral 0.5
+        return Ok(0.5);
+    }
+
+    Ok(weighted_sum / total_weight)
 }

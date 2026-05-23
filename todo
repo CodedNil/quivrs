@@ -1,9 +1,7 @@
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
 better ground with citations embedded
-rewrite sections to not be so hardcoded, let it generate html & css based on template components
 two column list for pros/cons
-images grid 2x1
 generate thumbnails and things like infographics
 glossary, datav visualisation, deep dive accordion
 
@@ -36,3 +34,5 @@ like if the article talks about a major politician we could add widget for that 
 images:
 have a library of generic images that it lets the ai use, the ai can generate new ones if needed but asked to keep them reusable across multiple articles, not too specific
 do a hero image for the sidebar and let it also select a smaller image to put there too like a headshot etc
+
+positivity and importance ratings per article

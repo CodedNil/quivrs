@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO articles\n             (id, title, sources, estimated_liked, entry, embedding, embedding_model, embedding_text, published, updated_at, category)\n         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, strftime('%s', 'now'), ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "c87e3611625474fdbc5e3bc9681d319ebfe9732274493d06146e53b545155461"
+}

@@ -10,7 +10,7 @@ use std::{
     sync::LazyLock,
 };
 use tokio::fs;
-use tracing::info;
+use tracing::{debug, info};
 use url::Url;
 
 const MIN_SUMMARY_LEN: usize = 30;
@@ -116,7 +116,7 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
                 .ok()
                 .and_then(|mut r| r.parse().ok())
                 .map(|a| {
-                    info!("Used fallback parser for url: {}", url);
+                    debug!("Used fallback parser for url: {}", url);
                     let doc = Html::parse_fragment(&a.content);
                     let sel = Selector::parse("img").unwrap();
                     images.clear();

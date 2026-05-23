@@ -1,6 +1,6 @@
 use crate::server::{
     embeddings::{
-        MODEL_NAME, article_text, category_label, classify, embed_label_texts,
+        MODEL_NAME, article_text, category_label, classify, embed_label_texts, estimate_liked,
         generate_article_embeddings, label_hash, seed_label_cache,
     },
     parsers::fetch_page_content,
@@ -132,18 +132,23 @@ pub async fn insert_article(
 ) -> Result<()> {
     let id = Uuid::new_v4();
     let embedding_bytes = to_allocvec(embedding)?;
+    let estimated_liked = f64::from(estimate_liked(embedding).await?);
+    let embedding_text = article_text(source, 5);
+    info!("Estimated liked: {} {}", estimated_liked, source.title);
 
     let published = source.published;
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO articles
-             (id, title, sources, estimated_liked, entry, embedding, embedding_model, published, updated_at, category)
-         VALUES (?, ?, ?, 0.0, NULL, ?, ?, ?, strftime('%s', 'now'), ?)",
+             (id, title, sources, estimated_liked, entry, embedding, embedding_model, embedding_text, published, updated_at, category)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, strftime('%s', 'now'), ?)",
         id,
         source.title,
         Json(vec![source]),
+        estimated_liked,
         embedding_bytes,
         MODEL_NAME,
+        embedding_text,
         published,
         category,
     )
@@ -337,14 +342,26 @@ pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Resu
 
 /// Sets a user rating for an article.
 pub async fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
+    let article = sqlx::query!(
+        "SELECT embedding, embedding_model, embedding_text FROM articles WHERE id = ?",
+        article_id
+    )
+    .fetch_one(&*DB)
+    .await?;
+
     sqlx::query!(
-        "INSERT INTO article_ratings (article_id, rating) VALUES (?, ?)
+        "INSERT INTO article_ratings (article_id, rating, embedding, embedding_model, embedding_text)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(article_id) DO UPDATE SET rating = excluded.rating",
         article_id,
         rating,
+        article.embedding,
+        article.embedding_model,
+        article.embedding_text,
     )
     .execute(&*DB)
     .await?;
+
     Ok(())
 }
 
@@ -476,6 +493,44 @@ async fn init_label_embeddings() -> Result<()> {
     )
     .await;
     Ok(())
+}
+
+/// Retrieves all articles with their embeddings for preference calculation.
+pub async fn get_rated_article_embeddings() -> Result<Vec<(Rating, Vec<f32>)>> {
+    let rows = sqlx::query!(
+        r#"SELECT rating as "rating!: Rating", embedding, embedding_model, embedding_text
+         FROM article_ratings"#
+    )
+    .fetch_all(&*DB)
+    .await?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        let embedding = if row.embedding_model == MODEL_NAME {
+            from_bytes(&row.embedding)?
+        } else {
+            // Regenerate embedding if model changed
+            let mut embs = embed_label_texts(std::slice::from_ref(&row.embedding_text)).await?;
+            let emb = embs.pop().ok_or_else(|| anyhow!("Failed to re-embed"))?;
+
+            // Update the record with the new embedding
+            let bytes = to_allocvec(&emb)?;
+            sqlx::query!(
+                "UPDATE article_ratings SET embedding = ?, embedding_model = ? WHERE article_id = (
+                    SELECT article_id FROM article_ratings WHERE embedding_text = ? LIMIT 1
+                )",
+                bytes,
+                MODEL_NAME,
+                row.embedding_text
+            )
+            .execute(&*DB)
+            .await?;
+
+            emb
+        };
+        results.push((row.rating, embedding));
+    }
+    Ok(results)
 }
 
 /// Retrieves all generic item ratings.

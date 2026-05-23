@@ -158,7 +158,7 @@ pub enum ArticleStatus {
     Binned,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString)]
 #[cfg_attr(
     not(target_arch = "wasm32"),
     derive(sqlx::Type),

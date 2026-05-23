@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT embedding, embedding_model, embedding_text FROM articles WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "embedding",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "embedding"
+          }
+        }
+      },
+      {
+        "name": "embedding_model",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "embedding_model"
+          }
+        }
+      },
+      {
+        "name": "embedding_text",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "articles",
+            "name": "embedding_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c4bbdb533f4713589bae5bd31f63e6b1452febe12af8758b17902c71ced4ab71"
+}
