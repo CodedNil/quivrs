@@ -3,12 +3,13 @@ use crate::{
         database,
         embeddings::{
             EMBEDDING_MODEL_NAME, article_text, calculate_preference_score, classify,
-            cosine_similarity, generate_article_embeddings,
+            cosine_similarity, generate_article_embeddings, get_importance_score,
+            get_sentiment_score,
         },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
     },
-    shared::{Article, ArticleSource, ArticleStatus, PendingSource},
+    shared::{Article, ArticleSource, ArticleStatus, PendingSource, Rating},
 };
 use anyhow::{Result, anyhow};
 use futures::future::join_all;
@@ -24,9 +25,44 @@ use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
 const LIKED_SERVE_THRESHOLD: f64 = 0.8; // If the liked guess is above this, it is automatically served
-const CATEGORY_MIN_NEW_ARTICLES: i64 = 4; // Minimum number of new articles to maintain in each category
-const TIME_BONUS_MAX: f32 = 0.1;
 const TIME_WINDOW_DAYS: i64 = 2;
+
+const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for a recent article
+const SENTIMENT_BONUS: f64 = 0.2; // How much to boost the score for a positive article
+const IMPORTANCE_BONUS: f64 = 0.2; // How much to boost the score for an important article
+
+/// Minimum number of new articles to maintain in each category
+pub const fn category_new_articles(rating: Rating) -> i64 {
+    match rating {
+        Rating::Hated => 0,
+        Rating::Disliked => 1,
+        Rating::Neutral => 4,
+        Rating::Liked => 6,
+        Rating::Loved => 10,
+    }
+}
+
+/// Max amount to boost or dampen the score for a rated category
+pub const fn category_bonus(rating: Rating) -> f64 {
+    match rating {
+        Rating::Hated => -0.4,
+        Rating::Disliked => -0.2,
+        Rating::Neutral => 0.0,
+        Rating::Liked => 0.2,
+        Rating::Loved => 0.5,
+    }
+}
+
+/// Max amount to boost or dampen the score for a rated domain
+pub const fn domain_bonus(rating: Rating) -> f64 {
+    match rating {
+        Rating::Hated => -0.4,
+        Rating::Disliked => -0.2,
+        Rating::Neutral => 0.0,
+        Rating::Liked => 0.2,
+        Rating::Loved => 0.5,
+    }
+}
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
@@ -127,17 +163,46 @@ pub async fn promote_articles() -> Result<()> {
     }
 
     let rated_embeddings = database::get_rated_article_embeddings().await?;
+    let item_ratings = database::get_all_item_ratings().await?;
 
     // Calculate scores and sort
-    let mut scored_pending: Vec<(f64, PendingSource)> = pending
-        .into_iter()
-        .map(|p| {
-            let score = f64::from(calculate_preference_score(&p.embedding, &rated_embeddings));
-            (score, p)
-        })
-        .collect();
+    let mut scored_pending = Vec::with_capacity(pending.len());
+    let start = std::time::Instant::now();
+    for p in pending {
+        let mut estimated_liked = calculate_preference_score(&p.embedding, &rated_embeddings);
 
-    scored_pending.sort_by(|a, b| b.0.total_cmp(&a.0));
+        // Boost for sentiment and importance
+        let sentiment = get_sentiment_score(&p.embedding).await;
+        let importance = get_importance_score(&p.embedding).await;
+        estimated_liked += sentiment * SENTIMENT_BONUS;
+        estimated_liked += importance * IMPORTANCE_BONUS;
+
+        // Boost for category and domain ratings
+        let category_articles_number = item_ratings
+            .get(&format!("category:{}", p.category))
+            .map_or(category_new_articles(Rating::Neutral), |rating| {
+                estimated_liked += category_bonus(*rating);
+                category_new_articles(*rating)
+            });
+        if let Some(rating) = item_ratings.get(&format!("domain:{}", p.domain)) {
+            estimated_liked += domain_bonus(*rating);
+        }
+
+        scored_pending.push((
+            p,
+            estimated_liked,
+            category_articles_number,
+            sentiment,
+            importance,
+        ));
+    }
+    info!(
+        "Scored {} pending sources in {:?}",
+        scored_pending.len(),
+        start.elapsed()
+    );
+
+    scored_pending.sort_by(|a, b| b.1.total_cmp(&a.1));
 
     info!(
         "Running promote_articles with {} pending sources",
@@ -147,19 +212,21 @@ pub async fn promote_articles() -> Result<()> {
     let cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
 
-    for (i, (estimated_liked, candidate)) in scored_pending.iter().enumerate() {
+    for (i, (candidate, estimated_liked, category_articles_number, sentiment, importance)) in
+        scored_pending.iter().enumerate()
+    {
         if promoted_urls.contains(&candidate.url) {
             continue;
         }
 
         let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
-        if *estimated_liked < LIKED_SERVE_THRESHOLD && count >= CATEGORY_MIN_NEW_ARTICLES {
+        if *estimated_liked < LIKED_SERVE_THRESHOLD && count >= *category_articles_number {
             continue;
         }
 
         info!(
-            "[PROMOTING] '{}' (score: {:.2}, cat: {}, current_count: {})",
-            candidate.title, estimated_liked, candidate.category, count
+            "[PROMOTING] '{}' (score: {:.2}, cat: {}, current_count: {}, sentiment: {:.2}, importance: {:.2})",
+            candidate.title, estimated_liked, candidate.category, count, sentiment, importance
         );
 
         let mut sources_to_merge = vec![candidate.clone()];
@@ -168,8 +235,7 @@ pub async fn promote_articles() -> Result<()> {
         let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
 
-        for other_pair in scored_pending.iter().skip(i + 1) {
-            let other = &other_pair.1;
+        for (other, _, _, _, _) in scored_pending.iter().skip(i + 1) {
             if other.category != candidate.category || promoted_urls.contains(&other.url) {
                 continue;
             }

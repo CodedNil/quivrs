@@ -168,7 +168,7 @@ pub fn ArticleDetail(
                                 RatingPill {
                                     key: "{source.url}",
                                     label: source.domain.clone(),
-                                    item_key: format!("source:{}", source.domain),
+                                    item_key: format!("domain:{}", source.domain),
                                     item_ratings,
                                     url: Some(source.url.clone()),
                                 }

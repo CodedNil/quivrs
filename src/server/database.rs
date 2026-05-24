@@ -1,7 +1,7 @@
 use crate::server::embeddings::{EMBEDDING_MODEL_NAME, generate_article_embeddings};
 use crate::shared::{ArticleStatus, Category, PendingSource, Rating};
 use crate::{
-    server::embeddings::{category_label, embed_label_texts, label_hash, seed_label_cache},
+    server::embeddings::embed_label_texts,
     shared::{Article, ArticleSource},
 };
 use anyhow::{Result, anyhow};
@@ -18,7 +18,6 @@ use std::{
     str::FromStr,
     sync::LazyLock,
 };
-use strum::IntoEnumIterator;
 use tracing::info;
 use uuid::Uuid;
 
@@ -34,7 +33,6 @@ static DB: LazyLock<SqlitePool> = LazyLock::new(|| {
 
 pub async fn init() -> Result<()> {
     sqlx::migrate!().run(&*DB).await?;
-    init_label_embeddings().await?;
     Ok(())
 }
 
@@ -194,35 +192,11 @@ pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
     Ok(())
 }
 
-async fn upsert_label_embedding(key: &str, hash: &str, embedding: &[f32]) -> Result<()> {
-    let bytes = to_allocvec(embedding)?;
-    sqlx::query!(
-        "INSERT INTO label_embeddings (key, hash, embedding) VALUES (?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET hash = excluded.hash, embedding = excluded.embedding",
-        key,
-        hash,
-        bytes,
-    )
-    .execute(&*DB)
-    .await?;
-    Ok(())
-}
-
-/// Loads label embeddings from DB, regenerating only stale or missing entries.
-async fn init_label_embeddings() -> Result<()> {
-    let entries: Vec<(String, String, String)> = Category::iter()
-        .map(|c| {
-            let text = category_label(c);
-            (
-                format!("category_{c}"),
-                label_hash(text),
-                format!("title: none | text: {text}"),
-            )
-        })
-        .collect();
-
+pub async fn get_or_refresh_label_embeddings_batch(
+    entries: &[(String, String, String)],
+) -> Result<Vec<Vec<f32>>> {
     let mut cached: HashMap<String, (String, Vec<f32>)> = sqlx::query!(
-        r#"SELECT key as "key!", hash as "hash!", embedding as "embedding!" FROM label_embeddings"#,
+        r#"SELECT key as "key!", hash as "hash!", embedding as "embedding!" FROM label_embeddings"#
     )
     .fetch_all(&*DB)
     .await?
@@ -233,28 +207,28 @@ async fn init_label_embeddings() -> Result<()> {
     let stale: Vec<usize> = entries
         .iter()
         .enumerate()
-        .filter(|(_, (key, hash, _))| cached.get(key).is_none_or(|(h, _)| h != hash))
+        .filter(|(_, (k, h, _))| cached.get(k).is_none_or(|(ch, _)| ch != h))
         .map(|(i, _)| i)
         .collect();
 
     if !stale.is_empty() {
-        info!("Regenerating {} stale label embeddings...", stale.len());
         let texts: Vec<String> = stale.iter().map(|&i| entries[i].2.clone()).collect();
         for (&i, emb) in stale.iter().zip(embed_label_texts(&texts).await?) {
             let (key, hash, _) = &entries[i];
-            upsert_label_embedding(key, hash, &emb).await?;
+            let bytes = to_allocvec(&emb)?;
+            sqlx::query!(
+                "INSERT INTO label_embeddings (key, hash, embedding) VALUES (?, ?, ?)
+                 ON CONFLICT(key) DO UPDATE SET hash = excluded.hash, embedding = excluded.embedding",
+                key, hash, bytes
+            ).execute(&*DB).await?;
             cached.insert(key.clone(), (hash.clone(), emb));
         }
     }
 
-    seed_label_cache(
-        entries
-            .iter()
-            .map(|(key, _, _)| cached.remove(key).unwrap().1)
-            .collect(),
-    )
-    .await;
-    Ok(())
+    Ok(entries
+        .iter()
+        .map(|(k, _, _)| cached.remove(k).unwrap().1)
+        .collect())
 }
 
 /// Retrieves all articles with their embeddings for preference calculation.

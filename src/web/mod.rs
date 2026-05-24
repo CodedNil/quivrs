@@ -112,26 +112,48 @@ fn MainLayout() -> Element {
     };
 
     #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        if let Some(target_id) = selected_id {
-            spawn(async move {
-                use wasm_bindgen::JsCast;
-                let window = web_sys::window().unwrap();
-                let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-                let document = window.document().unwrap();
-                if let Some(art_el) = document
-                    .get_element_by_id(&format!("article-{target_id}"))
-                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
-                {
-                    art_el.scroll_into_view_with_scroll_into_view_options(
-                        web_sys::ScrollIntoViewOptions::new()
-                            .behavior(web_sys::ScrollBehavior::Instant)
-                            .block(web_sys::ScrollLogicalPosition::Center),
-                    );
-                }
-            });
-        }
-    });
+    {
+        let tab_for_effect = tab.clone();
+        use_effect(move || {
+            if let Some(target_id) = selected_id {
+                let articles = use_context::<Signal<Vec<Article>>>();
+                let tab = tab_for_effect.clone();
+                spawn(async move {
+                    use wasm_bindgen::JsCast;
+                    let window = web_sys::window().unwrap();
+                    let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+
+                    // Check if the article exists in the current tab's status
+                    let current_status = match tab.as_str() {
+                        "stored" => crate::shared::ArticleStatus::Stored,
+                        "binned" => crate::shared::ArticleStatus::Binned,
+                        _ => crate::shared::ArticleStatus::New,
+                    };
+
+                    let exists_in_tab = articles
+                        .read()
+                        .iter()
+                        .any(|a| a.id == target_id && a.status == current_status);
+
+                    if !exists_in_tab {
+                        return;
+                    }
+
+                    let document = window.document().unwrap();
+                    if let Some(art_el) = document
+                        .get_element_by_id(&format!("article-{target_id}"))
+                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+                    {
+                        art_el.scroll_into_view_with_scroll_into_view_options(
+                            web_sys::ScrollIntoViewOptions::new()
+                                .behavior(web_sys::ScrollBehavior::Instant)
+                                .block(web_sys::ScrollLogicalPosition::Center),
+                        );
+                    }
+                });
+            }
+        });
+    }
 
     rsx! {
         div {
