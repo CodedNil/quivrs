@@ -11,11 +11,6 @@ quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
 
-NEW LOGIC:
-regenerate stale embeddings as a maintenance task
-pending sources get binned after a week if they havent been processed
-
-
 liked sources, categories
 can set verge to loved which automatically pushes up the estimated_liked for anything from the verge so that 100% of its articles are pushed to the main feed
 or dislike the category sports so its much less likely to be shown

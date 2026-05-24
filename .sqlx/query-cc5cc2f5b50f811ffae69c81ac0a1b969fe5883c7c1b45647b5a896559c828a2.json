@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT url, embedding_text FROM pending_sources WHERE embedding_model != ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "url",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "name": "embedding_text",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "embedding_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "cc5cc2f5b50f811ffae69c81ac0a1b969fe5883c7c1b45647b5a896559c828a2"
+}

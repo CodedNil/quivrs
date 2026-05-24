@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE pending_sources SET embedding = ?, embedding_model = ? WHERE url = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "1731ab73ddc91c795a4c7db56cf16ab878883e8bdc148e614ef2831b682067cd"
+}

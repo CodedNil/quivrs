@@ -67,6 +67,9 @@ pub fn start() {
         info!("Feed refresh scheduler started (interval: {DEFAULT_REFRESH_INTERVAL:?})");
         loop {
             ticker.tick().await;
+            if let Err(e) = database::maintenance_embeddings().await {
+                error!("Embedding maintenance failed: {e}");
+            }
             if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }

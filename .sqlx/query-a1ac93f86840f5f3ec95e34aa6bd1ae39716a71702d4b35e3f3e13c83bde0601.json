@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, embedding_text FROM user_articles WHERE embedding_model != ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_articles",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "embedding_text",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_articles",
+            "name": "embedding_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "a1ac93f86840f5f3ec95e34aa6bd1ae39716a71702d4b35e3f3e13c83bde0601"
+}

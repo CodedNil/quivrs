@@ -1,3 +1,4 @@
+use crate::server::embeddings::{EMBEDDING_MODEL_NAME, generate_article_embeddings};
 use crate::shared::{ArticleStatus, Category, PendingSource, Rating};
 use crate::{
     server::embeddings::{category_label, embed_label_texts, label_hash, seed_label_cache},
@@ -354,6 +355,84 @@ pub async fn insert_promoted_article(article: &Article, source_urls: &[String]) 
     builder.build().execute(&mut *tx).await?;
 
     tx.commit().await?;
+    Ok(())
+}
+
+/// Maintenance task to re-embed articles if the model has changed and purge old sources.
+pub async fn maintenance_embeddings() -> Result<()> {
+    let current_model = EMBEDDING_MODEL_NAME;
+
+    // Update pending_sources
+    let stale_pending = sqlx::query!(
+        "SELECT url, embedding_text FROM pending_sources WHERE embedding_model != ?",
+        current_model
+    )
+    .fetch_all(&*DB)
+    .await?;
+
+    if !stale_pending.is_empty() {
+        info!(
+            "Updating embeddings for {} pending sources",
+            stale_pending.len()
+        );
+        for chunk in stale_pending.chunks(100) {
+            let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
+            let new_embs = generate_article_embeddings(&texts).await?;
+            for (row, emb) in chunk.iter().zip(new_embs.iter()) {
+                sqlx::query!(
+                    "UPDATE pending_sources SET embedding = ?, embedding_model = ? WHERE url = ?",
+                    to_allocvec(emb)?,
+                    current_model,
+                    row.url
+                )
+                .execute(&*DB)
+                .await?;
+            }
+        }
+    }
+
+    // Update user_articles
+    let stale_articles = sqlx::query!(
+        "SELECT id, embedding_text FROM user_articles WHERE embedding_model != ?",
+        current_model
+    )
+    .fetch_all(&*DB)
+    .await?;
+
+    if !stale_articles.is_empty() {
+        info!(
+            "Updating embeddings for {} user articles",
+            stale_articles.len()
+        );
+        for chunk in stale_articles.chunks(100) {
+            let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
+            let new_embs = generate_article_embeddings(&texts).await?;
+            for (row, emb) in chunk.iter().zip(new_embs.iter()) {
+                sqlx::query!(
+                    "UPDATE user_articles SET embedding = ?, embedding_model = ? WHERE id = ?",
+                    to_allocvec(emb)?,
+                    current_model,
+                    row.id
+                )
+                .execute(&*DB)
+                .await?;
+            }
+        }
+    }
+
+    // Purge articles older than 2 weeks
+    let two_weeks_ago = Utc::now() - chrono::Duration::weeks(2);
+    let deleted = sqlx::query!(
+        "DELETE FROM pending_sources WHERE published < ?",
+        two_weeks_ago
+    )
+    .execute(&*DB)
+    .await?;
+
+    if deleted.rows_affected() > 0 {
+        info!("Purged {} stale pending sources", deleted.rows_affected());
+    }
+
     Ok(())
 }
 
