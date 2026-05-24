@@ -3,7 +3,7 @@ use crate::{
         database,
         embeddings::{
             EMBEDDING_MODEL_NAME, article_text, calculate_preference_score, classify,
-            cosine_similarity, generate_article_embeddings, get_rated_article_embeddings,
+            cosine_similarity, generate_article_embeddings,
         },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
@@ -126,7 +126,7 @@ pub async fn promote_articles() -> Result<()> {
         return Ok(());
     }
 
-    let rated_embeddings = get_rated_article_embeddings().await?;
+    let rated_embeddings = database::get_rated_article_embeddings().await?;
 
     // Calculate scores and sort
     let mut scored_pending: Vec<(f64, PendingSource)> = pending

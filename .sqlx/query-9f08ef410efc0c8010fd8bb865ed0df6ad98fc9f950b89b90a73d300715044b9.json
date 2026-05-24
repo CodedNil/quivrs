@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            url as \"url!\", domain as \"domain!\", title as \"title!\", summary as \"summary!\", content as \"content!\",\n            tags as \"tags!: Json<Vec<String>>\",\n            images as \"images!: Json<Vec<(String, String)>>\",\n            published as \"published!: DateTime<Utc>\",\n            embedding, embedding_model, embedding_text,\n            category as \"category!: Category\",\n            fade as \"fade!: DateTime<Utc>\"\n         FROM pending_sources",
+  "query": "SELECT\n            url as \"url!\", domain as \"domain!\", title as \"title!\", summary as \"summary!\", content as \"content!\",\n            tags as \"tags!: Json<Vec<String>>\",\n            images as \"images!: Json<Vec<(String, String)>>\",\n            published as \"published!: DateTime<Utc>\",\n            embedding, embedding_model, embedding_text,\n            category as \"category!: Category\"\n         FROM pending_sources",
   "describe": {
     "columns": [
       {
@@ -134,17 +134,6 @@
             "name": "category"
           }
         }
-      },
-      {
-        "name": "fade!: DateTime<Utc>",
-        "ordinal": 12,
-        "type_info": "Integer",
-        "origin": {
-          "Table": {
-            "table": "pending_sources",
-            "name": "fade"
-          }
-        }
       }
     ],
     "parameters": {
@@ -162,9 +151,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "94086deede567c04d964b21fed68a512e2227d1966587935e5df2ca5e16f195d"
+  "hash": "9f08ef410efc0c8010fd8bb865ed0df6ad98fc9f950b89b90a73d300715044b9"
 }

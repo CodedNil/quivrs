@@ -17,13 +17,11 @@ pub struct PendingSource {
     pub tags: Vec<String>,
     pub images: Vec<(String, String)>, // (url, caption)
     pub published: DateTime<Utc>,
+    pub category: Category,
 
     pub embedding: Vec<f32>,
     pub embedding_text: String,
     pub embedding_model: String,
-
-    pub category: Category,
-    pub fade: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

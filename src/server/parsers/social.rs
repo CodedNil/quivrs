@@ -187,13 +187,11 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
         tags: Vec::new(),
         images,
         published,
+        category: Category::Technology,
 
         embedding: Vec::new(),
         embedding_text: String::new(),
         embedding_model: String::new(),
-
-        category: Category::Technology,
-        fade: Utc::now(),
     }))
 }
 
@@ -349,12 +347,10 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
         tags: Vec::new(),
         images,
         published,
+        category: Category::Technology,
 
         embedding: Vec::new(),
         embedding_text: String::new(),
         embedding_model: String::new(),
-
-        category: Category::Technology,
-        fade: Utc::now(),
     }))
 }

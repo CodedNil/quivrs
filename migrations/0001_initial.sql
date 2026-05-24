@@ -8,13 +8,11 @@ CREATE TABLE IF NOT EXISTS pending_sources (
     tags            TEXT,
     images          TEXT,
     published       INTEGER NOT NULL,
+    category        TEXT NOT NULL,
 
     embedding       BLOB NOT NULL,
     embedding_text  TEXT NOT NULL,
-    embedding_model TEXT NOT NULL,
-
-    category        TEXT NOT NULL,
-    fade            INTEGER NOT NULL
+    embedding_model TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS article_urls (

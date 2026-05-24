@@ -1,7 +1,4 @@
-use crate::{
-    server::database,
-    shared::{Category, PendingSource, Rating},
-};
+use crate::shared::{Category, PendingSource, Rating};
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use itertools::Itertools;
@@ -187,10 +184,6 @@ pub async fn classify(embedding: &[f32]) -> Result<Category> {
     Ok(best_cat)
 }
 
-pub async fn get_rated_article_embeddings() -> Result<Vec<(Rating, Vec<f32>)>> {
-    database::get_rated_article_embeddings().await
-}
-
 pub fn calculate_preference_score(embedding: &[f32], rated: &[(Rating, Vec<f32>)]) -> f32 {
     if rated.is_empty() {
         return 0.5;
@@ -198,17 +191,15 @@ pub fn calculate_preference_score(embedding: &[f32], rated: &[(Rating, Vec<f32>)
 
     let (sum, weight) = rated
         .iter()
-        .map(|(rating, rated_emb)| (rating, cosine_similarity(embedding, rated_emb)))
-        .filter(|(rating, sim)| {
-            let threshold = if **rating == Rating::Neutral {
-                0.85
-            } else {
-                0.65
-            };
-            *sim > threshold
+        .map(|(rating, rated_emb)| {
+            let sim = cosine_similarity(embedding, rated_emb);
+            (rating, sim)
         })
         .fold((0.0, 0.0), |(s, w), (rating, sim)| {
-            let p = (sim * 12.0).exp();
+            // We use a steep exponential power (sim^8 or exp(sim * 10))
+            // so that high similarity has much more weight than low similarity,
+            // but even low similarity still provides a "hint".
+            let p = (sim * 10.0).exp();
             let val = match rating {
                 Rating::Loved => 1.0,
                 Rating::Liked => 0.75,

@@ -75,8 +75,8 @@ pub async fn insert_source(source: &PendingSource) -> Result<()> {
     let mut tx = DB.begin().await?;
     sqlx::query!(
         "INSERT INTO pending_sources
-             (url, domain, title, summary, content, tags, images, published, embedding, embedding_model, embedding_text, category, fade)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (url, domain, title, summary, content, tags, images, published, embedding, embedding_model, embedding_text, category)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         source.url,
         source.domain,
         source.title,
@@ -89,7 +89,6 @@ pub async fn insert_source(source: &PendingSource) -> Result<()> {
         source.embedding_model,
         source.embedding_text,
         source.category,
-        source.fade,
     )
     .execute(&mut *tx)
     .await?;
@@ -283,8 +282,7 @@ pub async fn get_pending_sources() -> Result<Vec<PendingSource>> {
             images as "images!: Json<Vec<(String, String)>>",
             published as "published!: DateTime<Utc>",
             embedding, embedding_model, embedding_text,
-            category as "category!: Category",
-            fade as "fade!: DateTime<Utc>"
+            category as "category!: Category"
          FROM pending_sources"#
     )
     .fetch_all(&*DB)
@@ -304,7 +302,6 @@ pub async fn get_pending_sources() -> Result<Vec<PendingSource>> {
             embedding_model: row.embedding_model,
             embedding_text: row.embedding_text,
             category: row.category,
-            fade: row.fade,
         })
     })
     .collect()

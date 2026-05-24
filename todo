@@ -13,15 +13,13 @@ quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 NEW LOGIC:
 regenerate stale embeddings as a maintenance task
-rating doesnt automatically refresh in the view
+pending sources get binned after a week if they havent been processed
 
 
 liked sources, categories
 can set verge to loved which automatically pushes up the estimated_liked for anything from the verge so that 100% of its articles are pushed to the main feed
 or dislike the category sports so its much less likely to be shown
-
-articles fade and eventually get binned if left in new too long, but only if their liked estimation is below 0.8, and they fade faster the lower the estimated_like, so one that has estimated_liked of 0.1 might fade in a couple days while 0.7 might last a week
-only merge into articles we havent read yet
+liked categories should have more articles pushed into them, hated ones get none
 
 
 support youtube feeds, subreddits as sources
