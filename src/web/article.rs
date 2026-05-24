@@ -10,11 +10,14 @@ use uuid::Uuid;
 
 #[component]
 pub fn ArticleDetail(
-    article: Article,
+    id: Uuid,
     articles: Signal<Vec<Article>>,
     item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
-    let id = article.id;
+    let article = match articles.read().iter().find(|a| a.id == id) {
+        Some(a) => a.clone(),
+        None => return rsx! {},
+    };
 
     rsx! {
         div {
@@ -127,10 +130,10 @@ pub fn ArticleDetail(
                                     title: "Save to Read Later",
                                     color: "var(--accent)",
                                     onclick: move |_| async move {
-                                        let _ = set_article_status(id, ArticleStatus::Stored).await;
                                         if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
                                             a.status = ArticleStatus::Stored;
                                         }
+                                        let _ = set_article_status(id, ArticleStatus::Stored).await;
                                     },
                                 }
                             }
@@ -140,10 +143,10 @@ pub fn ArticleDetail(
                                     title: "Move to Bin",
                                     color: "var(--overlay0)",
                                     onclick: move |_| async move {
-                                        let _ = set_article_status(id, ArticleStatus::Binned).await;
                                         if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
                                             a.status = ArticleStatus::Binned;
                                         }
+                                        let _ = set_article_status(id, ArticleStatus::Binned).await;
                                     },
                                 }
                             }
@@ -278,10 +281,10 @@ fn StarRating(current: Option<Rating>, id: Uuid, mut articles: Signal<Vec<Articl
                             onmouseleave: move |_| hover_idx.set(None),
                             onclick: move |_| async move {
                                 let new = if is_current { Rating::Neutral } else { this_rating };
-                                let _ = set_rating(id, new).await;
                                 if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
                                     a.rating = if is_current { None } else { Some(new) };
                                 }
+                                let _ = set_rating(id, new).await;
                             },
                             Icon { icon: fa_solid_icons::FaStar, width: 15, height: 15 }
                         }

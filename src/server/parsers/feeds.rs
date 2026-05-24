@@ -39,16 +39,7 @@ pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
             }
         }
     };
-    Ok(urls
-        .into_iter()
-        .filter(|url| {
-            !(url.contains("bbc.co.uk/iplayer")
-                || url.contains("bbc.co.uk/sounds")
-                || url.contains("v.redd.it/")
-                || url.contains("github.com")
-                || url.ends_with("pdf"))
-        })
-        .collect())
+    Ok(urls)
 }
 
 fn parse_xml_feed(bytes: &[u8]) -> Result<Vec<String>> {

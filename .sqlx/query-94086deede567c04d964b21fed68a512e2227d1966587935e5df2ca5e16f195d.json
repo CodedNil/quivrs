@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            url as \"url!\", domain as \"domain!\", title as \"title!\", summary as \"summary!\", content as \"content!\",\n            tags as \"tags!: Json<Vec<String>>\",\n            images as \"images!: Json<Vec<(String, String)>>\",\n            published as \"published!: DateTime<Utc>\",\n            embedding, embedding_model, embedding_text,\n            category as \"category!: Category\",\n            estimated_liked, fade as \"fade!: DateTime<Utc>\"\n         FROM pending_sources",
+  "query": "SELECT\n            url as \"url!\", domain as \"domain!\", title as \"title!\", summary as \"summary!\", content as \"content!\",\n            tags as \"tags!: Json<Vec<String>>\",\n            images as \"images!: Json<Vec<(String, String)>>\",\n            published as \"published!: DateTime<Utc>\",\n            embedding, embedding_model, embedding_text,\n            category as \"category!: Category\",\n            fade as \"fade!: DateTime<Utc>\"\n         FROM pending_sources",
   "describe": {
     "columns": [
       {
@@ -136,19 +136,8 @@
         }
       },
       {
-        "name": "estimated_liked",
-        "ordinal": 12,
-        "type_info": "Float",
-        "origin": {
-          "Table": {
-            "table": "pending_sources",
-            "name": "estimated_liked"
-          }
-        }
-      },
-      {
         "name": "fade!: DateTime<Utc>",
-        "ordinal": 13,
+        "ordinal": 12,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -174,9 +163,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "3a09968b82bfd363fc7b63ff7d0d32e41bcfc0d093479e165913fc534833981c"
+  "hash": "94086deede567c04d964b21fed68a512e2227d1966587935e5df2ca5e16f195d"
 }

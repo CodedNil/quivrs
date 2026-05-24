@@ -2,8 +2,8 @@ use crate::{
     server::{
         database,
         embeddings::{
-            EMBEDDING_MODEL_NAME, article_text, classify, cosine_similarity, estimate_liked,
-            generate_article_embeddings,
+            EMBEDDING_MODEL_NAME, article_text, calculate_preference_score, classify,
+            cosine_similarity, generate_article_embeddings, get_rated_article_embeddings,
         },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
@@ -94,21 +94,11 @@ pub async fn refresh_all_feeds() -> Result<()> {
             warn!("Classification failed for '{}'", source.title);
             continue;
         };
-        let Ok(estimated_liked) = estimate_liked(&embedding).await else {
-            warn!("Estimating liked failed for '{}'", source.title);
-            continue;
-        };
 
         source.embedding = embedding;
         source.embedding_text = embedding_text;
         source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
-
         source.category = category;
-        source.estimated_liked = f64::from(estimated_liked);
-        info!(
-            "Estimated liked: {} {}",
-            source.estimated_liked, source.title
-        );
 
         info!(
             "[NEW] {}",
@@ -131,34 +121,45 @@ pub struct ArticleEntry {
 
 /// Scans all pending sources and promotes high-quality or necessary content into full articles.
 pub async fn promote_articles() -> Result<()> {
-    let mut pending = database::get_pending_sources().await?;
+    let pending = database::get_pending_sources().await?;
     if pending.is_empty() {
         return Ok(());
     }
+
+    let rated_embeddings = get_rated_article_embeddings().await?;
+
+    // Calculate scores and sort
+    let mut scored_pending: Vec<(f64, PendingSource)> = pending
+        .into_iter()
+        .map(|p| {
+            let score = f64::from(calculate_preference_score(&p.embedding, &rated_embeddings));
+            (score, p)
+        })
+        .collect();
+
+    scored_pending.sort_by(|a, b| b.0.total_cmp(&a.0));
+
     info!(
         "Running promote_articles with {} pending sources",
-        pending.len()
+        scored_pending.len()
     );
 
     let cat_counts = database::get_category_article_counts().await?;
-    pending.sort_by(|a, b| b.estimated_liked.total_cmp(&a.estimated_liked));
-
     let mut promoted_urls = HashSet::new();
 
-    for i in 0..pending.len() {
-        let candidate = &pending[i];
+    for (i, (estimated_liked, candidate)) in scored_pending.iter().enumerate() {
         if promoted_urls.contains(&candidate.url) {
             continue;
         }
 
         let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
-        if candidate.estimated_liked < LIKED_SERVE_THRESHOLD && count >= CATEGORY_MIN_NEW_ARTICLES {
+        if *estimated_liked < LIKED_SERVE_THRESHOLD && count >= CATEGORY_MIN_NEW_ARTICLES {
             continue;
         }
 
         info!(
             "[PROMOTING] '{}' (score: {:.2}, cat: {}, current_count: {})",
-            candidate.title, candidate.estimated_liked, candidate.category, count
+            candidate.title, estimated_liked, candidate.category, count
         );
 
         let mut sources_to_merge = vec![candidate.clone()];
@@ -167,7 +168,8 @@ pub async fn promote_articles() -> Result<()> {
         let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
 
-        for other in pending.iter().skip(i + 1) {
+        for other_pair in scored_pending.iter().skip(i + 1) {
+            let other = &other_pair.1;
             if other.category != candidate.category || promoted_urls.contains(&other.url) {
                 continue;
             }

@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS pending_sources (
     embedding_model TEXT NOT NULL,
 
     category        TEXT NOT NULL,
-    estimated_liked REAL NOT NULL,
     fade            INTEGER NOT NULL
 );
 

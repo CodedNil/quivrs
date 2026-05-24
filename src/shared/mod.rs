@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Clone)]
 pub struct PendingSource {
     pub url: String,
 
@@ -23,11 +23,10 @@ pub struct PendingSource {
     pub embedding_model: String,
 
     pub category: Category,
-    pub estimated_liked: f64,
     pub fade: DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Article {
     pub id: Uuid,
 

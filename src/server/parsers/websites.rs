@@ -32,7 +32,14 @@ static SEL_JSONLD: LazyLock<Selector> =
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 
-const WEBSITE_BLACKLIST: &[&str] = &["bbc.com/news/videos", "bbc.co.uk/news/videos"];
+const WEBSITE_BLACKLIST: &[&str] = &[
+    "bbc.com/news/videos",
+    "bbc.co.uk/news/videos",
+    "bbc.co.uk/iplayer",
+    "bbc.co.uk/sounds",
+    "github.com",
+    ".pdf",
+];
 
 pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
     if WEBSITE_BLACKLIST.iter().any(|s| url.contains(s)) {
@@ -229,7 +236,6 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
         embedding_model: String::new(),
 
         category: Category::Technology,
-        estimated_liked: 0.0,
         fade: Utc::now(),
     }))
 }

@@ -67,7 +67,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let (counts, all_groups) = use_memo(use_reactive!(|articles| {
         let (mut counts, mut groups) = (
             (0, 0, 0),
-            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Article>>>::new(),
+            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>::new(),
         );
         for a in &articles() {
             *match a.status {
@@ -80,7 +80,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 .or_default()
                 .entry(a.category)
                 .or_default()
-                .push(a.clone());
+                .push(a.id);
         }
         (counts, groups)
     }))();
@@ -173,7 +173,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 fn StatusLane(
     status: ArticleStatus,
     active: bool,
-    groups: BTreeMap<Category, Vec<Article>>,
+    groups: BTreeMap<Category, Vec<Uuid>>,
     selected_id: Option<Uuid>,
     tab: String,
     mut scroll_top_val: Signal<f64>,
@@ -195,10 +195,10 @@ fn StatusLane(
 
             for (category, items) in groups {
                 CategoryGroup { key: "{category}-{status}", category, status,
-                    for a in items {
+                    for id in items {
                         ArticleItem {
-                            key: "{a.id}",
-                            article: a,
+                            key: "{id}",
+                            id,
                             selected: selected_id,
                             tab: tab.clone(),
                         }
@@ -317,7 +317,7 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
 
 #[component]
 fn CategoryScrollbar(
-    groups: BTreeMap<Category, Vec<Article>>,
+    groups: BTreeMap<Category, Vec<Uuid>>,
     status: ArticleStatus,
     scroll_top: Signal<f64>,
 ) -> Element {
@@ -479,8 +479,14 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
 }
 
 #[component]
-fn ArticleItem(article: Article, selected: Option<Uuid>, tab: String) -> Element {
-    let is_selected = selected == Some(article.id);
+fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
+    let articles: Signal<Vec<Article>> = use_context();
+    let article = match articles.read().iter().find(|a| a.id == id) {
+        Some(a) => a.clone(),
+        None => return rsx! {},
+    };
+
+    let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
 

@@ -72,23 +72,9 @@ fn ArticleEntry(tab: String, id: Uuid) -> Element {
     let articles = use_context::<Signal<Vec<Article>>>();
     let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
 
-    let articles_data = articles();
-    articles_data.iter().find(|a| a.id == id).map_or_else(
-        || {
-            rsx! {
-                CenteredMessage { text: "Article not found" }
-            }
-        },
-        |article| {
-            rsx! {
-                ArticleDetail {
-                    article: article.clone(),
-                    articles,
-                    item_ratings,
-                }
-            }
-        },
-    )
+    rsx! {
+        ArticleDetail { id, articles, item_ratings }
+    }
 }
 
 pub fn app() -> Element {

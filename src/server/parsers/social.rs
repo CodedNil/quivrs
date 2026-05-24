@@ -193,7 +193,6 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
         embedding_model: String::new(),
 
         category: Category::Technology,
-        estimated_liked: 0.0,
         fade: Utc::now(),
     }))
 }
@@ -356,7 +355,6 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
         embedding_model: String::new(),
 
         category: Category::Technology,
-        estimated_liked: 0.0,
         fade: Utc::now(),
     }))
 }

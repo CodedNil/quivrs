@@ -1,8 +1,11 @@
 {
+    // "bbc_top": "https://feeds.bbci.co.uk/news/rss.xml",
     "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    // "bbc_science": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    // "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
+
     // "verge": "https://www.theverge.com/rss/index.xml",
     // "tomsguide": "https://www.tomsguide.com/rss",
-    // "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
     // "skynews": "https://feeds.skynews.com/feeds/rss/home.xml",
     // "election_maps": "https://bsky.app/profile/electionmaps.uk",
     // "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics.json",
