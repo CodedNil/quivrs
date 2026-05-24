@@ -10,15 +10,15 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
+
+NEW LOGIC:
+regenerate stale embeddings as a maintenance task
+rating doesnt automatically refresh in the view
+
+
 liked sources, categories
 can set verge to loved which automatically pushes up the estimated_liked for anything from the verge so that 100% of its articles are pushed to the main feed
 or dislike the category sports so its much less likely to be shown
-
-new feed should show all the 100% estimated liked articles always as a dropdown
-then it has a button called explore which pops out another 10 of the top estimated_liked articles (the generate button also shows as Generate 70% when we are currently showing 0.7 estimated_liked)
-
-estimate the like by comparing the embedding against the average hated, disliked, neutral, liked and loved
-then we get the number by similarity to those
 
 articles fade and eventually get binned if left in new too long, but only if their liked estimation is below 0.8, and they fade faster the lower the estimated_like, so one that has estimated_liked of 0.1 might fade in a couple days while 0.7 might last a week
 only merge into articles we havent read yet

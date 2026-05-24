@@ -51,13 +51,15 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 });
 
 pub fn start() {
+    assert!(
+        std::env::var("OPENROUTER").is_ok(),
+        "OPENROUTER environment variable not set."
+    );
+
     tokio::spawn(async move {
         if let Err(err) = database::init().await {
             error!("Database initialisation failed: {err}");
             return;
-        }
-        if let Err(err) = database::regenerate_stale_embeddings().await {
-            error!("Stale embedding regeneration failed: {err}");
         }
 
         let mut ticker = interval(DEFAULT_REFRESH_INTERVAL);
@@ -68,11 +70,8 @@ pub fn start() {
             if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");
             }
-            if let Err(err) = articles::regenerate_articles().await {
-                error!("Article regeneration failed: {err}");
-            }
-            if let Err(err) = database::cleanup_binned(7).await {
-                error!("Cleanup failed: {err}");
+            if let Err(err) = articles::promote_articles().await {
+                error!("Article promotion failed: {err}");
             }
         }
     });

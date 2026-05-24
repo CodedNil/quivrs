@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO pending_sources\n             (url, domain, title, summary, content, tags, images, published, embedding, embedding_model, embedding_text, category, estimated_liked, fade)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 14
+    },
+    "nullable": []
+  },
+  "hash": "0309cd6fe3782f1a2b5c4da7a288bf0ee7d4f93b58b229494ecf568fff665e76"
+}

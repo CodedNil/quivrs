@@ -1,35 +1,46 @@
-CREATE TABLE IF NOT EXISTS articles (
-    id               TEXT PRIMARY KEY,
-    title            TEXT NOT NULL,
-    sources          BLOB NOT NULL,
-    estimated_liked  REAL NOT NULL DEFAULT 0.0,
-    entry            BLOB,
-    embedding        BLOB NOT NULL,
-    embedding_model  TEXT NOT NULL DEFAULT '',
-    embedding_text   TEXT NOT NULL DEFAULT '',
-    category         TEXT NOT NULL DEFAULT 'Technology',
-    published        INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL
-);
+CREATE TABLE IF NOT EXISTS pending_sources (
+    url             TEXT PRIMARY KEY,
 
-CREATE INDEX IF NOT EXISTS published ON articles(published);
+    domain          TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    summary         TEXT,
+    content         TEXT,
+    tags            TEXT,
+    images          TEXT,
+    published       INTEGER NOT NULL,
+
+    embedding       BLOB NOT NULL,
+    embedding_text  TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+
+    category        TEXT NOT NULL,
+    estimated_liked REAL NOT NULL,
+    fade            INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS article_urls (
     url TEXT PRIMARY KEY
 );
 
 CREATE TABLE IF NOT EXISTS user_articles (
-    article_id TEXT PRIMARY KEY,
-    status     TEXT NOT NULL DEFAULT 'New',
-    binned_at  INTEGER
-);
+    id      TEXT PRIMARY KEY,
 
-CREATE TABLE IF NOT EXISTS article_ratings (
-    article_id      TEXT PRIMARY KEY,
-    rating          TEXT NOT NULL,
+    sources         TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    sidebar         TEXT NOT NULL,
+    thumbnail       TEXT NOT NULL,
+    published       INTEGER NOT NULL,
+    category        TEXT NOT NULL,
+
+    status          TEXT NOT NULL,
+    binned_at       INTEGER,
+    rating          TEXT,
+
     embedding       BLOB NOT NULL,
-    embedding_model TEXT NOT NULL,
-    embedding_text  TEXT NOT NULL
+    embedding_text  TEXT NOT NULL,
+    embedding_model TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS item_ratings (
@@ -42,11 +53,3 @@ CREATE TABLE IF NOT EXISTS label_embeddings (
     hash      TEXT NOT NULL,
     embedding BLOB NOT NULL
 );
-
-CREATE TRIGGER IF NOT EXISTS update_articles_updated_at
-AFTER UPDATE ON articles
-FOR EACH ROW
-BEGIN
-    UPDATE articles SET updated_at = strftime('%s', 'now')
-    WHERE id = OLD.id;
-END;

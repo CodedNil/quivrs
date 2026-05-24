@@ -3,7 +3,7 @@ mod components;
 mod sidebar;
 
 use crate::shared::{
-    ArticleData, Rating,
+    Article, Rating,
     server_functions::{get_all_item_ratings, get_user_articles},
 };
 use article::ArticleDetail;
@@ -57,7 +57,7 @@ enum Route {
     #[route("/:tab")]
     TabHome { tab: String },
     #[route("/:tab/entry/:id")]
-    Article { tab: String, id: Uuid },
+    ArticleEntry { tab: String, id: Uuid },
 }
 
 #[component]
@@ -68,33 +68,31 @@ fn TabHome(tab: String) -> Element {
 }
 
 #[component]
-fn Article(tab: String, id: Uuid) -> Element {
-    let articles = use_context::<Signal<Vec<ArticleData>>>();
+fn ArticleEntry(tab: String, id: Uuid) -> Element {
+    let articles = use_context::<Signal<Vec<Article>>>();
     let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
 
-    let found = articles()
-        .iter()
-        .find(|a| a.id == id)
-        .map(|a| (a.status, a.rating, a.article.clone()));
-
-    match found {
-        Some((status, rating, art)) => rsx! {
-            ArticleDetail {
-                article: art,
-                status,
-                rating,
-                articles,
-                item_ratings,
+    let articles_data = articles();
+    articles_data.iter().find(|a| a.id == id).map_or_else(
+        || {
+            rsx! {
+                CenteredMessage { text: "Article not found" }
             }
         },
-        None => rsx! {
-            CenteredMessage { text: "Article not found" }
+        |article| {
+            rsx! {
+                ArticleDetail {
+                    article: article.clone(),
+                    articles,
+                    item_ratings,
+                }
+            }
         },
-    }
+    )
 }
 
 pub fn app() -> Element {
-    let mut articles: Signal<Vec<ArticleData>> = use_signal(Vec::new);
+    let mut articles: Signal<Vec<Article>> = use_signal(Vec::new);
     let mut item_ratings: Signal<HashMap<String, Rating>> = use_signal(HashMap::new);
 
     use_context_provider(|| articles);
@@ -123,7 +121,7 @@ fn MainLayout() -> Element {
     let route = use_route::<Route>();
 
     let (tab, selected_id) = match route {
-        Route::Article { tab, id } => (tab, Some(id)),
+        Route::ArticleEntry { tab, id } => (tab, Some(id)),
         Route::TabHome { tab } => (tab, None),
     };
 

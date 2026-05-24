@@ -1,24 +1,30 @@
 use crate::{
     server::{
         database,
-        embeddings::{article_text, classify, cosine_similarity, generate_article_embeddings},
+        embeddings::{
+            EMBEDDING_MODEL_NAME, article_text, classify, cosine_similarity, estimate_liked,
+            generate_article_embeddings,
+        },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
     },
-    shared::{ArticleEntry, ArticleSource},
+    shared::{Article, ArticleSource, ArticleStatus, PendingSource},
 };
 use anyhow::{Result, anyhow};
-use chrono::TimeDelta;
-use futures::{StreamExt, future::join_all, stream};
+use futures::future::join_all;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env,
 };
 use tokio::fs;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
+const LIKED_SERVE_THRESHOLD: f64 = 0.8; // If the liked guess is above this, it is automatically served
+const CATEGORY_MIN_NEW_ARTICLES: i64 = 4; // Minimum number of new articles to maintain in each category
 const TIME_BONUS_MAX: f32 = 0.1;
 const TIME_WINDOW_DAYS: i64 = 2;
 
@@ -55,7 +61,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     )
     .await;
 
-    let mut new_entries: Vec<ArticleSource> = vec![];
+    let mut new_entries: Vec<PendingSource> = vec![];
     let mut dismissed_urls: Vec<String> = vec![];
     for (url, result) in new_urls.into_iter().zip(results) {
         match result {
@@ -74,110 +80,165 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let embeddings = generate_article_embeddings(&new_entries)
+    let texts: Vec<String> = new_entries.iter().map(|a| article_text(a, 5)).collect();
+    let embeddings = generate_article_embeddings(&texts)
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
-    for (source, embedding) in new_entries.into_iter().zip(embeddings.into_iter()) {
-        if embedding.is_empty() {
-            warn!("Skipping article due to empty embedding: {}", source.title);
-            continue;
-        }
-
+    for ((mut source, embedding_text), embedding) in new_entries
+        .into_iter()
+        .zip(texts.into_iter())
+        .zip(embeddings.into_iter())
+    {
         let Ok(category) = classify(&embedding).await else {
             warn!("Classification failed for '{}'", source.title);
             continue;
         };
-        // Find the highest similarity match
-        let candidates = database::get_embedding_candidates(
-            (source.published - TimeDelta::days(TIME_WINDOW_DAYS)).timestamp(),
-            (source.published + TimeDelta::days(TIME_WINDOW_DAYS)).timestamp(),
-        )
-        .await?;
+        let Ok(estimated_liked) = estimate_liked(&embedding).await else {
+            warn!("Estimating liked failed for '{}'", source.title);
+            continue;
+        };
 
-        let source_ts = source.published.timestamp() as f32;
+        source.embedding = embedding;
+        source.embedding_text = embedding_text;
+        source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
+
+        source.category = category;
+        source.estimated_liked = f64::from(estimated_liked);
+        info!(
+            "Estimated liked: {} {}",
+            source.estimated_liked, source.title
+        );
+
+        info!(
+            "[NEW] {}",
+            format!("'{}' {}", article_text(&source, 1), category)
+        );
+        database::insert_source(&source).await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ArticleEntry {
+    pub title: String,
+    pub description: String,
+    pub content: String,
+    pub sidebar: String,
+    pub thumbnail: String,
+}
+
+/// Scans all pending sources and promotes high-quality or necessary content into full articles.
+pub async fn promote_articles() -> Result<()> {
+    let mut pending = database::get_pending_sources().await?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    info!(
+        "Running promote_articles with {} pending sources",
+        pending.len()
+    );
+
+    let cat_counts = database::get_category_article_counts().await?;
+    pending.sort_by(|a, b| b.estimated_liked.total_cmp(&a.estimated_liked));
+
+    let mut promoted_urls = HashSet::new();
+
+    for i in 0..pending.len() {
+        let candidate = &pending[i];
+        if promoted_urls.contains(&candidate.url) {
+            continue;
+        }
+
+        let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
+        if candidate.estimated_liked < LIKED_SERVE_THRESHOLD && count >= CATEGORY_MIN_NEW_ARTICLES {
+            continue;
+        }
+
+        info!(
+            "[PROMOTING] '{}' (score: {:.2}, cat: {}, current_count: {})",
+            candidate.title, candidate.estimated_liked, candidate.category, count
+        );
+
+        let mut sources_to_merge = vec![candidate.clone()];
+        promoted_urls.insert(candidate.url.clone());
+
+        let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
 
-        let mut best: Option<(uuid::Uuid, &str, f32)> = None;
-        let mut highest: Option<(&str, f32)> = None;
-        for c in candidates.iter().filter(|c| !c.embedding.is_empty()) {
-            let diff_secs = (source_ts - c.published as f32).abs();
+        for other in pending.iter().skip(i + 1) {
+            if other.category != candidate.category || promoted_urls.contains(&other.url) {
+                continue;
+            }
+
+            if (candidate.published - other.published).num_days().abs() > TIME_WINDOW_DAYS {
+                continue;
+            }
+
+            let diff_secs = (candidate_ts - other.published.timestamp() as f32).abs();
             let time_bonus =
                 TIME_BONUS_MAX * (-std::f32::consts::LN_2 * diff_secs / half_life_secs).exp();
-            let score = cosine_similarity(&embedding, &c.embedding) + time_bonus;
-            if highest.is_none_or(|(_, s)| score > s) {
-                highest = Some((&c.title, score));
-            }
-            if score >= SIMILARITY_THRESHOLD
-                && c.category == category
-                && best.is_none_or(|(_, _, s)| score > s)
-            {
-                best = Some((c.id, &c.title, score));
-            }
-        }
 
-        let article_overview = format!("'{}' {}", article_text(&source, 1), category);
-        if let Some((article_id, existing_title, score)) = best {
-            info!(
-                "[MERGE] {} → '{}' (score {score:.2})",
-                article_overview, existing_title
-            );
-            database::merge_into_article(article_id, &source).await?;
-        } else {
-            if let Some((closest_title, sim)) = highest {
+            let sim = cosine_similarity(&candidate.embedding, &other.embedding);
+            let score = sim + time_bonus;
+
+            if score >= SIMILARITY_THRESHOLD {
                 info!(
-                    "[NEW] {} - Highest {sim:.2} '{}'",
-                    article_overview, closest_title
+                    "  [MERGE] adding '{}' (sim: {:.2}, bonus: {:.2}, total: {:.2})",
+                    other.title, sim, time_bonus, score
                 );
-            } else {
-                info!("[NEW] {}", article_overview);
+                sources_to_merge.push(other.clone());
+                promoted_urls.insert(other.url.clone());
             }
-            database::insert_article(&source, &embedding, category).await?;
         }
-    }
 
-    Ok(())
-}
+        let article_sources = sources_to_merge
+            .iter()
+            .map(|ps| ArticleSource {
+                url: ps.url.clone(),
+                domain: ps.domain.clone(),
+            })
+            .collect();
 
-pub async fn regenerate_articles() -> Result<()> {
-    if env::var("OPENROUTER").is_err() {
-        warn!("OPENROUTER environment variable not set. Skipping generation.");
-        return Ok(());
-    }
-
-    let targets = database::get_regeneration_targets().await?;
-    if targets.is_empty() {
-        return Ok(());
-    }
-
-    info!("Generating content for {} articles...", targets.len());
-
-    let mut article_stream = stream::iter(targets)
-        .map(|(id, sources)| async move { (id, generate_article_content(sources).await) })
-        .buffer_unordered(6);
-
-    while let Some((id, result)) = article_stream.next().await {
-        match result {
+        match generate_promoted_content(sources_to_merge.clone()).await {
             Ok(entry) => {
-                if let Err(err) = database::save_article_entry(id, &entry).await {
-                    warn!(article_id = %id, "Failed to save article to database: {err:#}");
-                }
+                let article = Article {
+                    id: Uuid::new_v4(),
+                    sources: article_sources,
+                    title: entry.title,
+                    description: entry.description,
+                    content: entry.content,
+                    sidebar: entry.sidebar,
+                    thumbnail: entry.thumbnail,
+                    published: candidate.published,
+                    category: candidate.category,
+                    status: ArticleStatus::New,
+                    binned_at: None,
+                    rating: None,
+                    embedding: candidate.embedding.clone(),
+                    embedding_text: candidate.embedding_text.clone(),
+                    embedding_model: candidate.embedding_model.clone(),
+                };
+                let urls: Vec<String> = sources_to_merge.into_iter().map(|s| s.url).collect();
+                database::insert_promoted_article(&article, &urls).await?;
             }
-            Err(err) => {
-                warn!(article_id = %id, "Generation failed: {err:#}");
-            }
+            Err(e) => error!(
+                "Failed to generate content for '{}': {}",
+                candidate.title, e
+            ),
         }
     }
 
     Ok(())
 }
 
-async fn generate_article_content(sources: Vec<ArticleSource>) -> Result<ArticleEntry> {
+/// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
+async fn generate_promoted_content(sources: Vec<PendingSource>) -> Result<ArticleEntry> {
     let images = sources
         .iter()
         .flat_map(|source| &source.images)
-        .map(|img_str| {
-            let (src, caption) = img_str.split_once('|').unwrap_or((img_str, ""));
+        .map(|(src, caption)| {
             if caption.is_empty() {
                 format!("[{src}]")
             } else {
@@ -259,20 +320,17 @@ Sources with information:
         .map_err(|e| anyhow!("Article generation failed: {e}"))?;
 
     // Clean the content using ammonia to prevent XSS attacks
-    let sanitizer = ammonia::Builder::default()
+    let content_sanitized = ammonia::Builder::default()
         .add_generic_attributes(&["class"])
         .clean(&entry.content)
         .to_string();
-
-    let sidebar_sanitized = entry.sidebar.as_ref().map(|s| {
-        ammonia::Builder::default()
-            .add_generic_attributes(&["class"])
-            .clean(s)
-            .to_string()
-    });
+    let sidebar_sanitized = ammonia::Builder::default()
+        .add_generic_attributes(&["class"])
+        .clean(&entry.sidebar)
+        .to_string();
 
     Ok(ArticleEntry {
-        content: sanitizer,
+        content: content_sanitized,
         sidebar: sidebar_sanitized,
         ..entry
     })

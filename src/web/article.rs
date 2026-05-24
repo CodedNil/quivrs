@@ -1,7 +1,7 @@
 use super::components::RatingPill;
 use crate::shared::{
-    ArticleData, ArticleStatus, Rating, StoredArticle,
-    server_functions::{regenerate_article, set_article_status, set_rating},
+    Article, ArticleStatus, Rating,
+    server_functions::{set_article_status, set_rating},
 };
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
@@ -10,15 +10,11 @@ use uuid::Uuid;
 
 #[component]
 pub fn ArticleDetail(
-    article: StoredArticle,
-    status: ArticleStatus,
-    rating: Option<Rating>,
-    articles: Signal<Vec<ArticleData>>,
+    article: Article,
+    articles: Signal<Vec<Article>>,
     item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
     let id = article.id;
-    let title = article.display_title();
-    let thumbnail = article.thumbnail_image();
 
     rsx! {
         div {
@@ -28,78 +24,76 @@ pub fn ArticleDetail(
             border_radius: "20px 20px 0 0",
             overflow: "clip",
 
-            if let Some(url) = thumbnail.as_ref() {
-                // Hero header image
+            // Hero header image
+            div {
+                position: "absolute",
+                top: "0",
+                left: "0",
+                right: "0",
+                height: "26rem",
+                z_index: "0",
+                img {
+                    src: "{article.thumbnail}",
+                    width: "100%",
+                    height: "100%",
+                    object_fit: "cover",
+                    display: "block",
+                }
+                // Bottom fade to content
+                div {
+                    position: "absolute",
+                    bottom: "0",
+                    left: "0",
+                    right: "0",
+                    height: "100%",
+                    background: "linear-gradient(to bottom,
+                        rgba(24, 24, 37, 0) 0%,
+                        rgba(24, 24, 37, 0.1) 10%,
+                        rgba(24, 24, 37, 0.4) 30%,
+                        rgba(24, 24, 37, 0.8) 60%,
+                        var(--base) 85%,
+                        var(--base) 100%),
+                        linear-gradient(to bottom, transparent 0%, var(--base) 100%)",
+                }
+            }
+
+            // Background blurred image for the entire article
+            div {
+                position: "absolute",
+                top: "-5%",
+                left: "-5%",
+                right: "-5%",
+                bottom: "-5%",
+                z_index: "1",
+                img {
+                    src: "{article.thumbnail}",
+                    width: "110%",
+                    height: "110%",
+                    object_fit: "cover",
+                    filter: "blur(80px) saturate(3)",
+                    opacity: "0.15",
+                    display: "block",
+                }
+                // Noise overlay to prevent banding
                 div {
                     position: "absolute",
                     top: "0",
                     left: "0",
                     right: "0",
-                    height: "26rem",
-                    z_index: "0",
-                    img {
-                        src: "{url}",
-                        width: "100%",
-                        height: "100%",
-                        object_fit: "cover",
-                        display: "block",
-                    }
-                    // Bottom fade to content
-                    div {
-                        position: "absolute",
-                        bottom: "0",
-                        left: "0",
-                        right: "0",
-                        height: "100%",
-                        background: "linear-gradient(to bottom,
-                            rgba(24, 24, 37, 0) 0%,
-                            rgba(24, 24, 37, 0.1) 10%,
-                            rgba(24, 24, 37, 0.4) 30%,
-                            rgba(24, 24, 37, 0.8) 60%,
-                            var(--base) 85%,
-                            var(--base) 100%),
-                            linear-gradient(to bottom, transparent 0%, var(--base) 100%)",
-                    }
-                }
-
-                // Background blurred image for the entire article
-                div {
-                    position: "absolute",
-                    top: "-5%",
-                    left: "-5%",
-                    right: "-5%",
-                    bottom: "-5%",
-                    z_index: "1",
-                    img {
-                        src: "{url}",
-                        width: "110%",
-                        height: "110%",
-                        object_fit: "cover",
-                        filter: "blur(80px) saturate(3)",
-                        opacity: "0.15",
-                        display: "block",
-                    }
-                    // Noise overlay to prevent banding
-                    div {
-                        position: "absolute",
-                        top: "0",
-                        left: "0",
-                        right: "0",
-                        bottom: "0",
-                        opacity: "0.1",
-                        pointer_events: "none",
-                        background_image: "url('{asset!(\"/assets/bluenoise.png\")}')",
-                        background_repeat: "repeat",
-                        background_size: "256px",
-                        style: "mix-blend-mode: multiply;",
-                    }
+                    bottom: "0",
+                    opacity: "0.1",
+                    pointer_events: "none",
+                    background_image: "url('{asset!(\"/assets/bluenoise.png\")}')",
+                    background_repeat: "repeat",
+                    background_size: "256px",
+                    style: "mix-blend-mode: multiply;",
                 }
             }
 
             div {
                 position: "relative",
                 z_index: "2",
-                padding: if thumbnail.is_some() { "16rem 2rem 5rem" } else { "1.5rem 2rem 5rem" },
+                padding: "16rem 2rem 5rem",
 
                 div {
                     width: "100%",
@@ -114,13 +108,7 @@ pub fn ArticleDetail(
                         color: "var(--text)",
                         margin_bottom: "0.75rem",
                         letter_spacing: "-0.01em",
-
-                        // DEBUG click to reset the article generation
-                        onclick: move |_| async move {
-                            let _ = regenerate_article(id).await;
-                        },
-
-                        "{title}"
+                        "{article.title}"
                     }
 
                     div {
@@ -133,7 +121,7 @@ pub fn ArticleDetail(
                             display: "flex",
                             align_items: "center",
                             gap: "0.375rem",
-                            if status != ArticleStatus::Stored {
+                            if article.status != ArticleStatus::Stored {
                                 ActionBtn {
                                     icon: fa_solid_icons::FaBookmark,
                                     title: "Save to Read Later",
@@ -146,7 +134,7 @@ pub fn ArticleDetail(
                                     },
                                 }
                             }
-                            if status != ArticleStatus::Binned {
+                            if article.status != ArticleStatus::Binned {
                                 ActionBtn {
                                     icon: fa_solid_icons::FaTrash,
                                     title: "Move to Bin",
@@ -163,7 +151,7 @@ pub fn ArticleDetail(
                         span { font_size: "0.7rem", color: "var(--subtext0)",
                             {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                         }
-                        StarRating { current: rating, id, articles }
+                        StarRating { current: article.rating, id, articles }
                         div {
                             display: "flex",
                             align_items: "center",
@@ -176,8 +164,8 @@ pub fn ArticleDetail(
                             for source in &article.sources {
                                 RatingPill {
                                     key: "{source.url}",
-                                    label: source.source.clone(),
-                                    item_key: format!("source:{}", source.source),
+                                    label: source.domain.clone(),
+                                    item_key: format!("source:{}", source.domain),
                                     item_ratings,
                                     url: Some(source.url.clone()),
                                 }
@@ -186,58 +174,37 @@ pub fn ArticleDetail(
                     }
                 }
 
-                if let Some(entry) = &article.entry {
+                div {
+                    display: "flex",
+                    gap: "2.5rem",
+                    align_items: "flex-start",
+                    justify_content: "center",
+                    flex_wrap: "wrap",
+                    style { "{include_str!(\"article.css\")}" }
+
                     div {
-                        display: "flex",
-                        gap: "2.5rem",
-                        align_items: "flex-start",
-                        justify_content: "center",
-                        flex_wrap: "wrap",
-                        style { "{include_str!(\"article.css\")}" }
-
-                        div {
-                            class: "article-content",
-                            gap: "1.5rem",
-                            color: "var(--text)",
-                            line_height: "1.8",
-                            font_size: "1rem",
-                            margin_left: "auto",
-                            margin_right: "auto",
-                            width: "44rem",
-                            dangerous_inner_html: "{entry.content}",
-                        }
-
-                        if let Some(sidebar) = &entry.sidebar {
-                            div {
-                                class: "article-sidebar",
-                                width: "20rem",
-                                height: "fit-content",
-                                background: "var(--mantle-transparent)",
-                                border_radius: "16px",
-                                padding: "1.25rem",
-                                font_size: "0.875rem",
-                                position: "sticky",
-                                top: "2rem",
-                                dangerous_inner_html: "{sidebar}",
-                            }
-                        }
+                        class: "article-content",
+                        gap: "1.5rem",
+                        color: "var(--text)",
+                        line_height: "1.8",
+                        font_size: "1rem",
+                        margin_left: "auto",
+                        margin_right: "auto",
+                        width: "44rem",
+                        dangerous_inner_html: "{article.content}",
                     }
-                } else {
-                    p {
-                        color: "var(--subtext0)",
+
+                    div {
+                        class: "article-sidebar",
+                        width: "20rem",
+                        height: "fit-content",
+                        background: "var(--mantle-transparent)",
+                        border_radius: "16px",
+                        padding: "1.25rem",
                         font_size: "0.875rem",
-                        font_style: "italic",
-                        margin_bottom: "1rem",
-                        "Generating summary…"
-                    }
-                    if let Some(s) = article.sources.first() {
-                        div {
-                            font_size: "0.825rem",
-                            color: "var(--subtext0)",
-                            line_height: "1.65",
-                            white_space: "pre-wrap",
-                            "{s.content}"
-                        }
+                        position: "sticky",
+                        top: "2rem",
+                        dangerous_inner_html: "{article.sidebar}",
                     }
                 }
             }
@@ -275,11 +242,7 @@ fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
 }
 
 #[component]
-fn StarRating(
-    current: Option<Rating>,
-    id: Uuid,
-    mut articles: Signal<Vec<ArticleData>>,
-) -> Element {
+fn StarRating(current: Option<Rating>, id: Uuid, mut articles: Signal<Vec<Article>>) -> Element {
     const RATINGS: [Rating; 5] = [
         Rating::Hated,
         Rating::Disliked,

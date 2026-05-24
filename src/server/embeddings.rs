@@ -1,6 +1,6 @@
 use crate::{
     server::database::get_rated_article_embeddings,
-    shared::{ArticleSource, Category, Rating},
+    shared::{Category, PendingSource, Rating},
 };
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
@@ -9,6 +9,9 @@ use sha2::{Digest, Sha256};
 use std::{fmt::Write, sync::LazyLock};
 use strum::IntoEnumIterator;
 use tokio::sync::{Mutex, OnceCell};
+
+const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
+pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
 
 // --- Label writing guide ---
 //
@@ -27,9 +30,6 @@ use tokio::sync::{Mutex, OnceCell};
 //     Black Friday), but single tokens are preferred where one exists.
 //   - Commas make no difference to the embedding — they are just punctuation tokens.
 // ---
-
-const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
-pub const MODEL_NAME: &str = "EmbeddingGemma300M";
 
 pub const fn category_label(category: Category) -> &'static str {
     match category {
@@ -96,7 +96,7 @@ pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     hasher.update(b"\0");
-    hasher.update(MODEL_NAME.as_bytes());
+    hasher.update(EMBEDDING_MODEL_NAME.as_bytes());
     hasher.finalize().iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
@@ -114,7 +114,7 @@ async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     EMBEDDING_MODEL.lock().await.embed(texts, None)
 }
 
-pub fn article_text(s: &ArticleSource, title_repeat: usize) -> String {
+pub fn article_text(s: &PendingSource, title_repeat: usize) -> String {
     std::iter::repeat_n(s.title.replace('\n', " "), title_repeat)
         .chain([
             s.tags.iter().take(8).join(", ").replace('\n', " "),
@@ -128,9 +128,8 @@ pub fn article_text(s: &ArticleSource, title_repeat: usize) -> String {
         .join(". ")
 }
 
-pub async fn generate_article_embeddings(articles: &[ArticleSource]) -> Result<Vec<Vec<f32>>> {
-    let texts: Vec<String> = articles.iter().map(|a| article_text(a, 5)).collect();
-    let mut embs = generate_embeddings(&texts).await?;
+pub async fn generate_article_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    let mut embs = generate_embeddings(texts).await?;
     for emb in &mut embs {
         normalize(emb);
     }
@@ -194,30 +193,21 @@ pub async fn estimate_liked(embedding: &[f32]) -> Result<f32> {
         return Ok(0.5);
     }
 
-    let mut total_weight = 0.0;
-    let mut weighted_sum = 0.0;
-
-    for (rating, rated_emb) in rated {
-        let sim = cosine_similarity(embedding, &rated_emb);
-        if sim > 0.65 {
-            let weight = (sim * 12.0).exp();
-            let score_value = match rating {
+    let (sum, weight) = rated
+        .into_iter()
+        .map(|(rating, rated_emb)| (rating, cosine_similarity(embedding, &rated_emb)))
+        .filter(|(_, sim)| *sim > 0.65)
+        .fold((0.0, 0.0), |(s, w), (rating, sim)| {
+            let p = (sim * 12.0).exp();
+            let val = match rating {
                 Rating::Loved => 1.0,
                 Rating::Liked => 0.75,
                 Rating::Neutral => 0.5,
                 Rating::Disliked => 0.25,
                 Rating::Hated => 0.0,
             };
+            (s + val * p, w + p)
+        });
 
-            weighted_sum += score_value * weight;
-            total_weight += weight;
-        }
-    }
-
-    if total_weight == 0.0 {
-        // If no articles are similar enough, we return a neutral 0.5
-        return Ok(0.5);
-    }
-
-    Ok(weighted_sum / total_weight)
+    Ok(if weight > 0.0 { sum / weight } else { 0.5 })
 }

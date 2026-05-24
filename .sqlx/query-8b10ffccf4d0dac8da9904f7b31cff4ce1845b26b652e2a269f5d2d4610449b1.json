@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user_articles SET status = ?, binned_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "8b10ffccf4d0dac8da9904f7b31cff4ce1845b26b652e2a269f5d2d4610449b1"
+}

@@ -1,0 +1,182 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            url as \"url!\", domain as \"domain!\", title as \"title!\", summary as \"summary!\", content as \"content!\",\n            tags as \"tags!: Json<Vec<String>>\",\n            images as \"images!: Json<Vec<(String, String)>>\",\n            published as \"published!: DateTime<Utc>\",\n            embedding, embedding_model, embedding_text,\n            category as \"category!: Category\",\n            estimated_liked, fade as \"fade!: DateTime<Utc>\"\n         FROM pending_sources",
+  "describe": {
+    "columns": [
+      {
+        "name": "url!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "name": "domain!",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "domain"
+          }
+        }
+      },
+      {
+        "name": "title!",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "summary!",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "name": "content!",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "tags!: Json<Vec<String>>",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "tags"
+          }
+        }
+      },
+      {
+        "name": "images!: Json<Vec<(String, String)>>",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "images"
+          }
+        }
+      },
+      {
+        "name": "published!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "published"
+          }
+        }
+      },
+      {
+        "name": "embedding",
+        "ordinal": 8,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "embedding"
+          }
+        }
+      },
+      {
+        "name": "embedding_model",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "embedding_model"
+          }
+        }
+      },
+      {
+        "name": "embedding_text",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "embedding_text"
+          }
+        }
+      },
+      {
+        "name": "category!: Category",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "category"
+          }
+        }
+      },
+      {
+        "name": "estimated_liked",
+        "ordinal": 12,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "estimated_liked"
+          }
+        }
+      },
+      {
+        "name": "fade!: DateTime<Utc>",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "pending_sources",
+            "name": "fade"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3a09968b82bfd363fc7b63ff7d0d32e41bcfc0d093479e165913fc534833981c"
+}

@@ -1,8 +1,5 @@
 use super::Route;
-use crate::shared::{
-    ArticleData, ArticleStatus, Category, Rating, StoredArticle,
-    server_functions::{get_user_articles, reclassify_articles},
-};
+use crate::shared::{Article, ArticleStatus, Category};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::fa_solid_icons};
 use std::collections::BTreeMap;
@@ -65,12 +62,12 @@ fn category_icon(category: Category, size: u32) -> Element {
 
 #[component]
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
-    let mut articles: Signal<Vec<ArticleData>> = use_context();
+    let articles: Signal<Vec<Article>> = use_context();
 
     let (counts, all_groups) = use_memo(use_reactive!(|articles| {
         let (mut counts, mut groups) = (
             (0, 0, 0),
-            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<ArticleData>>>::new(),
+            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Article>>>::new(),
         );
         for a in &articles() {
             *match a.status {
@@ -81,7 +78,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
             groups
                 .entry(a.status)
                 .or_default()
-                .entry(a.article.category)
+                .entry(a.category)
                 .or_default()
                 .push(a.clone());
         }
@@ -123,17 +120,6 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                         text_transform: "uppercase",
                         margin: "0",
                         "Quivrs"
-                    }
-                    RefreshButton {
-                        title: "Re-classify all articles",
-                        onclick: move |_| async move {
-                            let ids = articles().iter().map(|a| a.id).collect();
-                            if reclassify_articles(ids).await.is_ok()
-                                && let Ok(new_articles) = get_user_articles().await
-                            {
-                                articles.set(new_articles);
-                            }
-                        },
                     }
                 }
 
@@ -187,7 +173,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 fn StatusLane(
     status: ArticleStatus,
     active: bool,
-    groups: BTreeMap<Category, Vec<ArticleData>>,
+    groups: BTreeMap<Category, Vec<Article>>,
     selected_id: Option<Uuid>,
     tab: String,
     mut scroll_top_val: Signal<f64>,
@@ -212,9 +198,7 @@ fn StatusLane(
                     for a in items {
                         ArticleItem {
                             key: "{a.id}",
-                            id: a.id,
-                            rating: a.rating,
-                            article: a.article,
+                            article: a,
                             selected: selected_id,
                             tab: tab.clone(),
                         }
@@ -333,7 +317,7 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool
 
 #[component]
 fn CategoryScrollbar(
-    groups: BTreeMap<Category, Vec<ArticleData>>,
+    groups: BTreeMap<Category, Vec<Article>>,
     status: ArticleStatus,
     scroll_top: Signal<f64>,
 ) -> Element {
@@ -495,20 +479,10 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
 }
 
 #[component]
-fn ArticleItem(
-    id: Uuid,
-    rating: Option<Rating>,
-    article: StoredArticle,
-    selected: Option<Uuid>,
-    tab: String,
-) -> Element {
-    let is_selected = selected == Some(id);
+fn ArticleItem(article: Article, selected: Option<Uuid>, tab: String) -> Element {
+    let is_selected = selected == Some(article.id);
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
-
-    let title = article.display_title();
-    let description = article.display_description();
-    let thumbnail = article.thumbnail_image();
 
     let d = chrono::Utc::now().signed_duration_since(article.published);
     let time_ago = if d.num_days() > 0 {
@@ -521,7 +495,7 @@ fn ArticleItem(
 
     rsx! {
         div {
-            id: "article-{id}",
+            id: "article-{article.id}",
             height: "{ARTICLE_HEIGHT_PX}px",
             cursor: "pointer",
             border_radius: "2rem",
@@ -541,29 +515,27 @@ fn ArticleItem(
             onmouseup: move |_| pressed.set(false),
             onclick: move |_| {
                 use_navigator()
-                    .push(Route::Article {
+                    .push(Route::ArticleEntry {
                         tab: tab.clone(),
-                        id,
+                        id: article.id,
                     });
             },
 
             div { flex: "1", overflow: "hidden", position: "relative",
 
-                if let Some(img_url) = thumbnail {
-                    img {
-                        src: "{img_url}",
-                        width: "100%",
-                        height: "100%",
-                        object_fit: "cover",
-                        object_position: "center 35%",
-                        transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
-                        transition: "transform 0.4s ease",
-                        will_change: "transform",
-                        decoding: "async",
-                    }
+                img {
+                    src: "{article.thumbnail}",
+                    width: "100%",
+                    height: "100%",
+                    object_fit: "cover",
+                    object_position: "center 35%",
+                    transform: if hovered() { "scale(1.03)" } else { "scale(1)" },
+                    transition: "transform 0.4s ease",
+                    will_change: "transform",
+                    decoding: "async",
                 }
 
-                if let Some(r) = rating {
+                if let Some(r) = article.rating {
                     div {
                         position: "absolute",
                         top: "0",
@@ -592,7 +564,7 @@ fn ArticleItem(
                         font_weight: "700",
                         color: "var(--text)",
                         margin: "0 0 0.4rem 0",
-                        "{title}"
+                        "{article.title}"
                     }
                     p {
                         font_size: "0.75rem",
@@ -606,33 +578,10 @@ fn ArticleItem(
                             margin_right: "0.4rem",
                             "{time_ago}"
                         }
-                        "{description}"
+                        "{article.description}"
                     }
                 }
             }
-        }
-    }
-}
-
-#[component]
-pub fn RefreshButton(title: String, onclick: EventHandler<MouseEvent>) -> Element {
-    let mut hovered = use_signal(|| false);
-    rsx! {
-        button {
-            font_size: "0.875rem",
-            line_height: "1",
-            padding: "0.2rem 0.5rem",
-            border_radius: "9999px",
-            background_color: "var(--base)",
-            color: if hovered() { "var(--subtext0)" } else { "var(--text)" },
-            border: "none",
-            cursor: "pointer",
-            transition: "color 0.15s ease",
-            title,
-            onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| hovered.set(false),
-            onclick,
-            "↻"
         }
     }
 }

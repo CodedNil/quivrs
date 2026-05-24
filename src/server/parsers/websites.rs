@@ -1,5 +1,5 @@
 use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
-use crate::shared::ArticleSource;
+use crate::shared::{Category, PendingSource};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use dom_smoothie::Readability;
@@ -34,7 +34,7 @@ static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title")
 
 const WEBSITE_BLACKLIST: &[&str] = &["bbc.com/news/videos", "bbc.co.uk/news/videos"];
 
-pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
+pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
     if WEBSITE_BLACKLIST.iter().any(|s| url.contains(s)) {
         return Ok(None);
     }
@@ -202,10 +202,9 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
                 && !u.contains("gravatar.com")
                 && seen.insert(u.clone())
         })
-        .map(|(u, c)| format!("{u}|{c}"))
         .collect();
 
-    let source = url
+    let domain = url
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .split('/')
@@ -214,15 +213,24 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<ArticleSource>> {
         .trim_start_matches("www.")
         .to_string();
 
-    Ok(Some(ArticleSource {
+    Ok(Some(PendingSource {
         url: url.to_string(),
-        source,
+
+        domain,
         title,
         summary,
         content,
         tags,
         images,
         published: date,
+
+        embedding: Vec::new(),
+        embedding_text: String::new(),
+        embedding_model: String::new(),
+
+        category: Category::Technology,
+        estimated_liked: 0.0,
+        fade: Utc::now(),
     }))
 }
 

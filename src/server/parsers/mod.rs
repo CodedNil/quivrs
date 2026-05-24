@@ -3,7 +3,7 @@ pub mod social;
 pub mod websites;
 
 use crate::server::HTTP_CLIENT;
-use crate::shared::ArticleSource;
+use crate::shared::PendingSource;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
 use social::fetch_social_content;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use websites::fetch_source_content;
 
-pub async fn fetch_page_content(url: &str) -> Result<Option<ArticleSource>> {
+pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
     if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app") {
         fetch_social_content(url).await
     } else {

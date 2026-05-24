@@ -1,50 +1,62 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT embedding, embedding_model, embedding_text FROM articles WHERE id = ?",
+  "query": "SELECT rating as \"rating!: Rating\", embedding, embedding_model, embedding_text\n         FROM user_articles",
   "describe": {
     "columns": [
       {
-        "name": "embedding",
+        "name": "rating!: Rating",
         "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "user_articles",
+            "name": "rating"
+          }
+        }
+      },
+      {
+        "name": "embedding",
+        "ordinal": 1,
         "type_info": "Blob",
         "origin": {
           "Table": {
-            "table": "articles",
+            "table": "user_articles",
             "name": "embedding"
           }
         }
       },
       {
         "name": "embedding_model",
-        "ordinal": 1,
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "articles",
+            "table": "user_articles",
             "name": "embedding_model"
           }
         }
       },
       {
         "name": "embedding_text",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "articles",
+            "table": "user_articles",
             "name": "embedding_text"
           }
         }
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "c4bbdb533f4713589bae5bd31f63e6b1452febe12af8758b17902c71ced4ab71"
+  "hash": "ab671cfdaa8ecacd3eec89c8c829be936c84f8da1e64ffb18b9bf9657f540ea1"
 }

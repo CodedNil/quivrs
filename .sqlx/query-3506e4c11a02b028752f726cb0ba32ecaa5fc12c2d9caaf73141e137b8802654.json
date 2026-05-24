@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user_articles\n             (id, sources, title, description, content, sidebar, thumbnail, published, category, status, embedding, embedding_text, embedding_model)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "3506e4c11a02b028752f726cb0ba32ecaa5fc12c2d9caaf73141e137b8802654"
+}

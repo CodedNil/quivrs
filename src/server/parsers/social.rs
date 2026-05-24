@@ -1,5 +1,5 @@
 use crate::server::{HTTP_CLIENT, parsers::get_cached_or_fetch_ext};
-use crate::shared::ArticleSource;
+use crate::shared::{Category, PendingSource};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -56,7 +56,7 @@ fn short_title(text: &str, handle: &str) -> String {
 }
 
 /// Fetch the content of an individual social post
-pub async fn fetch_social_content(url: &str) -> Result<Option<ArticleSource>> {
+pub async fn fetch_social_content(url: &str) -> Result<Option<PendingSource>> {
     if url.contains("twitter.com") || url.contains("x.com") {
         fetch_twitter_native(url).await
     } else if url.contains("bsky.app") {
@@ -116,7 +116,7 @@ async fn scan_twitter_profile(url: &str) -> Result<Vec<String>> {
 }
 
 /// Parse an individual twitter post
-async fn fetch_twitter_native(url: &str) -> Result<Option<ArticleSource>> {
+async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
     let tweet_id = url
         .split('/')
         .next_back()
@@ -141,8 +141,8 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<ArticleSource>> {
         .and_then(|t| t.as_array())
         .context("Missing thread")?;
 
-    let mut content_parts: Vec<String> = Vec::new();
-    let mut images: Vec<String> = Vec::new();
+    let mut content_parts = Vec::new();
+    let mut images = Vec::new();
 
     for tweet in thread {
         if let Some(text) = tweet.get("text").and_then(|t| t.as_str()) {
@@ -155,7 +155,7 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<ArticleSource>> {
         {
             for photo in photos {
                 if let Some(photo_url) = photo.get("url").and_then(|u| u.as_str()) {
-                    images.push(format!("{photo_url}|"));
+                    images.push((photo_url.to_string(), String::new()));
                 }
             }
         }
@@ -177,15 +177,24 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<ArticleSource>> {
     let summary = build_summary(first_text);
     let title_line = first_text.lines().next().unwrap_or("");
 
-    Ok(Some(ArticleSource {
+    Ok(Some(PendingSource {
         url: url.to_string(),
+
+        domain: screen_name.to_string(),
         title: short_title(title_line, screen_name),
         summary,
         content,
-        tags: vec![],
+        tags: Vec::new(),
         images,
         published,
-        source: screen_name.to_string(),
+
+        embedding: Vec::new(),
+        embedding_text: String::new(),
+        embedding_model: String::new(),
+
+        category: Category::Technology,
+        estimated_liked: 0.0,
+        fade: Utc::now(),
     }))
 }
 
@@ -231,7 +240,7 @@ async fn scan_bluesky_profile(url: &str) -> Result<Vec<String>> {
 }
 
 /// Parse an individual bluesky post
-async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
+async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
     let after_profile = url
         .split("/profile/")
         .nth(1)
@@ -318,7 +327,7 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
     {
         for img in imgs {
             if let Some(thumb) = img.get("thumb").and_then(|t| t.as_str()) {
-                images.push(format!("{thumb}|"));
+                images.push((thumb.to_string(), String::new()));
             }
         }
     }
@@ -331,14 +340,23 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<ArticleSource>> {
 
     let summary = build_summary(&main_text);
     let title_line = main_text.lines().next().unwrap_or("");
-    Ok(Some(ArticleSource {
+    Ok(Some(PendingSource {
         url: url.to_string(),
+
+        domain: handle_full.to_string(),
         title: short_title(title_line, handle_full),
         summary,
         content: full_content.join("\n\n---\n\n"),
-        tags: vec![],
+        tags: Vec::new(),
         images,
         published,
-        source: handle_full.to_string(),
+
+        embedding: Vec::new(),
+        embedding_text: String::new(),
+        embedding_model: String::new(),
+
+        category: Category::Technology,
+        estimated_liked: 0.0,
+        fade: Utc::now(),
     }))
 }

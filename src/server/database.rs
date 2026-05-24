@@ -1,12 +1,7 @@
-use crate::server::{
-    embeddings::{
-        MODEL_NAME, article_text, category_label, classify, embed_label_texts, estimate_liked,
-        generate_article_embeddings, label_hash, seed_label_cache,
-    },
-    parsers::fetch_page_content,
-};
-use crate::shared::{
-    ArticleData, ArticleEntry, ArticleSource, ArticleStatus, Category, Rating, StoredArticle,
+use crate::shared::{ArticleStatus, Category, PendingSource, Rating};
+use crate::{
+    server::embeddings::{category_label, embed_label_texts, label_hash, seed_label_cache},
+    shared::{Article, ArticleSource},
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -23,7 +18,7 @@ use std::{
     sync::LazyLock,
 };
 use strum::IntoEnumIterator;
-use tracing::{error, info};
+use tracing::info;
 use uuid::Uuid;
 
 static DB: LazyLock<SqlitePool> = LazyLock::new(|| {
@@ -40,28 +35,6 @@ pub async fn init() -> Result<()> {
     sqlx::migrate!().run(&*DB).await?;
     init_label_embeddings().await?;
     Ok(())
-}
-
-fn first_source(blob: Json<Vec<ArticleSource>>) -> Result<ArticleSource> {
-    blob.0
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("Article has no sources"))
-}
-
-pub struct EmbeddingCandidate {
-    pub id: Uuid,
-    pub title: String,
-    pub category: Category,
-    pub embedding: Vec<f32>,
-    pub published: i64,
-}
-
-#[derive(sqlx::FromRow)]
-struct ReclassifyRow {
-    id: Uuid,
-    sources: Json<Vec<ArticleSource>>,
-    category: Category,
 }
 
 /// Checks if a URL has already been processed, removes if they have.
@@ -97,243 +70,45 @@ pub async fn mark_urls_dismissed(urls: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Retrieves articles within a time window for similarity comparison.
-pub async fn get_embedding_candidates(
-    window_start: i64,
-    window_end: i64,
-) -> Result<Vec<EmbeddingCandidate>> {
-    sqlx::query!(
-        r#"SELECT id as "id!: Uuid", title, category as "category!: Category", embedding, published
-         FROM articles WHERE published BETWEEN ? AND ? AND embedding_model = ?"#,
-        window_start,
-        window_end,
-        MODEL_NAME,
-    )
-    .fetch_all(&*DB)
-    .await?
-    .into_iter()
-    .map(|row| {
-        Ok(EmbeddingCandidate {
-            id: row.id,
-            title: row.title,
-            category: row.category,
-            embedding: from_bytes(&row.embedding)?,
-            published: row.published,
-        })
-    })
-    .collect()
-}
-
-/// Inserts a new article and its initial metadata.
-pub async fn insert_article(
-    source: &ArticleSource,
-    embedding: &[f32],
-    category: Category,
-) -> Result<()> {
-    let id = Uuid::new_v4();
-    let embedding_bytes = to_allocvec(embedding)?;
-    let estimated_liked = f64::from(estimate_liked(embedding).await?);
-    let embedding_text = article_text(source, 5);
-    info!("Estimated liked: {} {}", estimated_liked, source.title);
-
-    let published = source.published;
+/// Inserts a newly found source.
+pub async fn insert_source(source: &PendingSource) -> Result<()> {
     let mut tx = DB.begin().await?;
     sqlx::query!(
-        "INSERT INTO articles
-             (id, title, sources, estimated_liked, entry, embedding, embedding_model, embedding_text, published, updated_at, category)
-         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, strftime('%s', 'now'), ?)",
-        id,
+        "INSERT INTO pending_sources
+             (url, domain, title, summary, content, tags, images, published, embedding, embedding_model, embedding_text, category, estimated_liked, fade)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        source.url,
+        source.domain,
         source.title,
-        Json(vec![source]),
-        estimated_liked,
-        embedding_bytes,
-        MODEL_NAME,
-        embedding_text,
-        published,
-        category,
+        source.summary,
+        source.content,
+        Json(source.tags.clone()),
+        Json(source.images.clone()),
+        source.published,
+        to_allocvec(&source.embedding)?,
+        source.embedding_model,
+        source.embedding_text,
+        source.category,
+        source.estimated_liked,
+        source.fade,
     )
     .execute(&mut *tx)
     .await?;
     sqlx::query!("INSERT INTO article_urls (url) VALUES (?)", source.url)
         .execute(&mut *tx)
         .await?;
-    sqlx::query!(
-        "INSERT INTO user_articles (article_id, status) VALUES (?, ?)",
-        id,
-        ArticleStatus::New,
-    )
-    .execute(&mut *tx)
-    .await?;
     tx.commit().await?;
-    Ok(())
-}
-
-/// Merges a new source into an existing article.
-pub async fn merge_into_article(article_id: Uuid, source: &ArticleSource) -> Result<()> {
-    let mut tx = DB.begin().await?;
-
-    let raw = sqlx::query!(
-        r#"SELECT sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE id = ?"#,
-        article_id
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .sources;
-    let mut sources = raw.0;
-    sources.push(source.clone());
-
-    sqlx::query!(
-        "UPDATE articles SET sources = ?, entry = NULL WHERE id = ?",
-        Json(sources),
-        article_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "INSERT OR IGNORE INTO article_urls (url) VALUES (?)",
-        source.url,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Reruns classification on a set of articles.
-pub async fn reclassify_articles(ids: Vec<Uuid>) -> Result<()> {
-    if ids.is_empty() {
-        return Ok(());
-    }
-
-    let mut builder = QueryBuilder::new("SELECT id, sources, category FROM articles WHERE id IN (");
-    let mut separated = builder.separated(", ");
-    for id in &ids {
-        separated.push_bind(id);
-    }
-    separated.push_unseparated(")");
-
-    let targets: Vec<ReclassifyRow> = builder.build_query_as().fetch_all(&*DB).await?;
-    if targets.is_empty() {
-        return Ok(());
-    }
-
-    info!("Re-classifying {} articles...", targets.len());
-
-    let first_sources: Vec<ArticleSource> = targets
-        .iter()
-        .map(|row| {
-            row.sources
-                .0
-                .first()
-                .cloned()
-                .ok_or_else(|| anyhow!("Article has no sources"))
-        })
-        .collect::<Result<_>>()?;
-
-    let embeddings = generate_article_embeddings(&first_sources)
-        .await
-        .inspect_err(|e| error!("Re-classification embedding generation failed: {e}"))?;
-
-    let mut tx = DB.begin().await?;
-    for ((row, source), embeddings) in targets.iter().zip(&first_sources).zip(embeddings) {
-        let category = classify(&embeddings).await?;
-        if category != row.category {
-            info!(
-                "[RECLASSIFY] '{}' {} → {}",
-                article_text(source, 1),
-                row.category,
-                category
-            );
-        }
-        let embedding_bytes = to_allocvec(&embeddings)?;
-        sqlx::query!(
-            "UPDATE articles SET embedding = ?, embedding_model = ?, category = ? WHERE id = ?",
-            embedding_bytes,
-            MODEL_NAME,
-            category,
-            row.id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Embeddings generated with an older model will be regenerated.
-pub async fn regenerate_stale_embeddings() -> Result<()> {
-    let stale = sqlx::query!(
-        r#"SELECT id as "id!: Uuid", sources as "sources: Json<Vec<ArticleSource>>" FROM articles
-         WHERE embedding_model != ? OR embedding IS NULL"#,
-        MODEL_NAME,
-    )
-    .fetch_all(&*DB)
-    .await?;
-
-    if stale.is_empty() {
-        return Ok(());
-    }
-
-    info!("Re-embedding {} articles for new model...", stale.len());
-
-    let first_sources: Vec<ArticleSource> = stale
-        .iter()
-        .map(|row| first_source(row.sources.clone()))
-        .collect::<Result<_>>()?;
-
-    let embeddings = generate_article_embeddings(&first_sources)
-        .await
-        .inspect_err(|e| error!("Stale embedding regeneration failed: {e}"))?;
-
-    let mut tx = DB.begin().await?;
-    for (row, embedding) in stale.iter().zip(embeddings) {
-        let embedding_bytes = to_allocvec(&embedding)?;
-        sqlx::query!(
-            "UPDATE articles SET embedding = ?, embedding_model = ? WHERE id = ?",
-            embedding_bytes,
-            MODEL_NAME,
-            row.id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Finds articles that haven't had a merged entry generated yet.
-pub async fn get_regeneration_targets() -> Result<Vec<(Uuid, Vec<ArticleSource>)>> {
-    sqlx::query!(
-        r#"SELECT id as "id!: Uuid", sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE entry IS NULL"#
-    )
-    .fetch_all(&*DB)
-    .await?
-    .into_iter()
-    .map(|row| Ok((row.id, row.sources.0)))
-    .collect()
-}
-
-/// Saves the entry for an article.
-pub async fn save_article_entry(article_id: Uuid, entry: &ArticleEntry) -> Result<()> {
-    sqlx::query!(
-        "UPDATE articles SET entry = ? WHERE id = ?",
-        Json(entry),
-        article_id,
-    )
-    .execute(&*DB)
-    .await?;
     Ok(())
 }
 
 /// Updates the user status (new, read, binned) for an article.
-pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Result<()> {
+pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
     let binned_at = (status == ArticleStatus::Binned).then(Utc::now);
     sqlx::query!(
-        "INSERT INTO user_articles (article_id, status, binned_at) VALUES (?, ?, ?)
-         ON CONFLICT(article_id) DO UPDATE SET status = excluded.status, binned_at = excluded.binned_at",
-        article_id,
+        "UPDATE user_articles SET status = ?, binned_at = ? WHERE id = ?",
         status,
         binned_at,
+        id,
     )
     .execute(&*DB)
     .await?;
@@ -341,81 +116,69 @@ pub async fn set_article_status(article_id: Uuid, status: ArticleStatus) -> Resu
 }
 
 /// Sets a user rating for an article.
-pub async fn set_rating(article_id: Uuid, rating: Rating) -> Result<()> {
-    let article = sqlx::query!(
-        "SELECT embedding, embedding_model, embedding_text FROM articles WHERE id = ?",
-        article_id
-    )
-    .fetch_one(&*DB)
-    .await?;
-
+pub async fn set_rating(id: Uuid, rating: Rating) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO article_ratings (article_id, rating, embedding, embedding_model, embedding_text)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(article_id) DO UPDATE SET rating = excluded.rating",
-        article_id,
+        "UPDATE user_articles SET rating = ? WHERE id = ?",
         rating,
-        article.embedding,
-        article.embedding_model,
-        article.embedding_text,
+        id,
     )
     .execute(&*DB)
     .await?;
-
     Ok(())
 }
 
 /// Retrieves all articles with their user-specific status and ratings.
-pub async fn get_user_articles() -> Result<Vec<ArticleData>> {
+pub async fn get_user_articles() -> Result<Vec<Article>> {
     sqlx::query!(
         r#"SELECT
-            ua.article_id  as "id!: Uuid",
-            ua.status      as "status!: ArticleStatus",
-            ar.rating      as "rating: Rating",
-            a.sources      as "sources!: Json<Vec<ArticleSource>>",
-            a.estimated_liked,
-            a.entry        as "entry: Json<ArticleEntry>",
-            a.published    as "published!: DateTime<Utc>",
-            a.updated_at   as "updated_at!: DateTime<Utc>",
-            a.category     as "category!: Category"
-         FROM user_articles ua
-         JOIN articles a ON ua.article_id = a.id
-         LEFT JOIN article_ratings ar ON ua.article_id = ar.article_id
-         ORDER BY a.published DESC"#,
+            id              as "id!: Uuid",
+
+            sources         as "sources!: Json<Vec<ArticleSource>>",
+            title           as "title!: String",
+            description     as "description!: String",
+            content         as "content!: String",
+            sidebar         as "sidebar!: String",
+            thumbnail       as "thumbnail!: String",
+            published       as "published!: DateTime<Utc>",
+            category        as "category!: Category",
+
+            status          as "status!: ArticleStatus",
+            binned_at       as "binned_at: DateTime<Utc>",
+            rating          as "rating: Rating",
+
+            embedding       as "embedding!: Vec<u8>",
+            embedding_text  as "embedding_text!: String",
+            embedding_model as "embedding_model!: String"
+
+         FROM user_articles
+         ORDER BY published DESC"#,
     )
     .fetch_all(&*DB)
     .await?
     .into_iter()
     .map(|row| {
-        let article = StoredArticle {
+        Ok(Article {
             id: row.id,
+
             sources: row.sources.0,
-            estimated_liked: row.estimated_liked as f32,
-            entry: row.entry.map(|e| e.0),
+            title: row.title,
+            description: row.description,
+            content: row.content,
+            sidebar: row.sidebar,
+            thumbnail: row.thumbnail,
             published: row.published,
-            updated_at: row.updated_at,
             category: row.category,
-        };
-        Ok(ArticleData {
-            id: row.id,
+
             status: row.status,
+            binned_at: row.binned_at,
             rating: row.rating,
-            article,
+
+            embedding: from_bytes(&row.embedding)?,
+            embedding_text: row.embedding_text,
+            embedding_model: row.embedding_model,
         })
     })
     .collect()
-}
-
-/// Deletes articles from `user_articles` that have been binned for longer than the specified days.
-pub async fn cleanup_binned(days: i64) -> Result<()> {
-    let cutoff = Utc::now().timestamp() - days * 86_400;
-    sqlx::query!(
-        "DELETE FROM user_articles WHERE status = 'Binned' AND binned_at < ?",
-        cutoff,
-    )
-    .execute(&*DB)
-    .await?;
-    Ok(())
 }
 
 /// Sets a rating for a generic item (source, feed, or tag).
@@ -499,38 +262,103 @@ async fn init_label_embeddings() -> Result<()> {
 pub async fn get_rated_article_embeddings() -> Result<Vec<(Rating, Vec<f32>)>> {
     let rows = sqlx::query!(
         r#"SELECT rating as "rating!: Rating", embedding, embedding_model, embedding_text
-         FROM article_ratings"#
+         FROM user_articles"#
     )
     .fetch_all(&*DB)
     .await?;
 
     let mut results = Vec::new();
     for row in rows {
-        let embedding = if row.embedding_model == MODEL_NAME {
-            from_bytes(&row.embedding)?
-        } else {
-            // Regenerate embedding if model changed
-            let mut embs = embed_label_texts(std::slice::from_ref(&row.embedding_text)).await?;
-            let emb = embs.pop().ok_or_else(|| anyhow!("Failed to re-embed"))?;
-
-            // Update the record with the new embedding
-            let bytes = to_allocvec(&emb)?;
-            sqlx::query!(
-                "UPDATE article_ratings SET embedding = ?, embedding_model = ? WHERE article_id = (
-                    SELECT article_id FROM article_ratings WHERE embedding_text = ? LIMIT 1
-                )",
-                bytes,
-                MODEL_NAME,
-                row.embedding_text
-            )
-            .execute(&*DB)
-            .await?;
-
-            emb
-        };
-        results.push((row.rating, embedding));
+        results.push((row.rating, from_bytes(&row.embedding)?));
     }
     Ok(results)
+}
+
+/// Retrieves all pending sources.
+pub async fn get_pending_sources() -> Result<Vec<PendingSource>> {
+    sqlx::query!(
+        r#"SELECT
+            url as "url!", domain as "domain!", title as "title!", summary as "summary!", content as "content!",
+            tags as "tags!: Json<Vec<String>>",
+            images as "images!: Json<Vec<(String, String)>>",
+            published as "published!: DateTime<Utc>",
+            embedding, embedding_model, embedding_text,
+            category as "category!: Category",
+            estimated_liked, fade as "fade!: DateTime<Utc>"
+         FROM pending_sources"#
+    )
+    .fetch_all(&*DB)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(PendingSource {
+            url: row.url,
+            domain: row.domain,
+            title: row.title,
+            summary: row.summary,
+            content: row.content,
+            tags: row.tags.0,
+            images: row.images.0,
+            published: row.published,
+            embedding: from_bytes(&row.embedding)?,
+            embedding_model: row.embedding_model,
+            embedding_text: row.embedding_text,
+            category: row.category,
+            estimated_liked: row.estimated_liked,
+            fade: row.fade,
+        })
+    })
+    .collect()
+}
+
+/// Retrieves the count of articles per category that have a 'New' status.
+pub async fn get_category_article_counts() -> Result<HashMap<Category, i64>> {
+    let rows = sqlx::query!(
+        r#"SELECT category as "category!: Category", COUNT(*) as count
+         FROM user_articles
+         WHERE status = 'New'
+         GROUP BY category"#
+    )
+    .fetch_all(&*DB)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.category, r.count)).collect())
+}
+
+/// Inserts a promoted article and removes its sources from pending.
+pub async fn insert_promoted_article(article: &Article, source_urls: &[String]) -> Result<()> {
+    let mut tx = DB.begin().await?;
+
+    sqlx::query!(
+        "INSERT INTO user_articles
+             (id, sources, title, description, content, sidebar, thumbnail, published, category, status, embedding, embedding_text, embedding_model)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        article.id,
+        Json(article.sources.clone()),
+        article.title,
+        article.description,
+        article.content,
+        article.sidebar,
+        article.thumbnail,
+        article.published,
+        article.category,
+        article.status,
+        to_allocvec(&article.embedding)?,
+        article.embedding_text,
+        article.embedding_model,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let mut builder = QueryBuilder::new("DELETE FROM pending_sources WHERE url IN (");
+    let mut separated = builder.separated(", ");
+    for url in source_urls {
+        separated.push_bind(url);
+    }
+    separated.push_unseparated(")");
+    builder.build().execute(&mut *tx).await?;
+
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Retrieves all generic item ratings.
@@ -546,39 +374,4 @@ pub async fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
                 .map_err(|e| anyhow!("{e}"))
         })
         .collect()
-}
-
-/// Resets an article's generated entry to NULL and refreshes its sources.
-pub async fn regenerate_article(article_id: Uuid) -> Result<()> {
-    let raw = sqlx::query!(
-        r#"SELECT sources as "sources: Json<Vec<ArticleSource>>" FROM articles WHERE id = ?"#,
-        article_id
-    )
-    .fetch_one(&*DB)
-    .await?
-    .sources;
-    let sources = raw.0;
-    let mut updated_sources = Vec::with_capacity(sources.len());
-
-    for source in sources {
-        let updated = fetch_page_content(&source.url).await;
-        match updated {
-            Ok(Some(s)) => updated_sources.push(s),
-            _ => updated_sources.push(source),
-        }
-    }
-
-    sqlx::query!(
-        "UPDATE articles SET entry = NULL, sources = ? WHERE id = ?",
-        Json(updated_sources),
-        article_id,
-    )
-    .execute(&*DB)
-    .await?;
-
-    if let Err(err) = super::articles::regenerate_articles().await {
-        error!("Article regeneration failed: {err}");
-    }
-
-    Ok(())
 }

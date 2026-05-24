@@ -6,106 +6,59 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct StoredArticle {
-    pub id: Uuid,
-    /// List of sources used to generate the article.
-    pub sources: Vec<ArticleSource>,
-    /// Estimated user interest 0.0-1.0
-    pub estimated_liked: f32,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PendingSource {
+    pub url: String,
 
-    /// Generated content for the article
-    pub entry: Option<ArticleEntry>,
+    pub domain: String,
+    pub title: String,
+    pub summary: String,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub images: Vec<(String, String)>, // (url, caption)
+    pub published: DateTime<Utc>,
+
+    pub embedding: Vec<f32>,
+    pub embedding_text: String,
+    pub embedding_model: String,
 
     pub category: Category,
-
-    /// Timestamp when the first source was published.
-    pub published: DateTime<Utc>,
-    /// Timestamp when the article was last updated.
-    pub updated_at: DateTime<Utc>,
+    pub estimated_liked: f64,
+    pub fade: DateTime<Utc>,
 }
 
-impl PartialEq for StoredArticle {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Article {
+    pub id: Uuid,
+
+    pub sources: Vec<ArticleSource>,
+    pub title: String,
+    pub description: String,
+    pub content: String,
+    pub sidebar: String,
+    pub thumbnail: String,
+    pub published: DateTime<Utc>,
+    pub category: Category,
+
+    pub status: ArticleStatus,
+    pub binned_at: Option<DateTime<Utc>>,
+    pub rating: Option<Rating>,
+
+    pub embedding: Vec<f32>,
+    pub embedding_text: String,
+    pub embedding_model: String,
+}
+
+impl PartialEq for Article {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl StoredArticle {
-    pub fn display_title(&self) -> &str {
-        self.entry.as_ref().map_or_else(
-            || self.sources.first().map_or("", |s| s.title.as_str()),
-            |e| e.title.as_str(),
-        )
-    }
-
-    pub fn display_description(&self) -> &str {
-        self.entry.as_ref().map_or_else(
-            || self.sources.first().map_or("", |s| s.summary.as_str()),
-            |e| e.description.as_str(),
-        )
-    }
-
-    pub fn first_image(&self) -> Option<String> {
-        self.sources.iter().find_map(|s| {
-            s.images
-                .first()
-                .and_then(|img| img.split('|').next())
-                .filter(|u| !u.is_empty())
-                .map(str::to_string)
-        })
-    }
-
-    pub fn thumbnail_image(&self) -> Option<String> {
-        self.entry
-            .as_ref()
-            .map(|e| e.thumbnail.clone())
-            .filter(|t| !t.is_empty())
-            .or_else(|| self.first_image())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-pub struct ArticleData {
-    pub id: Uuid,
-    pub status: ArticleStatus,
-    pub rating: Option<Rating>,
-    pub article: StoredArticle,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ArticleSource {
     pub url: String,
-    /// Domain for web articles, handle for social
-    pub source: String,
-    pub title: String,
-    pub summary: String,
-    pub content: String,
-    pub tags: Vec<String>,
-    /// Each entry is `"url|caption"` — split on `|` to get the two parts.
-    pub images: Vec<String>,
-    pub published: DateTime<Utc>,
-}
-
-impl PartialEq for ArticleSource {
-    fn eq(&self, other: &Self) -> bool {
-        self.url == other.url
-    }
-}
-impl Eq for ArticleSource {}
-impl std::hash::Hash for ArticleSource {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.url.hash(state);
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ArticleEntry {
-    pub title: String,
-    pub description: String,
-    pub content: String,
-    pub thumbnail: String,
-    pub sidebar: Option<String>,
+    pub domain: String,
 }
 
 #[derive(
@@ -121,6 +74,7 @@ pub struct ArticleEntry {
     Eq,
     PartialOrd,
     Ord,
+    Hash,
 )]
 #[cfg_attr(
     not(target_arch = "wasm32"),
