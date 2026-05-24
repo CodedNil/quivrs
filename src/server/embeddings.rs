@@ -31,64 +31,99 @@ pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
 //   - Commas make no difference to the embedding — they are just punctuation tokens.
 // ---
 
-const fn category_label(category: Category) -> &'static str {
+const fn category_label(category: Category) -> &'static [&'static str] {
     match category {
         // Corporate finance, stock markets, and macroeconomics
-        Category::Business => {
-            "business earnings revenue profit stocks shares merger acquisition IPO dividends CEO layoffs tariffs GDP inflation hedge-fund private-equity startup venture-capital fiscal bonds FTSE Nasdaq shareholder buyout trade-deal commerce markets recession bookkeeping audit liquidation bankruptcy conglomerate arbitrage commodity-trading insolvency mercantile quarterly-results acquisition-bid hostile-takeover supply-chain manufacturing wholesale ledger asset-valuation market-capitalization amortization depreciation liquidity microfinance e-commerce"
-        }
+        Category::Business => &[
+            "Corporate finance, business earnings reports, revenue, profits, stocks, shares, and market trading.",
+            "Company mergers, acquisitions, takeovers, IPOs, corporate restructuring, and CEO layoffs.",
+            "Macroeconomics, GDP data, inflation rates, interest rates, central bank tariffs, and national recessions.",
+            "Venture capital, startup investments, private equity, hedge funds, and market capitalization.",
+        ],
         // Government, parliament, elections, political parties, and military/defence affairs
-        Category::Politics => {
-            "politics parliament MPs chancellor legislation elections Conservative Labour LibDems Reform cabinet minister Starmer Farage Reeves Sunak Trump Putin vote constituency manifesto polling Holyrood Whitehall PMQs SNP military army navy RAF defence war NATO troops Israel missile Treasury Downing-Street backbencher frontbench state-visit diplomacy geopolitics referendum electorate bicameral devolution incumbency Democrats Republicans Libertarians Mayor Congress Senate White-House Pentagon Kremlin bipartisan federalism by-election benefits welfare social-security legislature councillor impeachment autocracy"
-        }
+        Category::Politics => &[
+            "Government politics, parliament debates, legislation, MPs, ministers, policies, and Whitehall decisions.",
+            "General elections, political party campaigns, voting polls, manifestos, by-elections, and electorate dynamics.",
+            "Military affairs, defense spending, army, navy, RAF, NATO, troop movements, and global warfare.",
+            "Geopolitics, international diplomacy, state visits, foreign policy, and bilateral trade agreements.",
+            "UK domestic political figures and commentary involving Starmer, Sunak, Farage, Reeves, or Downing Street.",
+        ],
         // Courts, crime, police investigations, and criminal justice
-        Category::Law => {
-            "law court trial convicted jailed sentenced defendant prosecution verdict jury judge murder stabbing knife beating assault attack grooming exploitation abuse offender indecent coercive stalking fraud theft robbery ASA FCA banned misconduct lawsuit acquitted injunction plaintiff caution probe tribunal litigation legal-action manslaughter burglary shoplifting extradition forensics bailiff subpoena affidavit perjury jurisprudence embezzlement rape custodial-sentence anonymity-order County-Court felony misdemeanor"
-        }
+        Category::Law => &[
+            "Court trials, criminal convictions, judges, juries, defense lawyers, prosecution, and legal verdicts.",
+            "Police investigations, criminal justice, arrests, forensics, raids, and law enforcement probes.",
+            "Violent crimes, murder, assault, stabbing, theft, robbery, fraud, embezzlement, and legal misconduct.",
+            "Lawsuits, high court injunctions, litigation, tribunals, regulatory bans, and civil legal action.",
+        ],
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
-        Category::Health => {
-            "health NHS hospital GP diagnosis cancer surgery prescription clinical symptoms disease epidemic inpatient psychiatric pharmaceutical medication therapy chronic disability overdose ward nurse stroke dementia autism mental fitness diet nutrition exercise workout weight sleep supplements vitamins cardiology oncology immunology epidemiology neurology pathology radiology physiotherapy paramedics palliative hospice melanoma triage outpatient preventive-medicine prognosis inpatient-care chronic-illness inoculation pathogen metabolic-health"
-        }
+        Category::Health => &[
+            "Clinical medicine, hospital operations, surgeries, emergency departments, wards, and NHS healthcare systems.",
+            "Medical diagnoses, cancer treatments, chronic diseases, prescription medications, pharmaceuticals, and symptoms.",
+            "Public health, virus epidemics, pathogen outbreaks, vaccinations, and epidemiology tracking.",
+            "Personal fitness, nutrition, diet plans, workout routines, mental health therapy, and wellness.",
+        ],
         // Entertainment, film, TV, music, celebrities, streaming, and media
-        Category::Culture => {
-            "culture streaming celebrities actor director Oscars BAFTA album concert band horror thriller documentary royals King Queen Royal entertainment Grammy Glastonbury blockbuster sitcom season episode premiere trailer film broadcaster Ofcom Channel4 BBC media paparazzi showbiz cinematography choreography discography playwright red-carpet stardom influencer Hollywood Bollywood Cannes Sundance Eurovision K-pop Broadway West-End exhibition gallery museum sculpture literature festival rapper ITV Bafta novel author book discography theater box-office fiction biography showrunner movie movies Prime-video Netflix Disney choir"
-        }
+        Category::Culture => &[
+            "Entertainment media, streaming shows, TV series episodes, seasonal premieres, trailers, and broadcasters.",
+            "Celebrity culture, pop stars, actors, red carpet events, paparazzi, influencers, and Hollywood showbiz.",
+            "Music albums, concerts, bands, music festivals, Glastonbury, and industry awards like the Grammys or BAFTAs.",
+            "Fine arts, theatre productions, literature, novel authors, museum exhibitions, and cultural reviews.",
+        ],
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
-        Category::Lifestyle => {
-            "lifestyle recipe cooking cleaning decor fashion wardrobe travel garden kitchen wedding household mattress bedding interior skincare bathroom laundry storage hacks tips coffee mortgage rent savings pension budget bills energy loan credit housing property landlord employment job unemployed graduate parenting housekeeping upholstery sourdough minimalism staycation decluttering dating personal-finance meal-prep home-renovation fast-fashion thrifting parenting-tips skincare-routine baking"
-        }
+        Category::Lifestyle => &[
+            "Home cooking, baking recipes, meal prep, culinary tips, and kitchen design.",
+            "Interior decor, cleaning hacks, household management, gardening, and property maintenance.",
+            "Personal finance, mortgages, rent, household energy bills, savings, pensions, and budgeting advice.",
+            "Fashion trends, wardrobe styles, skincare routines, dating life, parenting, and travel staycations.",
+        ],
         // Cars, transport infrastructure, aviation, and commuting
-        Category::Transport => {
-            "transport car EV electric vehicle Tesla road motorway highway aviation airline airport train railway commute driver fuel petrol diesel autonomous self-driving bus lorry van cycling infrastructure freight aeronautics maritime-shipping locomotive fuselage tarmac air-traffic-control haulage tramway Port-of-Dover rolling-stock rapid-transit airspace shipping-lane interchange bypass multi-modal light-rail toll-road bikeway subway commuter railroad pedestrian seaport fender-bender"
-        }
+        Category::Transport => &[
+            "Electric vehicles, EVs, consumer cars, automotive engineering, roads, and motorway infrastructure.",
+            "Aviation industry, airlines, airport operations, commercial flights, and airspace management.",
+            "Rail networks, commuter trains, subways, public transit systems, and cargo freight shipping.",
+        ],
         // Wildlife, ecology, the natural world, and climate — animals, plants, weather, conservation
-        Category::Nature => {
-            "nature wildlife animals birds insects plants trees forests oceans seas river mountains countryside national-parks ecology biodiversity extinction endangered conservation habitat hedgehog deer butterfly orchid climate carbon flooding drought heatwave rewilding farming weather meteorology zoology entomology ornithology ecosystem reforestation precipitation humidity anticyclone pesticides waste-sites spider fish shark elephant dog cat rabbit hamster flora fauna invasive-species migration-pattern biosphere wilderness wetlands nature-reserve marine-life deforestation"
-        }
+        Category::Nature => &[
+            "Wildlife conservation, natural ecosystems, biodiversity, endangered animal species, and birds.",
+            "Climate change, global warming, carbon emissions, extreme weather events, floods, and droughts.",
+            "Environmental science, forestry, meteorology, countryside ecology, and marine biology.",
+        ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
-        Category::Technology => {
-            "technology smartphone iPhone Android laptop notebook tablet smartwatch wearable headphones on-ear over-ear earphones audio speakers display OLED television TV camera VPN router hardware gadget Apple Samsung LG Sony Google Meta Facebook Twitter Microsoft Huawei Lenovo IBM Oracle Nvidia AMD GPU peripherals motherboard chipset bluetooth megapixel lithium-ion liquid-cooling solid-state-drive chassis spec-sheet pixel-density microchip stylus webcam e-reader smart-home"
-        }
+        Category::Technology => &[
+            "Consumer electronics, smartphones, laptops, hardware components, and gadget specifications.",
+            "Computer hardware, microchips, GPUs, motherboards, solid-state drives, and display panels.",
+            "Smart home automation, wearable devices, audio speakers, and wireless routing peripherals.",
+        ],
         // Software development, coding, and cybersecurity
-        Category::Software => {
-            "software coding programming Python Ruby Rust JavaScript TypeScript HTML CSS web websites React Node GitHub API open-source Linux algorithm compiler binary cybersecurity breach hacking phishing malware ransomware exploit vulnerability CVE backend frontend devops refactoring middleware multithreading encryption-key repository containerization source-code library-dependency debugging IDE syntax database-schema version-control continuous-integration agile-development production-deploy Kubernetes Docker microservices serverless"
-        }
+        Category::Software => &[
+            "Software development, coding practices, programming languages like Python, Rust, or JavaScript.",
+            "Cybersecurity breaches, hacking incidents, malware exploits, ransomware, and system vulnerabilities.",
+            "DevOps infrastructure, database architecture, open-source repositories, APIs, and cloud services.",
+        ],
         // Artificial intelligence, machine learning, and AI assistants
-        Category::AI => {
-            "AI ChatGPT Claude Gemini GPT OpenAI Anthropic DeepMind machine-learning LLM neural-network model-training inference chatbot Copilot Midjourney Stable-Diffusion robotics generative-AI singularity transformer-architecture backpropagation reinforcement-learning weights-and-biases fine-tuning hallucinations prompt-engineering superintelligence web-scraping crawlers data-mining synthetic-data computer-vision NLP parameter-count embeddings tokenization overfitting autonomous-agents neural-architecture perplexity hyperparameter conversational-agents pretraining"
-        }
+        Category::AI => &[
+            "Artificial intelligence, machine learning, large language models, LLMs, and neural networks.",
+            "Generative AI tools, chatbots like ChatGPT or Claude, prompt engineering, and image synthesis.",
+            "AI safety research, model training, parameter counts, and autonomous agent development.",
+        ],
         // Scientific research, astronomy, biology, and academic discovery
-        Category::Science => {
-            "science scientific study astronomy telescope genome species paleontology neuroscience physics quantum biology chemistry fossils stargazing celestial earthshine mathematics NASA rocket satellite spacecraft orbit Mars experiment journal hypothesis lab discovery space-exploration astrophysics particle-accelerator CRISPR relativity thermodynamics microbiology molecular-genetics exoplanet super-collider lunar solar Artemis atmosphere space Higgs boson electron neutron chemicals nucleosynthesis lithosphere chromatography spectroscopy stoichiometry mitosis meiosis hadron boson fermion lepton quark neutrino black-hole genotype"
-        }
+        Category::Science => &[
+            "Scientific research papers, laboratory experiments, breakthroughs, hypotheses, and academic journals.",
+            "Space exploration, astronomy, telescopes, NASA rocket launches, satellites, and planetary discoveries.",
+            "Theoretical physics, quantum mechanics, chemistry equations, biology, genetics, and molecular research.",
+        ],
         // Physical competitive sports and athletic leagues
-        Category::Sports => {
-            "sports football cricket tennis rugby golf boxing swimming cycling wicket Premier-League Champions-League Europa-League Bundesliga La-Liga NBA NFL MLB transfer-window squad batting Wimbledon Olympics F1 Grand-Prix athletics marathon heptathlon scoreboard goalscorer touchdown wicket-keeper grand-slam tie-break velodrome podium-finish paralympics World-Cup trophy national-team call-up offside leg-before-wicket deuce conversion backhand bogey peloton repechage decathlon steeplechase scrum quarterback linebacker WADA IOC FIFA ICC IAAF UEFA pundit punditry manager selection lineup line-up team-of-the-week team-of-the-season fixtures match-day"
-        }
+        Category::Sports => &[
+            "Football match reports, Premier League fixtures, Champions League results, goals, and team lineups.",
+            "Competitive athletic sports, cricket wickets, tennis grand slams, rugby scrums, and golf tournaments.",
+            "Sports punditry, manager selections, team of the season reviews, transfer window signings, and squads.",
+            "The Olympic games, professional athletes, marathons, motorsports F1 Grand Prix, and podium finishes.",
+        ],
         // Video games, gaming culture, esports, and game releases
-        Category::Gaming => {
-            "gaming game gameplay esports Fortnite Minecraft Steam PlayStation Xbox Nintendo Switch RPG FPS shooter multiplayer co-op indie AAA Zelda Mario studio handheld retrogaming speedrun microtransactions loot-box ray-tracing frame-rate walkthrough boss-fight mmorpg discord-server modding season-pass sandbox twitch-streamer local-coop cross-play haptic-feedback achievements loading-screen open-world retrogamer cloud-gaming speedrunning permadeath respawn matchmaking guild questing"
-        }
+        Category::Gaming => &[
+            "Video game releases, gameplay mechanics, console hardware, and esports tournaments.",
+            "Gaming culture, streaming channels, online multiplayer matches, and indie studio developments.",
+        ],
     }
 }
 
@@ -196,26 +231,40 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-pub async fn classify(embedding: &[f32]) -> Result<Category> {
-    let mut entries = Vec::new();
+pub async fn classify(article_embedding: &[f32]) -> Result<Category> {
+    let mut classification_targets = Vec::new();
+
     for cat in Category::iter() {
-        let text = category_label(cat);
-        entries.push((
-            format!("category_{cat}"),
-            label_hash(text),
-            text.to_string(),
-        ));
+        let sub_labels = category_label(cat);
+        for (idx, sub_label_text) in sub_labels.iter().enumerate() {
+            classification_targets.push((
+                cat,
+                format!("cat_{cat}_sub_{idx}"),
+                label_hash(sub_label_text),
+                (*sub_label_text).to_string(),
+            ));
+        }
     }
 
-    let labels = database::get_or_refresh_label_embeddings_batch(&entries).await?;
+    let db_payload: Vec<_> = classification_targets
+        .iter()
+        .map(|(_, unique_id, hash, text)| (unique_id.clone(), hash.clone(), text.clone()))
+        .collect();
 
-    Ok(Category::iter()
-        .zip(labels)
-        .max_by(|(_, a), (_, b)| {
-            cosine_similarity(embedding, a).total_cmp(&cosine_similarity(embedding, b))
-        })
-        .map(|(v, _)| v)
-        .unwrap())
+    let embedded_vectors = database::get_or_refresh_label_embeddings_batch(&db_payload).await?;
+
+    let mut best_category = Category::Politics;
+    let mut highest_similarity = -1.0f32;
+
+    for ((category, _, _, _), label_vector) in classification_targets.iter().zip(embedded_vectors) {
+        let similarity = cosine_similarity(article_embedding, &label_vector);
+        if similarity > highest_similarity {
+            highest_similarity = similarity;
+            best_category = *category;
+        }
+    }
+
+    Ok(best_category)
 }
 
 pub fn calculate_preference_score(embedding: &[f32], rated: &[(Rating, Vec<f32>)]) -> f64 {

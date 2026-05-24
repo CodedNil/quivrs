@@ -48,7 +48,7 @@ pub fn RatingPill(
                 bottom: "0",
                 background_color: bg,
                 border_radius: "9999px",
-                box_shadow: if hovered() { "0 0 3px 3px var(--base)" } else { "none" },
+                box_shadow: if hovered() { "0 0 3px 3px rgba(0,0,0,0.7)" } else { "none" },
                 transition: "left 0.2s ease, right 0.2s ease, box-shadow 0.15s ease",
                 z_index: "-1",
             }

@@ -120,38 +120,11 @@ pub fn ArticleDetail(
                         gap: "2rem",
                         margin_bottom: "2rem",
 
-                        div {
-                            display: "flex",
-                            align_items: "center",
-                            gap: "0.375rem",
-                            if article.status != ArticleStatus::Stored {
-                                ActionBtn {
-                                    icon: fa_solid_icons::FaBookmark,
-                                    title: "Save to Read Later",
-                                    color: "var(--accent)",
-                                    onclick: move |_| async move {
-                                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                            a.status = ArticleStatus::Stored;
-                                        }
-                                        let _ = set_article_status(id, ArticleStatus::Stored).await;
-                                    },
-                                }
-                            }
-                            if article.status != ArticleStatus::Binned {
-                                ActionBtn {
-                                    icon: fa_solid_icons::FaTrash,
-                                    title: "Move to Bin",
-                                    color: "var(--overlay0)",
-                                    onclick: move |_| async move {
-                                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                            a.status = ArticleStatus::Binned;
-                                        }
-                                        let _ = set_article_status(id, ArticleStatus::Binned).await;
-                                    },
-                                }
-                            }
-                        }
-                        span { font_size: "0.7rem", color: "var(--subtext0)",
+                        StatusButtons { id, articles, item_ratings }
+                        span {
+                            font_size: "0.9rem",
+                            color: "var(--subtext0)",
+                            font_weight: "900",
                             {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                         }
                         StarRating { current: article.rating, id, articles }
@@ -245,7 +218,53 @@ fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
 }
 
 #[component]
-fn StarRating(current: Option<Rating>, id: Uuid, mut articles: Signal<Vec<Article>>) -> Element {
+pub fn StatusButtons(
+    id: Uuid,
+    articles: Signal<Vec<Article>>,
+    item_ratings: Signal<HashMap<String, Rating>>,
+) -> Element {
+    let article = match articles.read().iter().find(|a| a.id == id) {
+        Some(a) => a.clone(),
+        None => return rsx! {},
+    };
+    rsx! {
+        div { display: "flex", align_items: "center", gap: "0.375rem",
+            if article.status != ArticleStatus::Stored {
+                ActionBtn {
+                    icon: fa_solid_icons::FaBookmark,
+                    title: "Save to Read Later",
+                    color: "var(--accent)",
+                    onclick: move |_| async move {
+                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                            a.status = ArticleStatus::Stored;
+                        }
+                        let _ = set_article_status(id, ArticleStatus::Stored).await;
+                    },
+                }
+            }
+            if article.status != ArticleStatus::Binned {
+                ActionBtn {
+                    icon: fa_solid_icons::FaTrash,
+                    title: "Move to Bin",
+                    color: "var(--accent)",
+                    onclick: move |_| async move {
+                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                            a.status = ArticleStatus::Binned;
+                        }
+                        let _ = set_article_status(id, ArticleStatus::Binned).await;
+                    },
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn StarRating(
+    current: Option<Rating>,
+    id: Uuid,
+    mut articles: Signal<Vec<Article>>,
+) -> Element {
     const RATINGS: [Rating; 5] = [
         Rating::Hated,
         Rating::Disliked,
@@ -273,7 +292,7 @@ fn StarRating(current: Option<Rating>, id: Uuid, mut articles: Signal<Vec<Articl
                             cursor: "pointer",
                             font_size: "1.2rem",
                             line_height: "1",
-                            color: if filled { "#f5c518" } else { "var(--surface0)" },
+                            color: if filled { "#f5c518" } else { "var(--subtext0)" },
                             transform: if is_hover { "scale(1.35)" } else if filled { "scale(1.05)" } else { "scale(1)" },
                             transition: "color 0.1s, transform 0.12s",
                             display: "inline-block",

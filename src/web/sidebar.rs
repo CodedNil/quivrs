@@ -1,8 +1,11 @@
-use super::Route;
-use crate::shared::{Article, ArticleStatus, Category};
+use super::{
+    Route,
+    article::{StarRating, StatusButtons},
+};
+use crate::shared::{Article, ArticleStatus, Category, Rating};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::fa_solid_icons};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 /// Fixed width of the sidebar panel.
@@ -481,6 +484,7 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
 #[component]
 fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
     let articles: Signal<Vec<Article>> = use_context();
+    let item_ratings: Signal<HashMap<String, Rating>> = use_context();
     let article = match articles.read().iter().find(|a| a.id == id) {
         Some(a) => a.clone(),
         None => return rsx! {},
@@ -539,6 +543,35 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     transition: "transform 0.4s ease",
                     will_change: "transform",
                     decoding: "async",
+                }
+
+                // Top vignette behind icons
+                div {
+                    position: "absolute",
+                    top: "0",
+                    left: "0",
+                    right: "0",
+                    height: "100%",
+                    background: "radial-gradient(90% 90% at 50% 30%, transparent 50%, rgba(0, 0, 0, 0.7) 80%, rgb(0, 0, 0, 1) 100%)",
+                    z_index: "15",
+                    pointer_events: "none",
+                    transform: "scaleY(-1)",
+                }
+
+                div {
+                    position: "absolute",
+                    top: "0.5rem",
+                    left: "1rem",
+                    z_index: "20",
+                    StarRating { current: article.rating, id, articles }
+                }
+
+                div {
+                    position: "absolute",
+                    top: "0.5rem",
+                    right: "0.75rem",
+                    z_index: "20",
+                    StatusButtons { id, articles, item_ratings }
                 }
 
                 if let Some(r) = article.rating {
