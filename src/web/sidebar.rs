@@ -5,7 +5,10 @@ use super::{
 use crate::shared::{Article, ArticleStatus, Category, Rating};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::fa_solid_icons};
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    rc::Rc,
+};
 use uuid::Uuid;
 
 /// Fixed width of the sidebar panel.
@@ -34,9 +37,7 @@ pub const SIDEBAR_STYLES: &str = "
         65% { transform: scale(0.9, 1.1); }
         100% { transform: scale(1, 1); }
     }
-    .tab-bubble-active {
-        animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
+    .tab-bubble-active { animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
 ";
 
 fn category_icon(category: Category, size: u32) -> Element {
@@ -65,19 +66,18 @@ fn category_icon(category: Category, size: u32) -> Element {
 
 #[component]
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
-    let articles: Signal<Vec<Article>> = use_context();
+    let articles = use_context::<Signal<Vec<Article>>>();
 
-    let (counts, all_groups) = use_memo(use_reactive!(|articles| {
-        let (mut counts, mut groups) = (
-            (0, 0, 0),
-            BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>::new(),
-        );
+    let (counts, all_groups) = {
+        let mut counts = (0, 0, 0);
+        let mut groups = BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>::new();
+
         for a in &articles() {
-            *match a.status {
-                ArticleStatus::New => &mut counts.0,
-                ArticleStatus::Stored => &mut counts.1,
-                ArticleStatus::Binned => &mut counts.2,
-            } += 1;
+            match a.status {
+                ArticleStatus::New => counts.0 += 1,
+                ArticleStatus::Stored => counts.1 += 1,
+                ArticleStatus::Binned => counts.2 += 1,
+            }
             groups
                 .entry(a.status)
                 .or_default()
@@ -86,7 +86,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 .push(a.id);
         }
         (counts, groups)
-    }))();
+    };
 
     let current_status = match tab.as_str() {
         "stored" => ArticleStatus::Stored,
@@ -96,6 +96,8 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 
     let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
     let scroll_top_val = use_signal(|| 0.0);
+
+    let category_elements = use_signal(HashMap::<String, Rc<MountedData>>::new);
 
     rsx! {
         div {
@@ -111,7 +113,6 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 flex_direction: "column",
                 gap: "0.8rem",
                 padding: "0.8rem",
-
                 div {
                     display: "flex",
                     justify_content: "space-between",
@@ -125,7 +126,6 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                         "Quivrs"
                     }
                 }
-
                 TabNav {
                     tab: tab.clone(),
                     new_count: counts.0,
@@ -136,6 +136,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     groups: current_groups,
                     status: current_status,
                     scroll_top: scroll_top_val,
+                    category_elements,
                 }
             }
 
@@ -164,6 +165,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                             selected_id,
                             tab: tab.clone(),
                             scroll_top_val,
+                            category_elements,
                         }
                     }
                 }
@@ -180,6 +182,7 @@ fn StatusLane(
     selected_id: Option<Uuid>,
     tab: String,
     mut scroll_top_val: Signal<f64>,
+    mut category_elements: Signal<HashMap<String, Rc<MountedData>>>,
 ) -> Element {
     rsx! {
         div {
@@ -195,9 +198,12 @@ fn StatusLane(
                     scroll_top_val.set(e.scroll_top());
                 }
             },
-
             for (category, items) in groups {
-                CategoryGroup { key: "{category}-{status}", category, status,
+                CategoryGroup {
+                    key: "{category}-{status}",
+                    category,
+                    status,
+                    category_elements,
                     for id in items {
                         ArticleItem {
                             key: "{id}",
@@ -221,8 +227,8 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
     };
 
     let mut trigger_anim = use_signal(|| false);
-    use_memo(use_reactive!(|tab| {
-        let _ = tab;
+
+    use_effect(use_reactive(&tab, move |_| {
         trigger_anim.set(true);
     }));
 
@@ -233,7 +239,6 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
             background_color: "var(--surface0)",
             border: "2px solid var(--surface1)",
             border_radius: "2rem",
-
             div {
                 class: if trigger_anim() { "tab-bubble-active" },
                 onanimationend: move |_| trigger_anim.set(false),
@@ -249,7 +254,6 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 z_index: "1",
                 will_change: "left, transform",
             }
-
             for (slug, label, count) in [
                 ("stored", "Stored", stored_count),
                 ("new", "New", new_count),
@@ -323,6 +327,7 @@ fn CategoryScrollbar(
     groups: BTreeMap<Category, Vec<Uuid>>,
     status: ArticleStatus,
     scroll_top: Signal<f64>,
+    category_elements: Signal<HashMap<String, Rc<MountedData>>>,
 ) -> Element {
     if groups.is_empty() {
         return rsx! {};
@@ -338,34 +343,36 @@ fn CategoryScrollbar(
         })
         .collect();
 
-    let segment_pcts = use_memo(use_reactive!(|cat_heights| {
+    let segment_pcts = {
         let total_h: f64 = cat_heights.iter().sum();
         if total_h <= 0.0 {
-            return vec![0.0; cat_heights.len()];
+            vec![0.0; cat_heights.len()]
+        } else {
+            let bumped: Vec<f64> = cat_heights
+                .iter()
+                .map(|h| (*h / total_h * 100.0).max(MIN_CATEGORY_PCT))
+                .collect();
+            let sum: f64 = bumped.iter().sum();
+            bumped.into_iter().map(|p| p / sum * 100.0).collect()
         }
-        let bumped: Vec<f64> = cat_heights
-            .iter()
-            .map(|h| (*h / total_h * 100.0).max(MIN_CATEGORY_PCT))
-            .collect();
-        let sum: f64 = bumped.iter().sum();
-        bumped.into_iter().map(|p| p / sum * 100.0).collect()
-    }));
+    };
 
-    let dot_pct = use_memo(move || {
+    let dot_pct = {
         let st = scroll_top();
         let (mut cur_h, mut cur_adj) = (0.0, 0.0);
-        let pcts = segment_pcts();
 
+        let mut calculated_pct = 0.0;
         for (i, h) in cat_heights.iter().enumerate() {
             if st < cur_h + *h || i == cat_heights.len() - 1 {
                 let t = if *h > 0.0 { (st - cur_h) / *h } else { 0.0 };
-                return t.clamp(0.0, 1.0).mul_add(pcts[i], cur_adj);
+                calculated_pct = t.clamp(0.0, 1.0).mul_add(segment_pcts[i], cur_adj);
+                break;
             }
             cur_h += *h;
-            cur_adj += pcts[i];
+            cur_adj += segment_pcts[i];
         }
-        0.0
-    });
+        calculated_pct
+    };
 
     rsx! {
         div {
@@ -378,7 +385,6 @@ fn CategoryScrollbar(
             border_radius: "9999px",
             align_items: "center",
             overflow: "hidden",
-
             div {
                 position: "absolute",
                 left: "{dot_pct:.2}%",
@@ -389,11 +395,10 @@ fn CategoryScrollbar(
                 transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
                 will_change: "left",
             }
-
             for (i, &category) in groups.keys().enumerate() {
                 div {
                     key: "{category}",
-                    flex: "0 0 {segment_pcts()[i]:.4}%",
+                    flex: "0 0 {segment_pcts[i]:.4}%",
                     display: "flex",
                     height: "100%",
                     align_items: "center",
@@ -404,17 +409,19 @@ fn CategoryScrollbar(
                     z_index: "1",
                     transition: "flex-basis 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
                     onclick: move |_| {
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(el) = web_sys::window()
-                            .and_then(|w| w.document())
-                            .and_then(|d| {
-                                d.get_element_by_id(&format!("category-group-{category}-{status}"))
-                            })
-                        {
-                            el.scroll_into_view();
+                        let key = format!("{category}-{status}");
+                        if let Some(mounted) = category_elements.read().get(&key).cloned() {
+                            spawn(async move {
+                                let _ = mounted
+                                    .scroll_to_with_options(ScrollToOptions {
+                                        behavior: ScrollBehavior::Smooth,
+                                        vertical: ScrollLogicalPosition::Start,
+                                        horizontal: ScrollLogicalPosition::Start,
+                                    })
+                                    .await;
+                            });
                         }
                     },
-
                     if i + 1 < groups.len() {
                         div {
                             position: "absolute",
@@ -428,7 +435,6 @@ fn CategoryScrollbar(
                             z_index: "-1",
                         }
                     }
-
                     span { filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
                         {category_icon(category, 13)}
                     }
@@ -439,14 +445,24 @@ fn CategoryScrollbar(
 }
 
 #[component]
-fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -> Element {
+fn CategoryGroup(
+    category: Category,
+    status: ArticleStatus,
+    mut category_elements: Signal<HashMap<String, Rc<MountedData>>>,
+    children: Element,
+) -> Element {
+    let element_key = format!("{category}-{status}");
+
     rsx! {
         div {
-            id: "category-group-{category}-{status}",
+            id: "category-group-{element_key}",
             display: "flex",
             background_color: "var(--surface0)",
             border_radius: "20px 40px 40px 20px",
 
+            onmounted: move |cx| {
+                category_elements.write().insert(element_key.clone(), cx.data());
+            },
             div {
                 width: LABEL_WIDTH,
                 position: "sticky",
@@ -483,18 +499,18 @@ fn CategoryGroup(category: Category, status: ArticleStatus, children: Element) -
 
 #[component]
 fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
-    let articles: Signal<Vec<Article>> = use_context();
-    let item_ratings: Signal<HashMap<String, Rating>> = use_context();
-    let article = match articles.read().iter().find(|a| a.id == id) {
-        Some(a) => a.clone(),
-        None => return rsx! {},
+    let articles = use_context::<Signal<Vec<Article>>>();
+    let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
+
+    let Some(article) = articles.read().iter().find(|a| a.id == id).cloned() else {
+        return rsx! {};
     };
 
     let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
     let mut pressed = use_signal(|| false);
 
-    let d = chrono::Utc::now().signed_duration_since(article.published);
+    let d = chrono::Utc::now() - article.published;
     let time_ago = if d.num_days() > 0 {
         format!("{}d", d.num_days())
     } else if d.num_hours() > 0 {
@@ -515,16 +531,20 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black); border: 2px solid var(--surface1)",
             transform: "translateZ(0)",
 
-            // Whenever this item gets mounted OR turns active via route change, it pulls itself into view
             onmounted: move |cx| {
                 if is_selected {
                     let data = cx.data();
                     spawn(async move {
-                        let _ = data.scroll_to(ScrollBehavior::Smooth).await;
+                        let _ = data
+                            .scroll_to_with_options(ScrollToOptions {
+                                behavior: ScrollBehavior::Smooth,
+                                vertical: ScrollLogicalPosition::Start,
+                                horizontal: ScrollLogicalPosition::Start,
+                            })
+                            .await;
                     });
                 }
             },
-
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -541,7 +561,6 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             },
 
             div { flex: "1", overflow: "hidden", position: "relative",
-
                 img {
                     src: "{article.thumbnail}",
                     width: "100%",
@@ -553,8 +572,6 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     will_change: "transform",
                     decoding: "async",
                 }
-
-                // Top vignette behind icons
                 div {
                     position: "absolute",
                     top: "0",
@@ -566,7 +583,6 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     pointer_events: "none",
                     transform: "scaleY(-1)",
                 }
-
                 div {
                     position: "absolute",
                     top: "0.5rem",
@@ -574,7 +590,6 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     z_index: "20",
                     StarRating { current: article.rating, id, articles }
                 }
-
                 div {
                     position: "absolute",
                     top: "0.5rem",

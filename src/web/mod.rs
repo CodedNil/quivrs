@@ -78,20 +78,17 @@ fn ArticleEntry(tab: String, id: Uuid) -> Element {
 }
 
 pub fn app() -> Element {
-    let mut articles: Signal<Vec<Article>> = use_signal(Vec::new);
-    let mut item_ratings: Signal<HashMap<String, Rating>> = use_signal(HashMap::new);
-
-    use_context_provider(|| articles);
-    use_context_provider(|| item_ratings);
+    let mut articles = use_context_provider(|| Signal::new(Vec::<Article>::new()));
+    let mut item_ratings = use_context_provider(|| Signal::new(HashMap::<String, Rating>::new()));
 
     use_resource(move || async move {
         if let Ok(data) = get_user_articles().await {
-            *articles.write() = data;
+            articles.set(data);
         }
     });
     use_resource(move || async move {
         if let Ok(data) = get_all_item_ratings().await {
-            *item_ratings.write() = data;
+            item_ratings.set(data);
         }
     });
 
@@ -106,7 +103,7 @@ pub fn app() -> Element {
 fn MainLayout() -> Element {
     let route = use_route::<Route>();
     let navigator = use_navigator();
-    let mut articles = use_context::<Signal<Vec<Article>>>();
+    let articles = use_context::<Signal<Vec<Article>>>();
 
     // Store handle for the content container element to control scrolling smoothly
     let mut content_container_handle = use_signal(|| None::<Rc<MountedData>>);
@@ -122,6 +119,7 @@ fn MainLayout() -> Element {
         _ => ArticleStatus::New,
     };
 
+    // Filter dynamic IDs reactively
     let filtered_articles = use_memo(move || {
         articles
             .read()
@@ -134,10 +132,10 @@ fn MainLayout() -> Element {
     let onkeydown = {
         let tab = tab.clone();
         move |event: KeyboardEvent| {
+            let mut articles = articles;
             let Some(id) = selected_id else {
                 return;
             };
-
             let list = filtered_articles.read();
             let pos = list.iter().position(|&item_id| item_id == id);
 
@@ -183,8 +181,7 @@ fn MainLayout() -> Element {
                             "2" => Rating::Disliked,
                             "3" => Rating::Neutral,
                             "4" => Rating::Liked,
-                            "5" => Rating::Loved,
-                            _ => unreachable!(),
+                            _ => Rating::Loved,
                         };
                         spawn(async move {
                             if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {

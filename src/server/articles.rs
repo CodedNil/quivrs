@@ -24,7 +24,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
-const LIKED_SERVE_THRESHOLD: f64 = 0.8; // If the liked guess is above this, it is automatically served
+const LIKED_SERVE_THRESHOLD: f64 = 0.9; // If the liked guess is above this, it is automatically served
 const TIME_WINDOW_DAYS: i64 = 2;
 
 const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for a recent article
