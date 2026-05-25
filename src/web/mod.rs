@@ -3,14 +3,17 @@ mod components;
 mod sidebar;
 
 use crate::shared::{
-    Article, ArticleStatus, Rating,
+    Article, ArticleStatus, Category, Rating,
     server_functions::{get_all_item_ratings, get_user_articles, set_article_status, set_rating},
 };
 use article::ArticleDetail;
 use components::CenteredMessage;
 use dioxus::{html::geometry::euclid::Vector2D, prelude::*};
 use sidebar::{SIDEBAR_STYLES, Sidebar};
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    rc::Rc,
+};
 use uuid::Uuid;
 
 #[component]
@@ -121,12 +124,13 @@ fn MainLayout() -> Element {
 
     // Filter dynamic IDs reactively
     let filtered_articles = use_memo(move || {
-        articles
-            .read()
-            .iter()
-            .filter(|a| a.status == current_status)
-            .map(|a| a.id)
-            .collect::<Vec<Uuid>>()
+        let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
+        for a in articles.read().iter() {
+            if a.status == current_status {
+                groups.entry(a.category).or_default().push(a.id);
+            }
+        }
+        groups.into_values().flatten().collect::<Vec<Uuid>>()
     });
 
     let onkeydown = {

@@ -22,7 +22,6 @@ strum = { version = "0.28.0", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.118"
-gloo-timers = { version = "0.4.0", features = ["futures"] }
 web-sys = "=0.3.95"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

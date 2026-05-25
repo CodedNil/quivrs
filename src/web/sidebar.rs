@@ -413,11 +413,7 @@ fn CategoryScrollbar(
                         if let Some(mounted) = category_elements.read().get(&key).cloned() {
                             spawn(async move {
                                 let _ = mounted
-                                    .scroll_to_with_options(ScrollToOptions {
-                                        behavior: ScrollBehavior::Smooth,
-                                        vertical: ScrollLogicalPosition::Start,
-                                        horizontal: ScrollLogicalPosition::Start,
-                                    })
+                                    .scroll_to(ScrollBehavior::Smooth)
                                     .await;
                             });
                         }
@@ -539,7 +535,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                             .scroll_to_with_options(ScrollToOptions {
                                 behavior: ScrollBehavior::Smooth,
                                 vertical: ScrollLogicalPosition::Start,
-                                horizontal: ScrollLogicalPosition::Start,
+                                horizontal: ScrollLogicalPosition::Nearest,
                             })
                             .await;
                     });
