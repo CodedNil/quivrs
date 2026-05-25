@@ -351,7 +351,7 @@ fn CategoryScrollbar(
         bumped.into_iter().map(|p| p / sum * 100.0).collect()
     }));
 
-    let dot_pct = use_memo(use_reactive!(|scroll_top, cat_heights, segment_pcts| {
+    let dot_pct = use_memo(move || {
         let st = scroll_top();
         let (mut cur_h, mut cur_adj) = (0.0, 0.0);
         let pcts = segment_pcts();
@@ -365,7 +365,7 @@ fn CategoryScrollbar(
             cur_adj += pcts[i];
         }
         0.0
-    }));
+    });
 
     rsx! {
         div {
@@ -512,9 +512,18 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             overflow: "hidden",
             display: "flex",
             flex_direction: "column",
-            // Fixes correctly clipping transformed children at border-radius
             style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black); border: 2px solid var(--surface1)",
             transform: "translateZ(0)",
+
+            // Whenever this item gets mounted OR turns active via route change, it pulls itself into view
+            onmounted: move |cx| {
+                if is_selected {
+                    let data = cx.data();
+                    spawn(async move {
+                        let _ = data.scroll_to(ScrollBehavior::Smooth).await;
+                    });
+                }
+            },
 
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {

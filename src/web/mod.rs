@@ -8,9 +8,9 @@ use crate::shared::{
 };
 use article::ArticleDetail;
 use components::CenteredMessage;
-use dioxus::prelude::*;
+use dioxus::{html::geometry::euclid::Vector2D, prelude::*};
 use sidebar::{SIDEBAR_STYLES, Sidebar};
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 use uuid::Uuid;
 
 #[component]
@@ -107,21 +107,9 @@ fn MainLayout() -> Element {
     let route = use_route::<Route>();
     let navigator = use_navigator();
     let mut articles = use_context::<Signal<Vec<Article>>>();
-    let all_groups = use_memo(use_reactive!(|articles| {
-        let mut groups = std::collections::BTreeMap::<
-            ArticleStatus,
-            std::collections::BTreeMap<crate::shared::Category, Vec<Uuid>>,
-        >::new();
-        for a in &articles() {
-            groups
-                .entry(a.status)
-                .or_default()
-                .entry(a.category)
-                .or_default()
-                .push(a.id);
-        }
-        groups
-    }));
+
+    // Store handle for the content container element to control scrolling smoothly
+    let mut content_container_handle = use_signal(|| None::<Rc<MountedData>>);
 
     let (tab, selected_id) = match route {
         Route::ArticleEntry { tab, id } => (tab, Some(id)),
@@ -135,21 +123,14 @@ fn MainLayout() -> Element {
     };
 
     let filtered_articles = use_memo(move || {
-        let mut list = Vec::new();
-        let status_groups = match all_groups.read().get(&current_status) {
-            Some(g) => g.clone(),
-            None => return list,
-        };
-
-        for ids in status_groups.values() {
-            for &id in ids {
-                list.push(id);
-            }
-        }
-        list
+        articles
+            .read()
+            .iter()
+            .filter(|a| a.status == current_status)
+            .map(|a| a.id)
+            .collect::<Vec<Uuid>>()
     });
 
-    let tab_for_sidebar = tab.clone();
     let onkeydown = {
         let tab = tab.clone();
         move |event: KeyboardEvent| {
@@ -173,41 +154,26 @@ fn MainLayout() -> Element {
                             tab: tab.clone(),
                             id: target_id,
                         });
-
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            use wasm_bindgen::JsCast;
-                            let window = web_sys::window().unwrap();
-                            let document = window.document().unwrap();
-                            if let Some(art_el) = document
-                                .get_element_by_id(&format!("article-{target_id}"))
-                                .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
-                            {
-                                art_el.scroll_into_view_with_scroll_into_view_options(
-                                    web_sys::ScrollIntoViewOptions::new()
-                                        .behavior(web_sys::ScrollBehavior::Smooth)
-                                        .block(web_sys::ScrollLogicalPosition::Center),
-                                );
-                            }
-                        }
                     }
                 }
                 Key::ArrowUp | Key::ArrowDown => {
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(el) = web_sys::window()
-                        .and_then(|w| w.document())
-                        .and_then(|d| d.get_element_by_id("article-content-container"))
-                    {
+                    if let Some(handle) = content_container_handle.read().as_ref() {
                         let amt = if event.key() == Key::ArrowUp {
-                            -350.0
+                            -1.0
                         } else {
-                            350.0
-                        };
-                        el.scroll_by_with_scroll_to_options(
-                            web_sys::ScrollToOptions::new()
-                                .top(amt)
-                                .behavior(web_sys::ScrollBehavior::Smooth),
-                        );
+                            1.0
+                        } * 350.0;
+                        let handle = handle.clone();
+                        spawn(async move {
+                            if let Ok(scroll_offset) = handle.get_scroll_offset().await {
+                                let _ = handle
+                                    .scroll(
+                                        Vector2D::new(scroll_offset.x, scroll_offset.y + amt),
+                                        ScrollBehavior::Smooth,
+                                    )
+                                    .await;
+                            }
+                        });
                     }
                 }
                 Key::Character(c) => match c.as_str() {
@@ -260,50 +226,6 @@ fn MainLayout() -> Element {
         }
     };
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let tab_for_effect = tab.clone();
-        use_effect(move || {
-            if let Some(target_id) = selected_id {
-                let articles = use_context::<Signal<Vec<Article>>>();
-                let tab = tab_for_effect.clone();
-                spawn(async move {
-                    use wasm_bindgen::JsCast;
-                    let window = web_sys::window().unwrap();
-                    let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-
-                    // Check if the article exists in the current tab's status
-                    let current_status = match tab.as_str() {
-                        "stored" => crate::shared::ArticleStatus::Stored,
-                        "binned" => crate::shared::ArticleStatus::Binned,
-                        _ => crate::shared::ArticleStatus::New,
-                    };
-
-                    let exists_in_tab = articles
-                        .read()
-                        .iter()
-                        .any(|a| a.id == target_id && a.status == current_status);
-
-                    if !exists_in_tab {
-                        return;
-                    }
-
-                    let document = window.document().unwrap();
-                    if let Some(art_el) = document
-                        .get_element_by_id(&format!("article-{target_id}"))
-                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
-                    {
-                        art_el.scroll_into_view_with_scroll_into_view_options(
-                            web_sys::ScrollIntoViewOptions::new()
-                                .behavior(web_sys::ScrollBehavior::Smooth)
-                                .block(web_sys::ScrollLogicalPosition::Center),
-                        );
-                    }
-                });
-            }
-        });
-    }
-
     rsx! {
         div {
             id: "main-app-container",
@@ -314,15 +236,15 @@ fn MainLayout() -> Element {
             tabindex: "0",
             autofocus: true,
             onkeydown,
-            Sidebar { tab: tab_for_sidebar, selected_id }
+            Sidebar { tab, selected_id }
             main { flex: "1", overflow: "hidden", padding: "10px",
-
                 div {
                     id: "article-content-container",
                     background_color: "var(--base)",
                     border_radius: "20px",
                     height: "100%",
                     overflow_y: "auto",
+                    onmounted: move |cx| *content_container_handle.write() = Some(cx.data()),
                     Outlet::<Route> {}
                 }
             }
