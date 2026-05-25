@@ -10,11 +10,9 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
-
-liked sources, categories
-can set verge to loved which automatically pushes up the estimated_liked for anything from the verge so that 100% of its articles are pushed to the main feed
-or dislike the category sports so its much less likely to be shown
-liked categories should have more articles pushed into them, hated ones get none
+when you move an article to binned/stored, go to the next article in the feed
+left right arrow keys to navigate between articles, up/down to scroll within the article
+1,2,3,4,5 to rate article, r to bin and t to store
 
 
 support youtube feeds, subreddits as sources
@@ -27,5 +25,3 @@ like if the article talks about a major politician we could add widget for that 
 images:
 have a library of generic images that it lets the ai use, the ai can generate new ones if needed but asked to keep them reusable across multiple articles, not too specific
 do a hero image for the sidebar and let it also select a smaller image to put there too like a headshot etc
-
-positivity and importance ratings per article

@@ -121,10 +121,8 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
-    for ((mut source, embedding_text), embedding) in new_entries
-        .into_iter()
-        .zip(texts.into_iter())
-        .zip(embeddings.into_iter())
+    for ((mut source, embedding_text), embedding) in
+        new_entries.into_iter().zip(texts).zip(embeddings)
     {
         let Ok(category) = classify(&embedding).await else {
             warn!("Classification failed for '{}'", source.title);

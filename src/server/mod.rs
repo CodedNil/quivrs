@@ -10,7 +10,7 @@ use std::{sync::LazyLock, time::Duration};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{error, info};
 
-const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
+const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_mins(15);
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     let mut headers = header::HeaderMap::new();
     headers.insert(

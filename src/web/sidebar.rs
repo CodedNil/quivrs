@@ -505,7 +505,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
 
     rsx! {
         div {
-            id: "article-{article.id}",
+            id: "article-sidebar-{article.id}",
             height: "{ARTICLE_HEIGHT_PX}px",
             cursor: "pointer",
             border_radius: "2rem",
