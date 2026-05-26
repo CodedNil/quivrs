@@ -11,6 +11,8 @@ quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
 clicking to move to stored/bin bugs out sidebar, as does keybinds if theres no remaining articles to navigate to in the column
+inline dioxus-free-icons - font-awesome-solid
+switch fastembed to using candle and hf-hub
 
 support youtube feeds, subreddits as sources
 

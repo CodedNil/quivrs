@@ -17,6 +17,7 @@ use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
+const CLASSIFICATION_PROMPT: &str = "task: classification | query: ";
 
 const fn category_label(category: Category) -> &'static [&'static str] {
     match category {
@@ -45,6 +46,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Congress, Senate, White House, Washington, European Parliament, legislation veto, and partisan voting blocks.",
             "Geopolitical sanctions, trade blockades, diplomatic expulsions, and United Nations UN resolutions.",
             "Civil unrest, public protests, strikes, trade unions, walkouts, and mass demonstrations.",
+            "News about migration policy, asylum crossings, border control, deportation, or refugees.",
+            "News about government regulation of online platforms or protections for children online.",
         ],
         // Courts, crime, police investigations, and criminal justice
         Category::Law => &[
@@ -55,6 +58,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Prison sentences, custodial terms, and legal controversies.",
             "Extradition treaties, supreme court rulings, judicial reviews, constitutional law, and appeals.",
             "Cybercrime, ransomware cartels, financial money laundering, cartel operations, and wire fraud indictment.",
+            "A police report or inquest about a shooting, drowning, fatal incident, or suspicious death.",
+            "A criminal justice story about rape, child sexual exploitation, domestic abuse, or safeguarding failures.",
         ],
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => &[
@@ -76,6 +81,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "TV personalities, presenters, reality show contestants, and broadcasting careers.",
             "Netflix, Disney+, HBO, Paramount, streaming viewership ratings, box office ticket sales, and cinematic universes.",
             "YouTube creators, TikTok influencers, viral memes, podcast series, and digital internet culture.",
+            "A music story about a band, concert, live performance, album, or touring artist.",
         ],
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => &[
@@ -108,6 +114,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Renewable green energy, solar grids, wind farms, geothermal projects, and recycling infrastructure.",
             "Earthquakes, volcanic eruptions, seismic tremors, tsunamis, and geological fault lines.",
             "Ancient rainforest restoration, woodland expansion, and rewilding projects.",
+            "A weather story about record temperatures, heatwaves, flooding, rainfall, or climate extremes.",
         ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => &[
@@ -156,8 +163,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Grand Prix driver standings, race results, sporting events.",
             "NBA basketball playoffs, NFL Super Bowl touchdowns, baseball MLB, and athlete contract drafting.",
             "UFC MMA combat fighting, heavyweight boxing title belts, and professional athletics doping trials.",
-            "Spectators injured in sporting accident, motorbike collides with spectators watching race.",
-            "French Open, Paris heatwave tennis, athlete performance in extreme heat.",
+            "Motorsport competitions, Formula One racing, Isle of Man TT events, circuits, riders, and race results.",
+            "French Open tennis matches, tournament draws, players, athletes, and sporting performance.",
         ],
         // Video games, gaming culture, esports, and game releases
         Category::Gaming => &[
@@ -169,96 +176,196 @@ const fn category_label(category: Category) -> &'static [&'static str] {
     }
 }
 
-const fn region_label(region: Region) -> &'static str {
+const fn region_labels(region: Region) -> &'static [&'static str] {
     match region {
-        Region::Worldwide => {
-            "global, worldwide, international, multilateral, transnational, global economy, global climate, United Nations, UN, G7, G20, multiple countries, across continents, global summit"
-        }
-        Region::UnitedKingdom => {
-            "United Kingdom, UK, Britain, British, Great Britain, Westminster, Whitehall, Downing Street, House of Commons, House of Lords, HM Treasury, Bank of England, UK-wide"
-        }
-        Region::England => {
-            "England, English, London, Greater London, Manchester, Birmingham, Liverpool, Leeds, Bristol, Newcastle, Yorkshire, Cornwall, Essex, Kent, English councils, English schools"
-        }
-        Region::Scotland => {
-            "Scotland, Scottish, Scots, Edinburgh, Glasgow, Aberdeen, Dundee, Highlands, Holyrood, Scottish Parliament, Scottish Government, Scotland-wide"
-        }
-        Region::Wales => {
-            "Wales, Welsh, Cymru, Cardiff, Swansea, Newport, Wrexham, Senedd, Welsh Government, Welsh language"
-        }
-        Region::NorthernIreland => {
-            "Northern Ireland, Northern Irish, Belfast, Derry, Londonderry, Stormont, Ulster, Northern Ireland Assembly, Good Friday Agreement, Irish Sea border"
-        }
-        Region::Ireland => {
-            "Ireland, Irish, Republic of Ireland, Dublin, Cork, Galway, Limerick, Dail Eireann, Taoiseach, Irish government"
-        }
-        Region::UnitedStates => {
-            "United States, USA, US, American, Washington DC, White House, Congress, Senate, Supreme Court, federal, California, Texas, New York, Florida, Pentagon, Wall Street"
-        }
-        Region::Canada => {
-            "Canada, Canadian, Ottawa, Toronto, Vancouver, Montreal, Quebec, Alberta, Ontario, British Columbia, Canadian parliament, RCMP, Bank of Canada"
-        }
-        Region::NorthAmerica => {
-            "North America, North American, continental, NAFTA, USMCA, cross-border trade, transcontinental, continental border, Great Lakes, North American Arctic, regional supply chain"
-        }
-        Region::LatinAmerica => {
-            "Latin America, Latin American, South America, Central America, Caribbean, Brazil, Brasilia, Argentina, Buenos Aires, Chile, Santiago, Colombia, Bogota, Peru, Lima, Venezuela, Mexico, Cuba, Haiti, Mercosur"
-        }
-        Region::WesternEurope => {
-            "Western Europe, European Union, EU, eurozone, Brussels, France, French, Paris, Germany, German, Berlin, Spain, Madrid, Italy, Rome, Netherlands, Amsterdam, Belgium, Austria, Switzerland, Portugal, Nordic, Denmark, Sweden, Norway"
-        }
-        Region::EasternEurope => {
-            "Eastern Europe, eastern European, Ukraine, Kyiv, Poland, Warsaw, Romania, Bucharest, Hungary, Budapest, Czechia, Prague, Slovakia, Balkans, Serbia, Croatia, Bulgaria, Moldova, Baltic, Estonia, Latvia, Lithuania, Belarus"
-        }
-        Region::MiddleEastNorthAfrica => {
-            "Middle East, North Africa, MENA, Israel, Israeli, Jerusalem, Gaza, Palestine, Palestinian, West Bank, Iran, Tehran, Iraq, Baghdad, Syria, Damascus, Lebanon, Beirut, Jordan, Amman, Saudi Arabia, Riyadh, UAE, Dubai, Qatar, Gulf, Egypt, Cairo, Morocco, Algeria, Tunisia, Libya"
-        }
-        Region::SubSaharanAfrica => {
-            "sub-Saharan Africa, African Union, Nigeria, Abuja, Lagos, Kenya, Nairobi, South Africa, Pretoria, Johannesburg, Ethiopia, Addis Ababa, Ghana, Accra, Congo, DRC, Kinshasa, Sudan, Uganda, Tanzania, Zimbabwe, Senegal, Rwanda"
-        }
-        Region::SouthAsia => {
-            "South Asia, India, Indian, New Delhi, Mumbai, Pakistan, Pakistani, Islamabad, Bangladesh, Dhaka, Sri Lanka, Colombo, Nepal, Kathmandu, Afghanistan, Kabul, Bhutan, Maldives, Kashmir, Punjab"
-        }
-        Region::EastAsia => {
-            "East Asia, China, Chinese, Beijing, Shanghai, Japan, Japanese, Tokyo, South Korea, Korean, Seoul, North Korea, Pyongyang, Taiwan, Taiwanese, Taipei, Hong Kong, Macau, Mongolia, East China Sea"
-        }
-        Region::SoutheastAsia => {
-            "Southeast Asia, ASEAN, Indonesia, Jakarta, Vietnam, Hanoi, Thailand, Bangkok, Philippines, Manila, Malaysia, Kuala Lumpur, Singapore, Myanmar, Burma, Cambodia, Laos, Brunei, Timor-Leste, South China Sea"
-        }
-        Region::CentralAsia => {
-            "Central Asia, Kazakhstan, Astana, Almaty, Uzbekistan, Tashkent, Kyrgyzstan, Bishkek, Tajikistan, Dushanbe, Turkmenistan, Ashgabat, Caspian, Silk Road, central Asian"
-        }
-        Region::Oceania => {
-            "Oceania, Australia, Australian, Canberra, Sydney, Melbourne, New Zealand, Wellington, Auckland, Pacific Islands, Fiji, Papua New Guinea, Samoa, Tonga, Solomon Islands, Tasmania"
-        }
+        Region::Worldwide => &[
+            "An international story involving several countries or a global institution.",
+            "A story with no specified geographic location or regional focus.",
+            "A consumer technology or entertainment story released for a global audience.",
+            "A worldwide business, science, or internet story with global relevance.",
+        ],
+        Region::UnitedKingdom => &[
+            "A national story about Britain or the United Kingdom as a whole.",
+            "A UK government story involving Westminster, Downing Street, or Parliament.",
+            "A story about British public opinion, the UK economy, or a UK-wide institution.",
+            "A policy or event affecting people across the nations of the United Kingdom.",
+        ],
+        Region::England => &[
+            "A story about England or the English national government and public services.",
+            "A local story in London, Manchester, Birmingham, Liverpool, or another English city.",
+            "A story about an English county, council, school, court, river, or community.",
+            "A story about elections, policing, weather, or infrastructure specifically in England.",
+        ],
+        Region::Scotland => &[
+            "A national story about Scotland or the Scottish public.",
+            "A political story involving Holyrood or the Scottish Government.",
+            "A local story in Edinburgh, Glasgow, Aberdeen, Dundee, or the Highlands.",
+            "A Scottish story about courts, councils, nature, business, or public services.",
+        ],
+        Region::Wales => &[
+            "A national story about Wales or the Welsh public.",
+            "A political story involving the Senedd or Welsh Government.",
+            "A local story in Cardiff, Swansea, Newport, Wrexham, or a Welsh community.",
+            "A Welsh story about policing, weather, transport, education, or public services.",
+        ],
+        Region::NorthernIreland => &[
+            "A national story about Northern Ireland or the Northern Irish public.",
+            "A political story involving Stormont or the Northern Ireland Assembly.",
+            "A local story in Belfast, Derry, County Antrim, or another Northern Irish place.",
+            "A Northern Ireland story about courts, policing, nature, health, or public services.",
+        ],
+        Region::Ireland => &[
+            "A national story about the Republic of Ireland or the Irish public.",
+            "A government story involving Dublin, the Dail, or the Taoiseach.",
+            "A local story in Dublin, Cork, Galway, Limerick, or another Irish place.",
+            "An Irish story about business, courts, health, culture, or public services.",
+        ],
+        Region::UnitedStates => &[
+            "A national story about the United States or the American public.",
+            "A US government story involving Washington, Congress, the White House, or federal agencies.",
+            "A local story in an American state or city such as California, Texas, or New York.",
+            "A US story about business, courts, transport, schools, or public policy.",
+        ],
+        Region::Canada => &[
+            "A national story about Canada or the Canadian public.",
+            "A Canadian government story involving Ottawa or Parliament.",
+            "A local story in Ontario, Quebec, Alberta, British Columbia, Toronto, or Montreal.",
+            "A Canadian story about business, courts, climate, health, or public services.",
+        ],
+        Region::NorthAmerica => &[
+            "A North American story affecting both the United States and Canada.",
+            "A continental trade or transport story spanning North American borders.",
+            "A regional climate or energy story across North America.",
+            "A story explicitly about North American markets, sport, or industry.",
+        ],
+        Region::LatinAmerica => &[
+            "A regional story about Latin America, Central America, South America, or the Caribbean.",
+            "A national story about Brazil, Argentina, Chile, Colombia, Peru, or Venezuela.",
+            "A story about Mexico, Cuba, Haiti, or another Caribbean or Central American country.",
+            "A Latin American story about elections, economy, security, climate, or culture.",
+        ],
+        Region::WesternEurope => &[
+            "A Western European or European Union story involving Brussels or EU institutions.",
+            "A national story about France, Germany, Spain, Italy, or Portugal.",
+            "A story about the Netherlands, Belgium, Austria, Switzerland, or Nordic Europe.",
+            "A western European story about policy, economy, security, climate, or culture.",
+        ],
+        Region::EasternEurope => &[
+            "An eastern European story involving Ukraine, Kyiv, Russia, or Moscow.",
+            "A national story about Poland, Romania, Hungary, Czechia, or Slovakia.",
+            "A story involving Moldova, Belarus, the Baltics, or the Balkans.",
+            "An eastern European story about war, security, politics, economy, or society.",
+        ],
+        Region::MiddleEastNorthAfrica => &[
+            "A Middle Eastern story involving Israel, Palestine, Iran, Iraq, Syria, or Lebanon.",
+            "A Gulf story involving Saudi Arabia, the United Arab Emirates, Qatar, or Yemen.",
+            "A North African story involving Egypt, Morocco, Algeria, Tunisia, or Libya.",
+            "A MENA story about conflict, diplomacy, energy, society, business, or culture.",
+        ],
+        Region::SubSaharanAfrica => &[
+            "A sub-Saharan African story involving Nigeria, Ghana, Senegal, or west Africa.",
+            "An east African story involving Kenya, Ethiopia, Uganda, Tanzania, or Rwanda.",
+            "A southern or central African story involving South Africa, Zimbabwe, or Congo.",
+            "An African story south of the Sahara about politics, health, business, climate, or society.",
+        ],
+        Region::SouthAsia => &[
+            "A South Asian story involving India, New Delhi, Mumbai, or Indian institutions.",
+            "A story involving Pakistan, Bangladesh, Sri Lanka, Nepal, Bhutan, or the Maldives.",
+            "A regional story about South Asian politics, economy, security, climate, or society.",
+            "A story located in Afghanistan, Kashmir, Punjab, or elsewhere in the South Asian region.",
+        ],
+        Region::EastAsia => &[
+            "An East Asian story involving China, Beijing, Shanghai, or Hong Kong.",
+            "A Japanese story involving Tokyo or Japanese public institutions and companies.",
+            "A Korean story involving South Korea, North Korea, Seoul, or Pyongyang.",
+            "A regional story involving Taiwan, Mongolia, East Asian politics, business, or culture.",
+        ],
+        Region::SoutheastAsia => &[
+            "A Southeast Asian story involving Indonesia, Vietnam, Thailand, or the Philippines.",
+            "A story involving Singapore, Malaysia, Myanmar, Cambodia, Laos, or Brunei.",
+            "A regional story involving ASEAN or the South China Sea.",
+            "A southeast Asian story about government, economy, security, climate, or culture.",
+        ],
+        Region::CentralAsia => &[
+            "A Central Asian story involving Kazakhstan or Uzbekistan.",
+            "A story involving Kyrgyzstan, Tajikistan, or Turkmenistan.",
+            "A regional story involving the Caspian Sea or central Asian trade routes.",
+            "A central Asian story about politics, security, energy, economy, or society.",
+        ],
+        Region::Oceania => &[
+            "An Australian story involving Canberra, Sydney, Melbourne, or Australian institutions.",
+            "A New Zealand story involving Wellington, Auckland, or New Zealand institutions.",
+            "A Pacific islands story involving Fiji, Samoa, Tonga, or Papua New Guinea.",
+            "An Oceania story about politics, climate, business, health, sport, or culture.",
+        ],
     }
 }
 
-pub fn sentiment_label(sentiment: &str) -> &'static str {
+fn sentiment_labels(sentiment: &str) -> &'static [&'static str] {
     match sentiment {
-        // Uplifting, solutions-oriented, or curiosity-inducing framing
-        "positive" => {
-            "positive milestone breakthrough triumph progress success solution forward heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe inspiring milestone unique pioneer brilliant boost stellar incredible superb outstanding together community harmony optimism win winner gain recovery growth peace stability safety exoneration"
-        }
-        // Cynical, critical, aggressive, or tragic framing
-        "negative" => {
-            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology betrayal Nazi hateful accident abortion sexual offences abuse conviction manslaughter embezzlement corruption scandal"
-        }
-        _ => "",
+        "positive" => &[
+            "A story celebrating a successful achievement or award.",
+            "A medical story reporting recovery or a treatment improving patients' lives.",
+            "A rescue or safety effort that protected people from harm.",
+            "A peace agreement or constructive cooperation resolving a dispute.",
+            "A conservation project restoring habitats or protecting wildlife.",
+            "A useful invention or scientific breakthrough providing clear benefits.",
+            "A sporting victory or outstanding performance presented with admiration.",
+            "An economic improvement creating jobs or helping households.",
+            "A legal outcome protecting victims or correcting an injustice.",
+            "A community donation or volunteer effort supporting people in need.",
+            "A strongly favourable review describing satisfaction with a product or experience.",
+            "A hopeful development offering progress after a difficult situation.",
+        ],
+        "negative" => &[
+            "A tragic story about a death, fatal accident, or bereavement.",
+            "A violent crime story involving assault, rape, abuse, or exploitation.",
+            "A corruption or fraud scandal involving wrongdoing and conviction.",
+            "A war story reporting attacks, escalation, destruction, or casualties.",
+            "An environmental story reporting pollution or serious damage to wildlife.",
+            "A public service failure leaving vulnerable people at risk.",
+            "A business story about job losses, bankruptcy, or financial collapse.",
+            "A political story marked by bitter conflict, condemnation, or backlash.",
+            "A health story describing serious disease, unsafe conditions, or preventable harm.",
+            "An accident or disaster causing injuries, evacuation, or severe disruption.",
+            "A story reporting discrimination, human rights violations, or intimidation.",
+            "A negative review describing a defective product or disappointing experience.",
+        ],
+        _ => &[],
     }
 }
 
-pub fn importance_label(importance: &str) -> &'static str {
+fn importance_labels(importance: &str) -> &'static [&'static str] {
     match importance {
-        // Macro-scale structural changes, high-consequence policy, and permanence
-        "important" => {
-            "important, historic, monumental, unprecedented, permanent, landmark, fundamental, crisis, systemic, global, national, macro, widespread, structural, existential, priority, turning-point, paradigm-shift, definitive, far-reaching, critical, essential, massive, long-term, key-factor, major-overhaul, catalyst, strategic, sweeping, emergency, tectonic-shift, paramount, election-result, conviction, sentencing, war-strike, geopolitical-shift, embezzlement-scandal, murder-trial, historic-offences, national-security, constitutional-crisis, general-election-result"
-        }
-        // Micro-scale, transient, or routine consumer/entertainment news
-        "unimportant" => {
-            "unimportant, routine, minor, transient, local, niche, consumer-deal, retail-sale, shopping-discount, product-review, gadget-unboxing, daily-update, weather-forecast, minor-fixture, gossip, celebrity-sighting, casual-mention, hobbyist-tip, routine-maintenance, temporary-offer, limited-time-deal, bargain, coupon, discount, price-drop, clearance, flash-sale, interview, documentary, profile, personal-story, human-interest, feature-article, streaming-guide, tv-recommendation, workout-tip, exercise-routine, pillow, mattress-sale, hair-styler-review, smart-lights, burger"
-        }
-        _ => "",
+        "important" => &[
+            "A national law or major government policy that changes people's rights or services.",
+            "A general election, referendum, constitutional decision, or transfer of political power.",
+            "An armed conflict, military strike, ceasefire, sanction, or major diplomatic crisis.",
+            "A significant criminal trial, conviction, sentence, public inquiry, or justice-system failure.",
+            "A fatal incident or public safety emergency affecting several people or exposing serious risk.",
+            "A national health threat, medical breakthrough, or large-scale safeguarding issue.",
+            "A major environmental disaster, climate record, pollution event, or conservation decision.",
+            "A major economic change, financial crisis, corporate collapse, or employment shock.",
+            "A critical transport, energy, communications, or public infrastructure development.",
+            "A major scientific or technological milestone with broad societal consequences.",
+            "A systemic abuse, civil rights, child safety, or human rights development.",
+            "A major regulator, court, or government action affecting an industry or large population.",
+        ],
+        "unimportant" => &[
+            "A shopping discount, seasonal sale, coupon, price drop, or bargain recommendation.",
+            "A consumer review of a mattress, pillow, appliance, wearable, or household product.",
+            "A guide recommending films, television shows, or streaming releases to watch.",
+            "A lifestyle feature offering everyday home, fashion, dating, or wellness advice.",
+            "A workout routine, fitness tip, or personal exercise recommendation.",
+            "A gardening, cooking, decorating, cleaning, or home improvement tip.",
+            "A routine sports preview, transfer rumour, fan survey, or minor fixture update.",
+            "A light celebrity, entertainment, music, or popular culture feature.",
+            "A small gadget accessory announcement or incremental consumer product launch.",
+            "A promotional travel offer, shopping list, gift guide, or buying guide.",
+            "A personal profile, opinion piece, interview, or human-interest feature without wider impact.",
+            "A niche hobby update, casual tutorial, game recommendation, or routine leisure story.",
+        ],
+        _ => &[],
     }
 }
 
@@ -290,39 +397,50 @@ fn label_definitions() -> Vec<LabelDefinition> {
                 key: format!("category:{category}:{idx}"),
                 label_group: "category",
                 label_value: category.to_string(),
-                hash: label_hash(text),
+                hash: label_hash(&classification_input(text)),
                 text,
             });
         }
     }
 
     for region in Region::iter() {
-        let text = region_label(region);
-        definitions.push(LabelDefinition {
-            key: format!("region:{region}"),
-            label_group: "region",
-            label_value: region.to_string(),
-            hash: label_hash(text),
-            text,
-        });
+        for (idx, text) in region_labels(region).iter().enumerate() {
+            definitions.push(LabelDefinition {
+                key: format!("region:{region}:{idx}"),
+                label_group: "region",
+                label_value: region.to_string(),
+                hash: label_hash(&classification_input(text)),
+                text,
+            });
+        }
     }
 
-    for (group, key, text) in [
-        ("sentiment", "positive", sentiment_label("positive")),
-        ("sentiment", "negative", sentiment_label("negative")),
-        ("importance", "important", importance_label("important")),
-        ("importance", "unimportant", importance_label("unimportant")),
+    for (group, key, texts) in [
+        ("sentiment", "positive", sentiment_labels("positive")),
+        ("sentiment", "negative", sentiment_labels("negative")),
+        ("importance", "important", importance_labels("important")),
+        (
+            "importance",
+            "unimportant",
+            importance_labels("unimportant"),
+        ),
     ] {
-        definitions.push(LabelDefinition {
-            key: format!("{group}:{key}"),
-            label_group: group,
-            label_value: key.to_string(),
-            hash: label_hash(text),
-            text,
-        });
+        for (idx, text) in texts.iter().enumerate() {
+            definitions.push(LabelDefinition {
+                key: format!("{group}:{key}:{idx}"),
+                label_group: group,
+                label_value: key.to_string(),
+                hash: label_hash(&classification_input(text)),
+                text,
+            });
+        }
     }
 
     definitions
+}
+
+pub fn classification_input(text: &str) -> String {
+    format!("{CLASSIFICATION_PROMPT}{text}")
 }
 
 static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
@@ -387,7 +505,10 @@ async fn maintenance_label_embeddings() -> Result<()> {
 
     if !stale.is_empty() {
         info!("Refreshing {} label embeddings", stale.len());
-        let texts: Vec<_> = stale.iter().map(|def| def.text.to_string()).collect();
+        let texts: Vec<_> = stale
+            .iter()
+            .map(|def| classification_input(def.text))
+            .collect();
         let embeddings = generate_article_embeddings(&texts).await?;
         let records: Vec<_> = stale
             .into_iter()
@@ -411,7 +532,8 @@ async fn maintenance_label_embeddings() -> Result<()> {
 
 pub async fn maintenance_embeddings() -> Result<()> {
     maintenance_label_embeddings().await?;
-    maintenance_article_embeddings().await
+    maintenance_article_embeddings().await?;
+    Ok(())
 }
 
 async fn maintenance_article_embeddings() -> Result<()> {

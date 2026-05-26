@@ -9,8 +9,6 @@ pkgs.mkShell {
     clippy
     just
     dioxus-cli
-    lld
-    binaryen
     pkg-config
     surrealdb
   ];
