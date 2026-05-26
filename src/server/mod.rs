@@ -61,14 +61,18 @@ pub fn start() {
             error!("Database initialisation failed: {err}");
             return;
         }
+        if let Err(err) = embeddings::maintenance_embeddings().await {
+            error!("Embedding maintenance failed: {err}");
+            return;
+        }
 
         let mut ticker = interval(DEFAULT_REFRESH_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         info!("Feed refresh scheduler started (interval: {DEFAULT_REFRESH_INTERVAL:?})");
         loop {
             ticker.tick().await;
-            if let Err(e) = database::maintenance_embeddings().await {
-                error!("Embedding maintenance failed: {e}");
+            if let Err(e) = database::purge_old_pending_sources().await {
+                error!("Pending source purge failed: {e}");
             }
             if let Err(err) = articles::refresh_all_feeds().await {
                 error!("Feed refresh failed: {err}");

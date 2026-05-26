@@ -4,23 +4,15 @@ default:
 build:
     dx build --release
 
-# Create and initialise a fresh local database
-db:
-    DATABASE_URL=sqlite:quivrs.db cargo sqlx database create
-    DATABASE_URL=sqlite:quivrs.db cargo sqlx migrate run
+# Open an interactive SQL shell to the local database
+db-shell:
+    surreal sql --endpoint surrealkv://quivrs.db --namespace quivrs --database quivrs
 
-# Regenerate the sqlx offline query cache after changing SQL queries or schema
-prepare:
-    DATABASE_URL=sqlite:quivrs.db cargo sqlx prepare -- --features server
-
-# Check SQL queries without a running database (uses the prepared cache)
-check-sql:
-    cargo sqlx prepare --check -- --features server
-
-# Apply pending migrations against the local database
-migrate:
-    DATABASE_URL=sqlite:quivrs.db cargo sqlx migrate run
+# Check the status of the database tables and indexes
+db-info:
+    @surreal sql --endpoint surrealkv://quivrs.db --namespace quivrs --database quivrs <<< "INFO FOR DB;"
 
 # Create a new migration file (usage: just migration <name>)
 migration name:
-    cargo sqlx migrate add {{ name }}
+    @touch migrations/$(date +%Y%m%d)_"{{ name }}".surql
+    @echo "Created migrations/$(date +%Y%m%d)_{{ name }}.surql"

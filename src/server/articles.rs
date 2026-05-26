@@ -2,9 +2,8 @@ use crate::{
     server::{
         database,
         embeddings::{
-            EMBEDDING_MODEL_NAME, article_text, calculate_preference_score, classify,
-            cosine_similarity, generate_article_embeddings, get_importance_score,
-            get_sentiment_score,
+            EMBEDDING_MODEL_NAME, article_text, classify, generate_article_embeddings,
+            get_importance_score, get_sentiment_score,
         },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
@@ -24,13 +23,13 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
-const LIKED_SERVE_THRESHOLD: f64 = 0.9; // If the liked guess is above this, it is automatically served
-const LIKED_MIN_THRESHOLD: f64 = 0.6; // If the liked guess is above this, it is served to meet quota
+const LIKED_SERVE_THRESHOLD: f32 = 0.9; // If the liked guess is above this, it is automatically served
+const LIKED_MIN_THRESHOLD: f32 = 0.6; // If the liked guess is above this, it is served to meet quota
 const TIME_WINDOW_DAYS: i64 = 2;
 const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for merging a recent article
 
-const SENTIMENT_BONUS: f64 = 0.1; // How much to boost the score for a positive article
-const IMPORTANCE_BONUS: f64 = 0.1; // How much to boost the score for an important article
+const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
+const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
 
 /// Minimum number of new articles to maintain in each category
 pub const fn category_new_articles(rating: Rating) -> i64 {
@@ -44,7 +43,7 @@ pub const fn category_new_articles(rating: Rating) -> i64 {
 }
 
 /// Max amount to boost or dampen the score for a rated category
-pub const fn category_bonus(rating: Rating) -> f64 {
+pub const fn category_bonus(rating: Rating) -> f32 {
     match rating {
         Rating::Hated => -0.2,
         Rating::Disliked => -0.1,
@@ -55,7 +54,7 @@ pub const fn category_bonus(rating: Rating) -> f64 {
 }
 
 /// Max amount to boost or dampen the score for a rated domain
-pub const fn domain_bonus(rating: Rating) -> f64 {
+pub const fn domain_bonus(rating: Rating) -> f32 {
     match rating {
         Rating::Hated => -0.4,
         Rating::Disliked => -0.2,
@@ -130,13 +129,15 @@ pub async fn refresh_all_feeds() -> Result<()> {
             continue;
         };
 
-        let sentiment = get_sentiment_score(&embedding).await;
-        let importance = get_importance_score(&embedding).await;
+        let sentiment = get_sentiment_score(&embedding).await?;
+        let importance = get_importance_score(&embedding).await?;
 
         source.embedding = embedding;
         source.embedding_text = embedding_text;
         source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
         source.category = category;
+        source.sentiment = sentiment as f32;
+        source.importance = importance as f32;
 
         info!(
             "[NEW] {}",
@@ -170,21 +171,18 @@ pub async fn promote_articles() -> Result<()> {
         return Ok(());
     }
 
-    let rated_embeddings = database::get_rated_article_embeddings().await?;
     let item_ratings = database::get_all_item_ratings().await?;
 
     // Calculate scores and sort
     let mut scored_pending = Vec::with_capacity(pending.len());
     let start = std::time::Instant::now();
     for p in pending {
-        let estimated_liked = calculate_preference_score(&p.embedding, &rated_embeddings);
+        let estimated_liked = database::get_preference_score(&p.embedding).await?;
         let mut estimated_liked_bonus = 0.0;
 
         // Boost for sentiment and importance
-        let sentiment = get_sentiment_score(&p.embedding).await;
-        let importance = get_importance_score(&p.embedding).await;
-        estimated_liked_bonus += sentiment * SENTIMENT_BONUS;
-        estimated_liked_bonus += importance * IMPORTANCE_BONUS;
+        estimated_liked_bonus += p.sentiment * SENTIMENT_BONUS;
+        estimated_liked_bonus += p.importance * IMPORTANCE_BONUS;
 
         // Boost for category and domain ratings
         let category_articles_number = item_ratings
@@ -202,8 +200,6 @@ pub async fn promote_articles() -> Result<()> {
             estimated_liked,
             estimated_liked_bonus,
             category_articles_number,
-            sentiment,
-            importance,
         ));
     }
     info!(
@@ -222,17 +218,8 @@ pub async fn promote_articles() -> Result<()> {
     let cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
 
-    for (
-        i,
-        (
-            candidate,
-            estimated_liked,
-            estimated_liked_bonus,
-            category_articles_number,
-            sentiment,
-            importance,
-        ),
-    ) in scored_pending.iter().enumerate()
+    for (candidate, estimated_liked, estimated_liked_bonus, category_articles_number) in
+        scored_pending
     {
         if promoted_urls.contains(&candidate.url) {
             continue;
@@ -242,7 +229,7 @@ pub async fn promote_articles() -> Result<()> {
         let score = estimated_liked + estimated_liked_bonus;
 
         let should_keep = score >= LIKED_SERVE_THRESHOLD
-            || (score >= LIKED_MIN_THRESHOLD && count < *category_articles_number);
+            || (score >= LIKED_MIN_THRESHOLD && count < category_articles_number);
 
         if !should_keep {
             continue;
@@ -256,22 +243,30 @@ pub async fn promote_articles() -> Result<()> {
             estimated_liked_bonus,
             candidate.category,
             count,
-            sentiment,
-            importance
+            candidate.sentiment,
+            candidate.importance
         );
 
         let mut sources_to_merge = vec![candidate.clone()];
         promoted_urls.insert(candidate.url.clone());
 
+        let min_published = candidate.published - chrono::Duration::days(TIME_WINDOW_DAYS);
+        let max_published = candidate.published + chrono::Duration::days(TIME_WINDOW_DAYS);
+
+        let similar_sources = database::get_similar_pending_sources(
+            &candidate.embedding,
+            candidate.category,
+            min_published,
+            max_published,
+        )
+        .await?;
+
         let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
 
-        for (other, _, _, _, _, _) in scored_pending.iter().skip(i + 1) {
-            if other.category != candidate.category || promoted_urls.contains(&other.url) {
-                continue;
-            }
-
-            if (candidate.published - other.published).num_days().abs() > TIME_WINDOW_DAYS {
+        for (other, sim) in similar_sources {
+            let url = other.url.clone();
+            if promoted_urls.contains(&url) {
                 continue;
             }
 
@@ -279,7 +274,6 @@ pub async fn promote_articles() -> Result<()> {
             let time_bonus =
                 TIME_BONUS_MAX * (-std::f32::consts::LN_2 * diff_secs / half_life_secs).exp();
 
-            let sim = cosine_similarity(&candidate.embedding, &other.embedding);
             let score = sim + time_bonus;
 
             if score >= SIMILARITY_THRESHOLD {
@@ -287,8 +281,8 @@ pub async fn promote_articles() -> Result<()> {
                     "  [MERGE] adding '{}' (sim: {:.2}, bonus: {:.2}, total: {:.2})",
                     other.title, sim, time_bonus, score
                 );
-                sources_to_merge.push(other.clone());
-                promoted_urls.insert(other.url.clone());
+                promoted_urls.insert(url);
+                sources_to_merge.push(other);
             }
         }
 
@@ -318,6 +312,8 @@ pub async fn promote_articles() -> Result<()> {
                     embedding: candidate.embedding.clone(),
                     embedding_text: candidate.embedding_text.clone(),
                     embedding_model: candidate.embedding_model.clone(),
+                    sentiment: candidate.sentiment,
+                    importance: candidate.importance,
                 };
                 let urls: Vec<String> = sources_to_merge.into_iter().map(|s| s.url).collect();
                 database::insert_promoted_article(&article, &urls).await?;

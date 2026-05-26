@@ -21,8 +21,8 @@ itertools = "0.14.0"
 strum = { version = "0.28.0", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.118"
-web-sys = "=0.3.95"
+wasm-bindgen = "0.2"
+web-sys = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dotenvy = "0.15.7"
@@ -52,13 +52,7 @@ tower-http = { version = "0.6.11", features = [
     "compression-deflate",
     "compression-gzip",
 ] }
-sqlx = { version = "0.9.0", features = [
-    "sqlite",
-    "runtime-tokio",
-    "uuid",
-    "chrono",
-    "derive",
-] }
+surrealdb = { version = "3.0.5", features = ["kv-surrealkv"] }
 ammonia = "4.1.2"
 dom_smoothie = "0.17.0"
 scraper = "0.27.0"
@@ -84,6 +78,12 @@ significant_drop_tightening = "allow"
 type_complexity = "allow"
 cast_precision_loss = "allow"
 volatile_composites = "allow"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.release]
 lto = true

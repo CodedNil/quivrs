@@ -1,14 +1,15 @@
 use crate::{
     server::database,
-    shared::{Category, PendingSource, Rating},
+    shared::{Category, PendingSource},
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
-use std::{fmt::Write, sync::LazyLock};
+use std::{collections::HashSet, fmt::Write, sync::LazyLock};
 use strum::IntoEnumIterator;
 use tokio::sync::Mutex;
+use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
@@ -120,6 +121,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Pollution in rivers, waste water, sewage, and environmental damage to natural habitats.",
             "Renewable green energy, solar grids, wind farms, geothermal projects, and recycling infrastructure.",
             "Earthquakes, volcanic eruptions, seismic tremors, tsunamis, and geological fault lines.",
+            "Ancient rainforest restoration, woodland expansion, and rewilding projects.",
         ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => &[
@@ -139,6 +141,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Operating systems, Linux distributions, and software licensing or regulation.",
             "AWS, Microsoft Azure, Google Cloud, Docker containerization, Kubernetes clustering, and microservices.",
             "Git version control, GitHub code repositories, CI/CD automated deployment pipelines, and technical documentation.",
+            "Digital supplier takeovers, online identification platforms, and critical digital infrastructure.",
         ],
         // Artificial intelligence, machine learning, and AI assistants
         Category::AI => &[
@@ -167,7 +170,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Grand Prix driver standings, race results, sporting events.",
             "NBA basketball playoffs, NFL Super Bowl touchdowns, baseball MLB, and athlete contract drafting.",
             "UFC MMA combat fighting, heavyweight boxing title belts, and professional athletics doping trials.",
-            "Spectaters injured in sporting accident, motorbike collides with spectators wathcing race.",
+            "Spectators injured in sporting accident, motorbike collides with spectators watching race.",
+            "French Open, Paris heatwave tennis, athlete performance in extreme heat.",
         ],
         // Video games, gaming culture, esports, and game releases
         Category::Gaming => &[
@@ -183,11 +187,11 @@ pub fn sentiment_label(sentiment: &str) -> &'static str {
     match sentiment {
         // Uplifting, solutions-oriented, or curiosity-inducing framing
         "positive" => {
-            "positive milestone breakthrough triumph progress success solution forward-looking heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe-inspiring milestone unique pioneer brilliant forward-step boost stellar incredible superb outstanding together community harmony optimism win winner gain hold"
+            "positive milestone breakthrough triumph progress success solution forward-looking heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe-inspiring milestone unique pioneer brilliant forward-step boost stellar incredible superb outstanding together community harmony optimism win winner gain hold recovery growth peace stability safety justice exoneration"
         }
         // Cynical, critical, aggressive, or tragic framing
         "negative" => {
-            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal Nazi hateful accident abortion"
+            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal Nazi hateful accident abortion sexual-offences child-abuse murder-conviction manslaughter embezzlement-conviction corruption-scandal"
         }
         _ => "",
     }
@@ -197,11 +201,11 @@ pub fn importance_label(importance: &str) -> &'static str {
     match importance {
         // Macro-scale structural changes, high-consequence policy, and permanence
         "important" => {
-            "important historic monumental unprecedented permanent landmark fundamental crisis systemic global national macro widespread structural existential core priority turning-point paradigm-shift definitive far-reaching foundation critical essential massive fundamental long-term key-factor major-overhaul catalyst prime strategic sweeping major dominant core emergency tectonic-shift paramount election-result conviction sentencing war-strike geopolitical-shift embezzlement-scandal"
+            "important historic monumental unprecedented permanent landmark fundamental crisis systemic global national macro widespread structural existential core priority turning-point paradigm-shift definitive far-reaching foundation critical essential massive fundamental long-term key-factor major-overhaul catalyst prime strategic sweeping major dominant core emergency tectonic-shift paramount election-result conviction sentencing war-strike geopolitical-shift embezzlement-scandal murder-trial historic-offences national-security constitutional-crisis general-election-result"
         }
         // Micro-scale, transient, or routine consumer/entertainment news
         "unimportant" => {
-            "unimportant routine minor transient local niche consumer-deal retail-sale shopping-discount product-review gadget-unboxing daily-update weather-forecast minor-fixture gossip celebrity-sighting casual-mention hobbyist-tip routine-maintenance temporary-offer limited-time-deal bargain coupon discount price-drop clearance flash-sale interview documentary profile personal-story human-interest feature-article streaming-guide tv-recommendation workout-tip exercise-routine"
+            "unimportant routine minor transient local niche consumer-deal retail-sale shopping-discount product-review gadget-unboxing daily-update weather-forecast minor-fixture gossip celebrity-sighting casual-mention hobbyist-tip routine-maintenance temporary-offer limited-time-deal bargain coupon discount price-drop clearance flash-sale interview documentary profile personal-story human-interest feature-article streaming-guide tv-recommendation workout-tip exercise-routine pillow mattress-sale hair-styler-review smart-lights burger"
         }
         _ => "",
     }
@@ -216,6 +220,54 @@ pub fn label_hash(text: &str) -> String {
         let _ = write!(s, "{b:02x}");
         s
     })
+}
+
+struct LabelDefinition {
+    key: String,
+    label_group: &'static str,
+    label_value: String,
+    hash: String,
+    text: &'static str,
+}
+
+fn label_definitions() -> Vec<LabelDefinition> {
+    let mut definitions = Vec::new();
+
+    for category in Category::iter() {
+        for (idx, text) in category_label(category).iter().enumerate() {
+            definitions.push(LabelDefinition {
+                key: format!("category:{category}:{idx}"),
+                label_group: "category",
+                label_value: category.to_string(),
+                hash: label_hash(text),
+                text,
+            });
+        }
+    }
+
+    for key in ["positive", "negative"] {
+        let text = sentiment_label(key);
+        definitions.push(LabelDefinition {
+            key: format!("sentiment:{key}"),
+            label_group: "sentiment",
+            label_value: key.to_string(),
+            hash: label_hash(text),
+            text,
+        });
+    }
+
+    for key in ["important", "unimportant"] {
+        let text = importance_label(key);
+        definitions.push(LabelDefinition {
+            key: format!("importance:{key}"),
+            label_group: "importance",
+            label_value: key.to_string(),
+            hash: label_hash(text),
+            text,
+        });
+    }
+
+    definitions
 }
 
 static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
@@ -251,7 +303,7 @@ pub async fn generate_article_embeddings(texts: &[String]) -> Result<Vec<Vec<f32
     Ok(embs)
 }
 
-pub async fn embed_label_texts(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+async fn embed_label_texts(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     let mut embs = generate_embeddings(texts).await?;
     for emb in &mut embs {
         normalize(emb);
@@ -268,128 +320,120 @@ fn normalize(v: &mut Vec<f32>) {
     }
 }
 
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
+async fn maintenance_label_embeddings() -> Result<()> {
+    let definitions = label_definitions();
+    let keys: HashSet<_> = definitions.iter().map(|def| def.key.clone()).collect();
+    let cached_hashes = database::get_label_hashes().await?;
+    let stale: Vec<_> = definitions
+        .iter()
+        .enumerate()
+        .filter(|(_, def)| cached_hashes.get(&def.key) != Some(&def.hash))
+        .map(|(idx, _)| idx)
+        .collect();
+
+    if !stale.is_empty() {
+        info!("Refreshing {} label embeddings", stale.len());
+        let texts: Vec<_> = stale
+            .iter()
+            .map(|&idx| definitions[idx].text.to_string())
+            .collect();
+        let embeddings = embed_label_texts(&texts).await?;
+        let records: Vec<_> = stale
+            .into_iter()
+            .zip(embeddings)
+            .map(|(idx, embedding)| {
+                let def = &definitions[idx];
+                (
+                    def.key.clone(),
+                    database::LabelEmbeddingRecord {
+                        label_group: def.label_group.to_string(),
+                        label_value: def.label_value.clone(),
+                        hash: def.hash.clone(),
+                        text: def.text.to_string(),
+                        embedding,
+                    },
+                )
+            })
+            .collect();
+
+        database::upsert_label_embeddings(&records).await?;
     }
-    a.iter().zip(b).map(|(x, y)| x * y).sum()
+
+    database::delete_label_embeddings_except(&keys).await?;
+    Ok(())
+}
+
+pub async fn maintenance_embeddings() -> Result<()> {
+    maintenance_label_embeddings().await?;
+    maintenance_article_embeddings().await
+}
+
+async fn maintenance_article_embeddings() -> Result<()> {
+    let current_model = EMBEDDING_MODEL_NAME;
+
+    for table in ["pending_sources", "user_articles"] {
+        let stale = database::get_stale_embedding_records(table, current_model).await?;
+        if stale.is_empty() {
+            continue;
+        }
+
+        info!("Updating embeddings for {} records in {table}", stale.len());
+        for chunk in stale.chunks(100) {
+            let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
+            let new_embeddings = generate_article_embeddings(&texts).await?;
+
+            for (record, embedding) in chunk.iter().zip(new_embeddings) {
+                database::update_record_embedding(record.id.clone(), embedding, current_model)
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn classify(article_embedding: &[f32]) -> Result<Category> {
-    let mut classification_targets = Vec::new();
-
-    for cat in Category::iter() {
-        let sub_labels = category_label(cat);
-        for (idx, sub_label_text) in sub_labels.iter().enumerate() {
-            classification_targets.push((
-                cat,
-                format!("cat_{cat}_sub_{idx}"),
-                label_hash(sub_label_text),
-                (*sub_label_text).to_string(),
-            ));
-        }
-    }
-
-    let db_payload: Vec<_> = classification_targets
-        .iter()
-        .map(|(_, unique_id, hash, text)| (unique_id.clone(), hash.clone(), text.clone()))
-        .collect();
-
-    let embedded_vectors = database::get_or_refresh_label_embeddings_batch(&db_payload).await?;
-
-    let mut best_category = Category::Politics;
+    let mut best_category = None;
     let mut highest_similarity = -1.0f32;
 
-    for ((category, _, _, _), label_vector) in classification_targets.iter().zip(embedded_vectors) {
-        let similarity = cosine_similarity(article_embedding, &label_vector);
-        if similarity > highest_similarity {
-            highest_similarity = similarity;
-            best_category = *category;
+    for row in database::get_label_scores("category", article_embedding).await? {
+        let category = row.label_value.parse()?;
+        if row.similarity > highest_similarity {
+            highest_similarity = row.similarity;
+            best_category = Some(category);
         }
     }
 
-    Ok(best_category)
+    best_category.ok_or_else(|| anyhow::anyhow!("No category label embeddings found"))
 }
 
-pub fn calculate_preference_score(embedding: &[f32], rated: &[(Rating, Vec<f32>)]) -> f64 {
-    if rated.is_empty() {
-        return 0.5;
+async fn binary_label_score(
+    label_group: &str,
+    positive_value: &str,
+    embedding: &[f32],
+) -> Result<f32> {
+    let rows = database::get_label_scores(label_group, embedding).await?;
+    if rows.is_empty() {
+        bail!("No {label_group} label embeddings found");
     }
 
-    let (sum, weight) = rated
-        .iter()
-        .map(|(rating, rated_emb)| {
-            let sim = cosine_similarity(embedding, rated_emb);
-            (rating, sim)
-        })
-        .fold((0.0, 0.0), |(s, w), (rating, sim)| {
-            // We use a steep exponential power (sim^8 or exp(sim * 10))
-            // so that high similarity has much more weight than low similarity,
-            // but even low similarity still provides a "hint".
-            let p = (sim * 10.0).exp();
-            let val = match rating {
-                Rating::Loved => 1.0,
-                Rating::Liked => 0.75,
-                Rating::Neutral => 0.5,
-                Rating::Disliked => 0.25,
-                Rating::Hated => 0.0,
-            };
-            (s + val * p, w + p)
-        });
-
-    if weight > 0.0 {
-        f64::from(sum / weight)
-    } else {
-        0.5
+    let mut positive = 0.0;
+    let mut total = 0.0;
+    for row in rows {
+        let weight = (row.similarity * 10.0).exp();
+        if row.label_value == positive_value {
+            positive += weight;
+        }
+        total += weight;
     }
+
+    Ok(if total > 0.0 { positive / total } else { 0.5 })
 }
 
-pub async fn get_sentiment_score(embedding: &[f32]) -> f64 {
-    let keys = ["positive", "negative"];
-    let entries: Vec<_> = keys
-        .iter()
-        .map(|&k| {
-            let text = sentiment_label(k);
-            (format!("sentiment_{k}"), label_hash(text), text.to_string())
-        })
-        .collect();
-
-    let embs = database::get_or_refresh_label_embeddings_batch(&entries)
-        .await
-        .unwrap_or_default();
-    let weights: Vec<f32> = embs
-        .iter()
-        .map(|e| (cosine_similarity(embedding, e) * 10.0).exp())
-        .collect();
-    let sum: f32 = weights.iter().sum();
-
-    // Score: Positive (1.0), Negative (0.0)
-    f64::from(weights[0] / sum)
+pub async fn get_sentiment_score(embedding: &[f32]) -> Result<f32> {
+    binary_label_score("sentiment", "positive", embedding).await
 }
 
-pub async fn get_importance_score(embedding: &[f32]) -> f64 {
-    let keys = ["important", "unimportant"];
-    let entries: Vec<_> = keys
-        .iter()
-        .map(|&k| {
-            let text = importance_label(k);
-            (
-                format!("importance_{k}"),
-                label_hash(text),
-                text.to_string(),
-            )
-        })
-        .collect();
-
-    let embs = database::get_or_refresh_label_embeddings_batch(&entries)
-        .await
-        .unwrap_or_default();
-    let weights: Vec<f32> = embs
-        .iter()
-        .map(|e| (cosine_similarity(embedding, e) * 10.0).exp())
-        .collect();
-    let sum: f32 = weights.iter().sum();
-
-    // Score: Important (1.0), Unimportant (0.0)
-    f64::from(weights[0] / sum)
+pub async fn get_importance_score(embedding: &[f32]) -> Result<f32> {
+    binary_label_score("importance", "important", embedding).await
 }

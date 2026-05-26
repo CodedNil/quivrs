@@ -233,6 +233,8 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
         images,
         published: date,
         category: Category::Technology,
+        sentiment: 0.0,
+        importance: 0.0,
 
         embedding: Vec::new(),
         embedding_text: String::new(),

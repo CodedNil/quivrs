@@ -12,7 +12,9 @@ quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 clicking to move to stored/bin bugs out sidebar, as does keybinds if theres no remaining articles to navigate to in the column
 
-regions tagging, uk, europe, north america, south america, sub-saharan africa, east asia, oceania, south asia, MENA, central asia
+regions tagging
+west europe, north america, mena, east asia etc but also include uk/england/scotland/wales/ireland and usa
+add embedding classifications like we do for category but probably simpler, one string label for each
 
 support youtube feeds, subreddits as sources
 

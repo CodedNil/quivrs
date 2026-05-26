@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[cfg(feature = "server")]
+use surrealdb::types::SurrealValue;
+
+#[cfg_attr(feature = "server", derive(SurrealValue))]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PendingSource {
     pub url: String,
 
@@ -18,12 +22,15 @@ pub struct PendingSource {
     pub images: Vec<(String, String)>, // (url, caption)
     pub published: DateTime<Utc>,
     pub category: Category,
+    pub sentiment: f32,
+    pub importance: f32,
 
     pub embedding: Vec<f32>,
     pub embedding_text: String,
     pub embedding_model: String,
 }
 
+#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Article {
     pub id: Uuid,
@@ -44,6 +51,9 @@ pub struct Article {
     pub embedding: Vec<f32>,
     pub embedding_text: String,
     pub embedding_model: String,
+
+    pub sentiment: f32,
+    pub importance: f32,
 }
 
 impl PartialEq for Article {
@@ -52,12 +62,14 @@ impl PartialEq for Article {
     }
 }
 
+#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ArticleSource {
     pub url: String,
     pub domain: String,
 }
 
+#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(
     Serialize,
     Deserialize,
@@ -72,11 +84,6 @@ pub struct ArticleSource {
     PartialOrd,
     Ord,
     Hash,
-)]
-#[cfg_attr(
-    not(target_arch = "wasm32"),
-    derive(sqlx::Type),
-    sqlx(type_name = "TEXT")
 )]
 pub enum Category {
     Business,
@@ -95,13 +102,9 @@ pub enum Category {
     Gaming,
 }
 
+#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(
     Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
-)]
-#[cfg_attr(
-    not(target_arch = "wasm32"),
-    derive(sqlx::Type),
-    sqlx(type_name = "TEXT")
 )]
 pub enum ArticleStatus {
     Stored,
@@ -109,12 +112,8 @@ pub enum ArticleStatus {
     Binned,
 }
 
+#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString)]
-#[cfg_attr(
-    not(target_arch = "wasm32"),
-    derive(sqlx::Type),
-    sqlx(type_name = "TEXT")
-)]
 pub enum Rating {
     Hated,
     Disliked,

@@ -188,6 +188,8 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
         images,
         published,
         category: Category::Technology,
+        sentiment: 0.0,
+        importance: 0.0,
 
         embedding: Vec::new(),
         embedding_text: String::new(),
@@ -348,6 +350,8 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
         images,
         published,
         category: Category::Technology,
+        sentiment: 0.0,
+        importance: 0.0,
 
         embedding: Vec::new(),
         embedding_text: String::new(),
