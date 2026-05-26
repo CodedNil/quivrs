@@ -39,6 +39,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Company mergers, acquisitions, takeovers, IPOs, corporate restructuring, and CEO layoffs.",
             "Macroeconomics, GDP data, inflation rates, interest rates, central bank tariffs, and national recessions.",
             "Venture capital, startup investments, private equity, hedge funds, and market capitalization.",
+            "Employment market, job vacancies, retail industry leadership, and corporate warnings.",
         ],
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => &[
@@ -47,6 +48,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Military affairs, defense spending, army, navy, RAF, NATO, troop movements, and global warfare.",
             "Geopolitics, international diplomacy, state visits, foreign policy, and bilateral trade agreements.",
             "UK domestic political figures and commentary involving Starmer, Sunak, Farage, Reeves, or Downing Street.",
+            "Public opinion polling, voting intentions, and demographic surveys on social or national issues.",
         ],
         // Courts, crime, police investigations, and criminal justice
         Category::Law => &[
@@ -61,6 +63,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Medical diagnoses, cancer treatments, chronic diseases, prescription medications, pharmaceuticals, and symptoms.",
             "Public health, virus epidemics, pathogen outbreaks, vaccinations, and epidemiology tracking.",
             "Personal fitness, nutrition, diet plans, workout routines, mental health therapy, and wellness.",
+            "Medical warnings, health risks of social media, addiction, and doctor recommendations.",
         ],
         // Entertainment, film, TV, music, celebrities, streaming, and media
         Category::Culture => &[
@@ -68,6 +71,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Celebrity culture, pop stars, actors, red carpet events, paparazzi, influencers, and Hollywood showbiz.",
             "Music albums, concerts, bands, music festivals, Glastonbury, and industry awards like the Grammys or BAFTAs.",
             "Fine arts, theatre productions, literature, novel authors, museum exhibitions, and cultural reviews.",
+            "TV personalities, presenters, reality show contestants, and broadcasting careers.",
         ],
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => &[
@@ -75,6 +79,9 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Interior decor, cleaning hacks, household management, gardening, and property maintenance.",
             "Personal finance, mortgages, rent, household energy bills, savings, pensions, and budgeting advice.",
             "Fashion trends, wardrobe styles, skincare routines, dating life, parenting, and travel staycations.",
+            "Consumer shopping deals, holiday sales, product discounts, mattress offers, and retail bargains.",
+            "Workplace culture, office life, team-building, and career advice.",
+            "Local festivals, farm shops, community events, and rural attractions.",
         ],
         // Cars, transport infrastructure, aviation, and commuting
         Category::Transport => &[
@@ -87,6 +94,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Wildlife conservation, natural ecosystems, biodiversity, endangered animal species, and birds.",
             "Climate change, global warming, carbon emissions, extreme weather events, floods, and droughts.",
             "Environmental science, forestry, meteorology, countryside ecology, and marine biology.",
+            "Weather forecasts, temperature records, heatwaves, rainfall, and meteorological conditions.",
+            "Impact of extreme heat on housing, air conditioning trends, and climate adaptation.",
         ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => &[
@@ -99,18 +108,21 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Software development, coding practices, programming languages like Python, Rust, or JavaScript.",
             "Cybersecurity breaches, hacking incidents, malware exploits, ransomware, and system vulnerabilities.",
             "DevOps infrastructure, database architecture, open-source repositories, APIs, and cloud services.",
+            "Internet privacy, VPNs, data protection, digital surveillance, and online security mitigations.",
         ],
         // Artificial intelligence, machine learning, and AI assistants
         Category::AI => &[
             "Artificial intelligence, machine learning, large language models, LLMs, and neural networks.",
             "Generative AI tools, chatbots like ChatGPT or Claude, prompt engineering, and image synthesis.",
             "AI safety research, model training, parameter counts, and autonomous agent development.",
+            "AI assistants, and software features powered by artificial intelligence.",
         ],
         // Scientific research, astronomy, biology, and academic discovery
         Category::Science => &[
             "Scientific research papers, laboratory experiments, breakthroughs, hypotheses, and academic journals.",
             "Space exploration, astronomy, telescopes, NASA rocket launches, satellites, and planetary discoveries.",
             "Theoretical physics, quantum mechanics, chemistry equations, biology, genetics, and molecular research.",
+            "Archaeology, historical research, maritime history, and identifying ancient remains.",
         ],
         // Physical competitive sports and athletic leagues
         Category::Sports => &[

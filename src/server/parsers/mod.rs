@@ -5,6 +5,7 @@ pub mod websites;
 use crate::server::HTTP_CLIENT;
 use crate::shared::PendingSource;
 use anyhow::Result;
+use chrono::{Duration, Utc};
 use sha2::{Digest, Sha256};
 use social::fetch_social_content;
 use std::fmt::Write;
@@ -13,11 +14,19 @@ use tokio::fs;
 use websites::fetch_source_content;
 
 pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
-    if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app") {
+    let result = if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app")
+    {
         fetch_social_content(url).await
     } else {
         fetch_source_content(url).await
+    };
+    // Drop result if older than a week
+    if let Ok(Some(result)) = &result
+        && result.published < Utc::now() - Duration::days(7)
+    {
+        return Ok(None);
     }
+    result
 }
 
 fn sha256_hex(data: &[u8]) -> String {

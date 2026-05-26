@@ -10,7 +10,7 @@ use std::{
     sync::LazyLock,
 };
 use tokio::fs;
-use tracing::{debug, info};
+use tracing::info;
 use url::Url;
 
 const MIN_SUMMARY_LEN: usize = 30;
@@ -29,6 +29,8 @@ const BOT_TITLES: &[&str] = &[
 
 static SEL_JSONLD: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(r#"script[type="application/ld+json"]"#).unwrap());
+static SEL_JSON: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(r#"script[type="application/json"]"#).unwrap());
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 
@@ -37,9 +39,20 @@ const WEBSITE_BLACKLIST: &[&str] = &[
     "bbc.co.uk/news/videos",
     "bbc.co.uk/iplayer",
     "bbc.co.uk/sounds",
+    "reddit.com",
+    "lobste.rs",
     "github.com",
+    "codeberg.org",
+    "ycombinator.com",
     ".pdf",
 ];
+
+fn parse_any_date(s: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .or_else(|_| DateTime::parse_from_rfc3339(&format!("{s}:00"))) // Try adding seconds if missing
+        .ok()
+        .map(|d| d.with_timezone(&Utc))
+}
 
 pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
     if WEBSITE_BLACKLIST.iter().any(|s| url.contains(s)) {
@@ -60,112 +73,97 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
     };
     let title = get(&["sl_headline", "og_title", "basic_title"]);
     let summary = get(&["sl_description", "og_description", "basic_description"]);
-    let content = Some(get(&["sl_body"]))
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            let doc = Html::parse_document(&html);
-            let article_sel = Selector::parse("article").unwrap();
-            if let Some(article) = doc.select(&article_sel).next() {
-                let mut block_content = String::new();
-                let mut block_images = Vec::new();
 
-                let text_sel = Selector::parse(r#"div[data-block="text"], div[data-block="headline"], div[data-block="subheadline"], div[data-component="text-block"], div[data-component="headline-block"]"#).unwrap();
-                let img_sel = Selector::parse(r#"div[data-block="image"], div[data-component="image-block"]"#).unwrap();
+    let mut readability_date = None;
+    let content = Some(get(&["sl_body"])).filter(|s| !s.is_empty()).unwrap_or_else(|| {
+        let doc = Html::parse_document(&html);
+        let article_sel = Selector::parse("article").unwrap();
+        let mut block_content = String::new();
 
-                for block in article.select(&Selector::parse(r"div[data-block], div[data-component]").unwrap()) {
-                    if text_sel.matches(&block) {
-                        for p in block.select(&Selector::parse("p, h1, h2, h3").unwrap()) {
-                            let text = p.text().collect::<Vec<_>>().join(" ");
-                            if !text.trim().is_empty() {
-                                block_content.push_str(&text);
-                                block_content.push_str("\n\n");
-                            }
-                        }
-                    } else if img_sel.matches(&block) {
-                        for img in block.select(&Selector::parse("img").unwrap()) {
-                            let src = img.value().attr("srcset")
-                                .and_then(|srcset| {
-                                    srcset.split(',')
-                                        .filter_map(|s| {
-                                            let parts: Vec<_> = s.split_whitespace().collect();
-                                            if parts.is_empty() { return None; }
-                                            let url = parts[0];
-                                            let width = parts.get(1)
-                                                .and_then(|w| w.strip_suffix('w'))
-                                                .and_then(|w| w.parse::<u32>().ok())
-                                                .unwrap_or(0);
-                                            Some((url, width))
-                                        })
-                                        .max_by_key(|&(_, width)| width)
-                                        .map(|(url, _)| url.to_string())
-                                })
-                                .or_else(|| img.value().attr("src").map(String::from));
+        if let Some(article) = doc.select(&article_sel).next() {
+            let text_sel = Selector::parse(r#"div[data-block="text"], div[data-block="headline"], div[data-block="subheadline"], div[data-component="text-block"], div[data-component="headline-block"]"#).unwrap();
+            let img_sel =
+                Selector::parse(r#"div[data-block="image"], div[data-component="image-block"]"#)
+                    .unwrap();
 
-                            if let Some(src) = src {
-                                if src.contains("placeholder") {
-                                    continue;
-                                }
-                                let alt = img.value().attr("alt").unwrap_or_default().to_string();
-                                block_images.push((resolve_url(base_url.as_ref(), &src), alt));
-                            }
+            for block in
+                article.select(&Selector::parse(r"div[data-block], div[data-component]").unwrap())
+            {
+                if text_sel.matches(&block) {
+                    for p in block.select(&Selector::parse("p, h1, h2, h3").unwrap()) {
+                        let text = p.text().collect::<Vec<_>>().join(" ");
+                        if !text.trim().is_empty() {
+                            block_content.push_str(&text);
+                            block_content.push_str("\n\n");
                         }
                     }
-                }
-
-                if !block_content.is_empty() {
-                    images.clear();
-                    images.extend(block_images);
-                    return block_content.trim().to_string();
+                } else if img_sel.matches(&block) {
+                    for img in block.select(&Selector::parse("img").unwrap()) {
+                        if let Some(src) = img
+                            .value()
+                            .attr("src")
+                            .filter(|s| !s.contains("placeholder"))
+                        {
+                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
+                            images.push((resolve_url(base_url.as_ref(), src), alt));
+                        }
+                    }
                 }
             }
+        }
 
-            Readability::new(html.as_str(), Some(url), None)
-                .ok()
-                .and_then(|mut r| r.parse().ok())
-                .map(|a| {
-                    debug!("Used fallback parser for url: {}", url);
-                    let doc = Html::parse_fragment(&a.content);
-                    let sel = Selector::parse("img").unwrap();
-                    images.clear();
-                    for img in doc.select(&sel) {
-                        let src = img
-                            .value()
-                            .attr("srcset")
-                            .and_then(|srcset| {
-                                srcset
-                                    .split(',')
-                                    .filter_map(|s| {
-                                        let parts: Vec<_> = s.split_whitespace().collect();
-                                        if parts.is_empty() {
-                                            return None;
-                                        }
-                                        let url = parts[0];
-                                        let width = parts
-                                            .get(1)
-                                            .and_then(|w| w.strip_suffix('w'))
-                                            .and_then(|w| w.parse::<u32>().ok())
-                                            .unwrap_or(0);
-                                        Some((url, width))
-                                    })
-                                    .max_by_key(|&(_, width)| width)
-                                    .map(|(url, _)| url.to_string())
-                            })
-                            .or_else(|| img.value().attr("src").map(String::from));
-
-                        if let Some(src) = src {
-                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
-                            images.push((resolve_url(base_url.as_ref(), &src), alt));
-                        }
+        if !block_content.is_empty() {
+            block_content.trim().to_string()
+        } else if let Ok(mut r) = Readability::new(html.as_str(), Some(url), None) {
+            if let Ok(a) = r.parse() {
+                let doc = Html::parse_fragment(&a.content);
+                for img in doc.select(&Selector::parse("img").unwrap()) {
+                    if let Some(src) = img.value().attr("src") {
+                        let alt = img.value().attr("alt").unwrap_or_default().to_string();
+                        images.push((resolve_url(base_url.as_ref(), src), alt));
                     }
-                    a.text_content.to_string()
-                })
-                .unwrap_or_default()
-        });
+                }
+                readability_date = a
+                    .published_time
+                    .as_ref()
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|d| d.with_timezone(&Utc));
+                a.text_content.to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    });
+
     let date = metadata
         .get("sl_date")
         .or_else(|| metadata.get("og_date"))
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(Utc::now, |d| d.with_timezone(&Utc));
+        .and_then(|s| parse_any_date(s))
+        .or_else(|| {
+            let doc = Html::parse_document(&html);
+            let sel = Selector::parse("span.published-at").unwrap();
+            doc.select(&sel).next().and_then(|el| {
+                let text = el.text().collect::<String>();
+                let text = text.trim();
+                DateTime::parse_from_str(&format!("{text} 00:00:00 +0000"), "%d %B %Y %H:%M:%S %z")
+                    .ok()
+                    .map(|d| d.with_timezone(&Utc))
+            })
+        })
+        .or_else(|| {
+            if readability_date.is_some() {
+                readability_date
+            } else {
+                Readability::new(html.as_str(), Some(url), None)
+                    .ok()
+                    .and_then(|mut r| r.parse().ok())
+                    .and_then(|a| a.published_time)
+                    .and_then(|s| parse_any_date(&s))
+            }
+        });
+
     let tags = metadata
         .get("sl_keywords")
         .or_else(|| metadata.get("parsely_tags"))
@@ -199,6 +197,10 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
         info!("[SKIP] {url}: title matches summary");
         return Ok(None);
     }
+    let Some(date) = date else {
+        info!("[SKIP] {url}: no date found");
+        return Ok(None);
+    };
 
     let mut seen = HashSet::new();
     let images = images
@@ -257,8 +259,27 @@ fn collect_page_metadata(
 
     for el in doc.select(&SEL_JSONLD) {
         let text = el.text().collect::<String>();
-        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+        let clean_text = text
+            .trim()
+            .trim_start_matches("<![CDATA[")
+            .trim_end_matches("]]>")
+            .trim();
+        let decoded_text = decode(clean_text);
+
+        if let Ok(v) = serde_json::from_str::<Value>(&decoded_text) {
             collect_jsonld(&v, &mut m, &mut images, base);
+        } else if let Ok(v) = serde_json::from_str::<Value>(clean_text) {
+            collect_jsonld(&v, &mut m, &mut images, base);
+        }
+    }
+
+    for el in doc.select(&SEL_JSON) {
+        let id = el.value().attr("id").unwrap_or_default();
+        if id == "ng-state" || id.contains("state") {
+            let text = el.text().collect::<String>();
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                collect_jsonld(&v, &mut m, &mut images, base);
+            }
         }
     }
 
@@ -403,6 +424,8 @@ fn collect_jsonld_object(
     if let Some(v) = obj
         .get("datePublished")
         .or_else(|| obj.get("dateModified"))
+        .or_else(|| obj.get("published_at"))
+        .or_else(|| obj.get("updated_at"))
         .and_then(Value::as_str)
     {
         m.entry("sl_date").or_insert_with(|| v.to_string());

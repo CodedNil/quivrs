@@ -76,7 +76,11 @@ fn parse_rss_item(item: roxmltree::Node) -> Option<String> {
                 .map(|a| a.value().to_string())
         })?;
 
-    Some(normalize_article_url(&thread_url))
+    let normalized = normalize_article_url(&thread_url);
+    if is_base_url(&normalized) {
+        return None;
+    }
+    Some(normalized)
 }
 
 fn parse_atom(root: roxmltree::Node) -> Vec<String> {
@@ -100,7 +104,11 @@ fn parse_atom(root: roxmltree::Node) -> Vec<String> {
                 .and_then(|n| n.attribute("href"))
                 .map(str::trim)?;
 
-            Some(normalize_article_url(thread_url))
+            let normalized = normalize_article_url(thread_url);
+            if is_base_url(&normalized) {
+                return None;
+            }
+            Some(normalized)
         })
         .collect()
 }
@@ -144,6 +152,7 @@ fn parse_reddit_json(bytes: &[u8]) -> Result<Vec<String>> {
         .map(|p| p.url)
         .filter(|url| !url.contains("reddit.com") && !url.contains("redd.it"))
         .map(|url| normalize_article_url(&url))
+        .filter(|url| !is_base_url(url))
         .collect())
 }
 
@@ -164,7 +173,16 @@ fn parse_json_feed(bytes: &[u8]) -> Result<Vec<String>> {
     Ok(feed
         .items
         .into_iter()
-        .filter_map(|item| item.url.map(|u| normalize_article_url(&u)))
+        .filter_map(|item| {
+            item.url.and_then(|u| {
+                let normalized = normalize_article_url(&u);
+                if is_base_url(&normalized) {
+                    None
+                } else {
+                    Some(normalized)
+                }
+            })
+        })
         .collect())
 }
 
@@ -202,4 +220,11 @@ fn normalize_article_url(url: &str) -> String {
         },
     )
     .unwrap_or_else(|_| url.to_string())
+}
+
+fn is_base_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|parsed| {
+        let path = parsed.path();
+        path == "/" || path.is_empty()
+    })
 }
