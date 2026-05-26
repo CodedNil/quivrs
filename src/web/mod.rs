@@ -200,24 +200,22 @@ fn MainLayout() -> Element {
                         } else {
                             ArticleStatus::Stored
                         };
-                        let tab = tab.clone();
-                        spawn(async move {
-                            if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                a.status = status;
-                            }
-                            let _ = set_article_status(id, status).await;
 
-                            let list = filtered_articles.read();
-                            if let Some(p) = list.iter().position(|&item_id| item_id == id) {
-                                let next = list
-                                    .get(p + 1)
-                                    .or_else(|| if p > 0 { list.get(p - 1) } else { None });
-                                if let Some(&a_id) = next {
-                                    navigator.push(Route::ArticleEntry { tab, id: a_id });
-                                } else {
-                                    navigator.push(Route::TabHome { tab });
-                                }
-                            }
+                        // Move to next article
+                        if let (Some(p), false) = (pos, list.is_empty()) {
+                            let target_id = list[(p + 1) % list.len()];
+                            navigator.push(Route::ArticleEntry {
+                                tab: tab.clone(),
+                                id: target_id,
+                            });
+                        }
+
+                        // Update article status
+                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+                            a.status = status;
+                        }
+                        spawn(async move {
+                            let _ = set_article_status(id, status).await;
                         });
                     }
                     _ => {}

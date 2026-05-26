@@ -63,6 +63,16 @@
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 1.25rem;
+        font-size: 0.7rem;
+        line-height: 1.1;
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
 
         tr {
             border-bottom: 1px solid var(--surface1);
@@ -70,18 +80,20 @@
 
         th,
         td {
-            padding: 0.5rem 0.25rem;
+            padding: 0.4rem 0.15rem;
             text-align: left;
+            white-space: nowrap;
         }
 
         th {
             color: var(--subtext0);
-            font-weight: 600;
-            width: 40%;
+            font-weight: 700;
+            vertical-align: bottom;
         }
 
         td {
             color: var(--text);
+            vertical-align: middle;
         }
     }
 
@@ -212,6 +224,7 @@
 
 .article-sidebar {
     border: 1px solid var(--surface0);
+    overflow-x: hidden;
 
     transition:
         transform 0.2s,

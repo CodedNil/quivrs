@@ -486,7 +486,7 @@ fn CategoryGroup(
                 gap: "{ARTICLE_GAP_PX}px",
                 padding: "{ARTICLE_GAP_PX}px",
                 background_color: "var(--accent)",
-                border_radius: "20px 40px 40px 20px",
+                border_radius: "30px 40px 40px 30px",
                 {children}
             }
         }
@@ -520,7 +520,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             id: "article-sidebar-{article.id}",
             height: "{ARTICLE_HEIGHT_PX}px",
             cursor: "pointer",
-            border_radius: "2rem",
+            border_radius: "20px 30px 30px 20px",
             overflow: "hidden",
             display: "flex",
             flex_direction: "column",

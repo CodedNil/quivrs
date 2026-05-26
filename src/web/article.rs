@@ -1,11 +1,14 @@
 use super::components::RatingPill;
-use crate::shared::{
-    Article, ArticleStatus, Rating,
-    server_functions::{set_article_status, set_rating},
+use crate::{
+    shared::{
+        Article, ArticleStatus, Category, Rating,
+        server_functions::{set_article_status, set_rating},
+    },
+    web::Route,
 };
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 #[component]
@@ -223,23 +226,74 @@ pub fn StatusButtons(
     articles: Signal<Vec<Article>>,
     item_ratings: Signal<HashMap<String, Rating>>,
 ) -> Element {
+    let navigator = use_navigator();
+    let route = use_route::<Route>();
+
     let article = match articles.read().iter().find(|a| a.id == id) {
         Some(a) => a.clone(),
         None => return rsx! {},
     };
+
+    let (tab, selected_id) = match route {
+        Route::ArticleEntry { tab, id } => (tab, Some(id)),
+        Route::TabHome { tab } => (tab, None),
+    };
+
+    let current_status = match tab.as_str() {
+        "stored" => ArticleStatus::Stored,
+        "binned" => ArticleStatus::Binned,
+        _ => ArticleStatus::New,
+    };
+
+    // Filter dynamic IDs reactively to find the next article
+    let filtered_articles = use_memo(move || {
+        let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
+        for a in articles.read().iter() {
+            if a.status == current_status {
+                groups.entry(a.category).or_default().push(a.id);
+            }
+        }
+        groups.into_values().flatten().collect::<Vec<Uuid>>()
+    });
+
+    let update_status = move |new_status: ArticleStatus| {
+        let mut articles = articles;
+        let tab = tab.clone();
+
+        // Go to next article if selected
+        if selected_id == Some(id) {
+            let list = filtered_articles.read();
+            if let (Some(p), false) = (
+                list.iter().position(|&item_id| item_id == id),
+                list.is_empty(),
+            ) {
+                let target_id = list[(p + 1) % list.len()];
+                navigator.push(Route::ArticleEntry { tab, id: target_id });
+            }
+        }
+
+        // Update status
+        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
+            a.status = new_status;
+        }
+        spawn(async move {
+            let _ = set_article_status(id, new_status).await;
+        });
+    };
+
     rsx! {
         div { display: "flex", align_items: "center", gap: "0.375rem",
             if article.status != ArticleStatus::Stored {
-                ActionBtn {
-                    icon: fa_solid_icons::FaBookmark,
-                    title: "Save to Read Later",
-                    color: "var(--accent)",
-                    onclick: move |_| async move {
-                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                            a.status = ArticleStatus::Stored;
+                {
+                    let update_status = update_status.clone();
+                    rsx! {
+                        ActionBtn {
+                            icon: fa_solid_icons::FaBookmark,
+                            title: "Save to Read Later",
+                            color: "var(--accent)",
+                            onclick: move |_| update_status(ArticleStatus::Stored),
                         }
-                        let _ = set_article_status(id, ArticleStatus::Stored).await;
-                    },
+                    }
                 }
             }
             if article.status != ArticleStatus::Binned {
@@ -247,12 +301,7 @@ pub fn StatusButtons(
                     icon: fa_solid_icons::FaTrash,
                     title: "Move to Bin",
                     color: "var(--accent)",
-                    onclick: move |_| async move {
-                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                            a.status = ArticleStatus::Binned;
-                        }
-                        let _ = set_article_status(id, ArticleStatus::Binned).await;
-                    },
+                    onclick: move |_| update_status(ArticleStatus::Binned),
                 }
             }
         }

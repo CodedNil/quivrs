@@ -26,10 +26,10 @@ use uuid::Uuid;
 const SIMILARITY_THRESHOLD: f32 = 0.68;
 const LIKED_SERVE_THRESHOLD: f64 = 0.9; // If the liked guess is above this, it is automatically served
 const TIME_WINDOW_DAYS: i64 = 2;
+const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for merging a recent article
 
-const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for a recent article
-const SENTIMENT_BONUS: f64 = 0.2; // How much to boost the score for a positive article
-const IMPORTANCE_BONUS: f64 = 0.2; // How much to boost the score for an important article
+const SENTIMENT_BONUS: f64 = 0.1; // How much to boost the score for a positive article
+const IMPORTANCE_BONUS: f64 = 0.1; // How much to boost the score for an important article
 
 /// Minimum number of new articles to maintain in each category
 pub const fn category_new_articles(rating: Rating) -> i64 {
@@ -129,6 +129,9 @@ pub async fn refresh_all_feeds() -> Result<()> {
             continue;
         };
 
+        let sentiment = get_sentiment_score(&embedding).await;
+        let importance = get_importance_score(&embedding).await;
+
         source.embedding = embedding;
         source.embedding_text = embedding_text;
         source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
@@ -136,7 +139,13 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
         info!(
             "[NEW] {}",
-            format!("'{}' {}", article_text(&source, 1), category)
+            format!(
+                "'{}' {} sentiment: {:.2} importance: {:.2}",
+                article_text(&source, 1),
+                category,
+                sentiment,
+                importance
+            )
         );
         database::insert_source(&source).await?;
     }
@@ -167,28 +176,30 @@ pub async fn promote_articles() -> Result<()> {
     let mut scored_pending = Vec::with_capacity(pending.len());
     let start = std::time::Instant::now();
     for p in pending {
-        let mut estimated_liked = calculate_preference_score(&p.embedding, &rated_embeddings);
+        let estimated_liked = calculate_preference_score(&p.embedding, &rated_embeddings);
+        let mut estimated_liked_bonus = 0.0;
 
         // Boost for sentiment and importance
         let sentiment = get_sentiment_score(&p.embedding).await;
         let importance = get_importance_score(&p.embedding).await;
-        estimated_liked += sentiment * SENTIMENT_BONUS;
-        estimated_liked += importance * IMPORTANCE_BONUS;
+        estimated_liked_bonus += sentiment * SENTIMENT_BONUS;
+        estimated_liked_bonus += importance * IMPORTANCE_BONUS;
 
         // Boost for category and domain ratings
         let category_articles_number = item_ratings
             .get(&format!("category:{}", p.category))
             .map_or(category_new_articles(Rating::Neutral), |rating| {
-                estimated_liked += category_bonus(*rating);
+                estimated_liked_bonus += category_bonus(*rating);
                 category_new_articles(*rating)
             });
         if let Some(rating) = item_ratings.get(&format!("domain:{}", p.domain)) {
-            estimated_liked += domain_bonus(*rating);
+            estimated_liked_bonus += domain_bonus(*rating);
         }
 
         scored_pending.push((
             p,
             estimated_liked,
+            estimated_liked_bonus,
             category_articles_number,
             sentiment,
             importance,
@@ -210,21 +221,38 @@ pub async fn promote_articles() -> Result<()> {
     let cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
 
-    for (i, (candidate, estimated_liked, category_articles_number, sentiment, importance)) in
-        scored_pending.iter().enumerate()
+    for (
+        i,
+        (
+            candidate,
+            estimated_liked,
+            estimated_liked_bonus,
+            category_articles_number,
+            sentiment,
+            importance,
+        ),
+    ) in scored_pending.iter().enumerate()
     {
         if promoted_urls.contains(&candidate.url) {
             continue;
         }
 
         let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
-        if *estimated_liked < LIKED_SERVE_THRESHOLD && count >= *category_articles_number {
+        let score = estimated_liked + estimated_liked_bonus;
+        if score < LIKED_SERVE_THRESHOLD && count >= *category_articles_number {
             continue;
         }
 
         info!(
-            "[PROMOTING] '{}' (score: {:.2}, cat: {}, current_count: {}, sentiment: {:.2}, importance: {:.2})",
-            candidate.title, estimated_liked, candidate.category, count, sentiment, importance
+            "[PROMOTING] '{} {}' (score: {:.2} ({:.2} bonus), cat: {}, current_count: {}, sentiment: {:.2}, importance: {:.2})",
+            candidate.url,
+            candidate.title,
+            estimated_liked,
+            estimated_liked_bonus,
+            candidate.category,
+            count,
+            sentiment,
+            importance
         );
 
         let mut sources_to_merge = vec![candidate.clone()];
@@ -233,7 +261,7 @@ pub async fn promote_articles() -> Result<()> {
         let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
 
-        for (other, _, _, _, _) in scored_pending.iter().skip(i + 1) {
+        for (other, _, _, _, _, _) in scored_pending.iter().skip(i + 1) {
             if other.category != candidate.category || promoted_urls.contains(&other.url) {
                 continue;
             }

@@ -49,6 +49,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Geopolitics, international diplomacy, state visits, foreign policy, and bilateral trade agreements.",
             "UK domestic political figures and commentary involving Starmer, Sunak, Farage, Reeves, or Downing Street.",
             "Public opinion polling, voting intentions, and demographic surveys on social or national issues.",
+            "Local council by-election results, seat gains and losses, and political party vote shares.",
+            "Political controversy, sexism in politics, and demands for apologies from candidates.",
         ],
         // Courts, crime, police investigations, and criminal justice
         Category::Law => &[
@@ -56,6 +58,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Police investigations, criminal justice, arrests, forensics, raids, and law enforcement probes.",
             "Violent crimes, murder, assault, stabbing, theft, robbery, fraud, embezzlement, and legal misconduct.",
             "Lawsuits, high court injunctions, litigation, tribunals, regulatory bans, and civil legal action.",
+            "Prison sentences, custodial terms, and legal controversies.",
         ],
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => &[
@@ -96,12 +99,14 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Environmental science, forestry, meteorology, countryside ecology, and marine biology.",
             "Weather forecasts, temperature records, heatwaves, rainfall, and meteorological conditions.",
             "Impact of extreme heat on housing, air conditioning trends, and climate adaptation.",
+            "Pollution in rivers, waste water, sewage, and environmental damage to natural habitats.",
         ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => &[
             "Consumer electronics, smartphones, laptops, hardware components, and gadget specifications.",
             "Computer hardware, microchips, GPUs, motherboards, solid-state drives, and display panels.",
             "Smart home automation, wearable devices, audio speakers, and wireless routing peripherals.",
+            "OLED TVs, display technology, screen burn-in, and consumer audio equipment.",
         ],
         // Software development, coding, and cybersecurity
         Category::Software => &[
@@ -109,6 +114,7 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Cybersecurity breaches, hacking incidents, malware exploits, ransomware, and system vulnerabilities.",
             "DevOps infrastructure, database architecture, open-source repositories, APIs, and cloud services.",
             "Internet privacy, VPNs, data protection, digital surveillance, and online security mitigations.",
+            "Operating systems, Linux distributions, and software licensing or regulation.",
         ],
         // Artificial intelligence, machine learning, and AI assistants
         Category::AI => &[
@@ -143,15 +149,11 @@ pub fn sentiment_label(sentiment: &str) -> &'static str {
     match sentiment {
         // Uplifting, solutions-oriented, or curiosity-inducing framing
         "positive" => {
-            "positive milestone breakthrough triumph progress success solution forward-looking heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe-inspiring milestone unique pioneer brilliant forward-step boost stellar incredible superb outstanding together community harmony optimism"
-        }
-        // Standard, dry, inverted-pyramid style reporting
-        "neutral" => {
-            "neutral reported stated announced said according scheduled timing figures updates minutes sequential record timeline log confirmed data source statistics summary documentation noted stated index routine outline list briefing filed ongoing process regular overview standard history background details chronologically itemized"
+            "positive milestone breakthrough triumph progress success solution forward-looking heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe-inspiring milestone unique pioneer brilliant forward-step boost stellar incredible superb outstanding together community harmony optimism win winner gain hold"
         }
         // Cynical, critical, aggressive, or tragic framing
         "negative" => {
-            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning"
+            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal"
         }
         _ => "",
     }
@@ -161,15 +163,11 @@ pub fn importance_label(importance: &str) -> &'static str {
     match importance {
         // Macro-scale structural changes, high-consequence policy, and permanence
         "important" => {
-            "important historic monumental unprecedented permanent landmark fundamental crisis systemic global national macro widespread structural existential core priority turning-point paradigm-shift definitive far-reaching foundation critical essential massive fundamental long-term key-factor major-overhaul catalyst prime strategic sweeping major dominant core emergency tectonic-shift paramount"
+            "important historic monumental unprecedented permanent landmark fundamental crisis systemic global national macro widespread structural existential core priority turning-point paradigm-shift definitive far-reaching foundation critical essential massive fundamental long-term key-factor major-overhaul catalyst prime strategic sweeping major dominant core emergency tectonic-shift paramount election-result conviction sentencing war-strike geopolitical-shift embezzlement-scandal"
         }
-        // Regular everyday news, localized beats, and expected standard reports
-        "neutral" => {
-            "neutral routine standard localized regular baseline typical commonplace regional current-events standard-reporting ongoing intermediate moderate current seasonal updating periodic standard-issue expected ordinary normal mid-tier secondary regional-news day-to-day typical-case local-market update-on status-quo tracking standard-procedure follow-up ongoing-investigation"
-        }
-        // Ephemeral, fleeting, entertainment gossip, or hyper-local novelties
-        "trivial" => {
-            "trivial viral-video social-media celebrity fan-reaction trending spotting instagram tik-tok post photo meme watch-the-moment reaction user-comments wardrobe outfit spotted internet-divided split-opinion sidebar quiz challenge lifestyle-hack unboxing spoiler-alert red-carpet outfit dating-rumor prank fast-fashion horoscope recipe clip-goes-viral joke gossip funny-video"
+        // Micro-scale, transient, or routine consumer/entertainment news
+        "unimportant" => {
+            "unimportant routine minor transient local niche consumer-deal retail-sale shopping-discount product-review gadget-unboxing daily-update weather-forecast minor-fixture gossip celebrity-sighting casual-mention hobbyist-tip routine-maintenance temporary-offer limited-time-deal bargain coupon discount price-drop clearance flash-sale interview documentary profile personal-story human-interest feature-article streaming-guide tv-recommendation workout-tip exercise-routine"
         }
         _ => "",
     }
@@ -313,7 +311,7 @@ pub fn calculate_preference_score(embedding: &[f32], rated: &[(Rating, Vec<f32>)
 }
 
 pub async fn get_sentiment_score(embedding: &[f32]) -> f64 {
-    let keys = ["positive", "negative", "neutral"];
+    let keys = ["positive", "negative"];
     let entries: Vec<_> = keys
         .iter()
         .map(|&k| {
@@ -331,12 +329,12 @@ pub async fn get_sentiment_score(embedding: &[f32]) -> f64 {
         .collect();
     let sum: f32 = weights.iter().sum();
 
-    // Score: Positive (1.0), Neutral (0.5), Negative (0.0)
-    f64::from(weights[0].mul_add(1.0, weights[2] * 0.5) / sum)
+    // Score: Positive (1.0), Negative (0.0)
+    f64::from(weights[0] / sum)
 }
 
 pub async fn get_importance_score(embedding: &[f32]) -> f64 {
-    let keys = ["important", "neutral", "trivial"];
+    let keys = ["important", "unimportant"];
     let entries: Vec<_> = keys
         .iter()
         .map(|&k| {
@@ -358,6 +356,6 @@ pub async fn get_importance_score(embedding: &[f32]) -> f64 {
         .collect();
     let sum: f32 = weights.iter().sum();
 
-    // Score: Important (1.0), Neutral (0.5), Trivial (0.0)
-    f64::from(weights[0].mul_add(1.0, weights[2] * 0.5) / sum)
+    // Score: Important (1.0), Unimportant (0.0)
+    f64::from(weights[0] / sum)
 }
