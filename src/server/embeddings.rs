@@ -40,6 +40,9 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Macroeconomics, GDP data, inflation rates, interest rates, central bank tariffs, and national recessions.",
             "Venture capital, startup investments, private equity, hedge funds, and market capitalization.",
             "Employment market, job vacancies, retail industry leadership, and corporate warnings.",
+            "Cryptocurrency, Bitcoin, Ethereum, blockchain, stablecoins, tokenomics, DeFi, and crypto exchanges.",
+            "Banking, liquidity crisis, insolvency, commercial lenders, central banks, Wall Street, and fiscal policies.",
+            "Supply chain logistics, manufacturing output, trade deficits, export tariffs, and global commerce hubs.",
         ],
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => &[
@@ -51,6 +54,10 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Public opinion polling, voting intentions, and demographic surveys on social or national issues.",
             "Local council by-election results, seat gains and losses, and political party vote shares.",
             "Political controversy, sexism in politics, and demands for apologies from candidates.",
+            "Country intensifies strikes on neighbouring countries, many casualties as war escalates.",
+            "Congress, Senate, White House, Washington, European Parliament, legislation veto, and partisan voting blocks.",
+            "Geopolitical sanctions, trade blockades, diplomatic expulsions, and United Nations UN resolutions.",
+            "Civil unrest, public protests, strikes, trade unions, walkouts, and mass demonstrations.",
         ],
         // Courts, crime, police investigations, and criminal justice
         Category::Law => &[
@@ -59,6 +66,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Violent crimes, murder, assault, stabbing, theft, robbery, fraud, embezzlement, and legal misconduct.",
             "Lawsuits, high court injunctions, litigation, tribunals, regulatory bans, and civil legal action.",
             "Prison sentences, custodial terms, and legal controversies.",
+            "Extradition treaties, supreme court rulings, judicial reviews, constitutional law, and appeals.",
+            "Cybercrime, ransomware cartels, financial money laundering, cartel operations, and wire fraud indictment.",
         ],
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => &[
@@ -67,6 +76,9 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Public health, virus epidemics, pathogen outbreaks, vaccinations, and epidemiology tracking.",
             "Personal fitness, nutrition, diet plans, workout routines, mental health therapy, and wellness.",
             "Medical warnings, health risks of social media, addiction, and doctor recommendations.",
+            "Neuroscience, Alzheimer, dementia, mental illnesses, clinical depression, and psychological psychiatry.",
+            "Pharmaceutical patents, clinical drug trials, FDA approval, medical research labs, and vaccines.",
+            "Longevity science, biohacking, vitamins, metabolic health, diabetes treatments, and weight-loss drugs.",
         ],
         // Entertainment, film, TV, music, celebrities, streaming, and media
         Category::Culture => &[
@@ -75,6 +87,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Music albums, concerts, bands, music festivals, Glastonbury, and industry awards like the Grammys or BAFTAs.",
             "Fine arts, theatre productions, literature, novel authors, museum exhibitions, and cultural reviews.",
             "TV personalities, presenters, reality show contestants, and broadcasting careers.",
+            "Netflix, Disney+, HBO, Paramount, streaming viewership ratings, box office ticket sales, and cinematic universes.",
+            "YouTube creators, TikTok influencers, viral memes, podcast series, and digital internet culture.",
         ],
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => &[
@@ -85,12 +99,16 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Consumer shopping deals, holiday sales, product discounts, mattress offers, and retail bargains.",
             "Workplace culture, office life, team-building, and career advice.",
             "Local festivals, farm shops, community events, and rural attractions.",
+            "Property market, house hunting, real estate listings, Airbnb hosting, and boutique hotel reviews.",
+            "Luxury craftsmanship, streetwear brands, cosmetics, beauty skincare, and runway fashion weeks.",
         ],
         // Cars, transport infrastructure, aviation, and commuting
         Category::Transport => &[
             "Electric vehicles, EVs, consumer cars, automotive engineering, roads, and motorway infrastructure.",
             "Aviation industry, airlines, airport operations, commercial flights, and airspace management.",
             "Rail networks, commuter trains, subways, public transit systems, and cargo freight shipping.",
+            "Maritime container shipping, port bottlenecks, rail freight corridors, and delivery distribution networks.",
+            "Autonomous self-driving, Tesla autopilot, hyperloop, commercial drones, and micro-mobility scooters.",
         ],
         // Wildlife, ecology, the natural world, and climate — animals, plants, weather, conservation
         Category::Nature => &[
@@ -100,6 +118,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Weather forecasts, temperature records, heatwaves, rainfall, and meteorological conditions.",
             "Impact of extreme heat on housing, air conditioning trends, and climate adaptation.",
             "Pollution in rivers, waste water, sewage, and environmental damage to natural habitats.",
+            "Renewable green energy, solar grids, wind farms, geothermal projects, and recycling infrastructure.",
+            "Earthquakes, volcanic eruptions, seismic tremors, tsunamis, and geological fault lines.",
         ],
         // Consumer electronics and hardware — phones, laptops, TVs, headphones, wearables
         Category::Technology => &[
@@ -107,6 +127,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Computer hardware, microchips, GPUs, motherboards, solid-state drives, and display panels.",
             "Smart home automation, wearable devices, audio speakers, and wireless routing peripherals.",
             "OLED TVs, display technology, screen burn-in, and consumer audio equipment.",
+            "Semiconductor manufacturing, TSMC, Intel, Nvidia hardware architecture, and silicon fabs.",
+            "Virtual reality, VR headsets, augmented reality, AR smart glasses, and spatial computing hardware.",
         ],
         // Software development, coding, and cybersecurity
         Category::Software => &[
@@ -115,6 +137,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "DevOps infrastructure, database architecture, open-source repositories, APIs, and cloud services.",
             "Internet privacy, VPNs, data protection, digital surveillance, and online security mitigations.",
             "Operating systems, Linux distributions, and software licensing or regulation.",
+            "AWS, Microsoft Azure, Google Cloud, Docker containerization, Kubernetes clustering, and microservices.",
+            "Git version control, GitHub code repositories, CI/CD automated deployment pipelines, and technical documentation.",
         ],
         // Artificial intelligence, machine learning, and AI assistants
         Category::AI => &[
@@ -122,6 +146,8 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Generative AI tools, chatbots like ChatGPT or Claude, prompt engineering, and image synthesis.",
             "AI safety research, model training, parameter counts, and autonomous agent development.",
             "AI assistants, and software features powered by artificial intelligence.",
+            "OpenAI, Anthropic, DeepMind, Midjourney, transformer architecture, fine-tuning, and weights training datasets.",
+            "Computer vision, natural language processing NLP, reinforcement learning, and token generation benchmarks.",
         ],
         // Scientific research, astronomy, biology, and academic discovery
         Category::Science => &[
@@ -129,18 +155,26 @@ const fn category_label(category: Category) -> &'static [&'static str] {
             "Space exploration, astronomy, telescopes, NASA rocket launches, satellites, and planetary discoveries.",
             "Theoretical physics, quantum mechanics, chemistry equations, biology, genetics, and molecular research.",
             "Archaeology, historical research, maritime history, and identifying ancient remains.",
+            "CRISPR gene editing, DNA sequencing, molecular biophysics, and evolutionary paleontology.",
+            "CERN particle accelerators, dark matter physics, black hole telemetry, and astrophysics calculations.",
         ],
         // Physical competitive sports and athletic leagues
         Category::Sports => &[
-            "Football match reports, Premier League fixtures, Champions League results, goals, and team lineups.",
+            "Football match reports, Premier League fixtures, Champions League results, World Cup, goals, and team lineups.",
             "Competitive athletic sports, cricket wickets, tennis grand slams, rugby scrums, and golf tournaments.",
             "Sports punditry, manager selections, team of the season reviews, transfer window signings, and squads.",
             "The Olympic games, professional athletes, marathons, motorsports F1 Grand Prix, and podium finishes.",
+            "Grand Prix driver standings, race results, sporting events.",
+            "NBA basketball playoffs, NFL Super Bowl touchdowns, baseball MLB, and athlete contract drafting.",
+            "UFC MMA combat fighting, heavyweight boxing title belts, and professional athletics doping trials.",
+            "Spectaters injured in sporting accident, motorbike collides with spectators wathcing race.",
         ],
         // Video games, gaming culture, esports, and game releases
         Category::Gaming => &[
             "Video game releases, gameplay mechanics, console hardware, and esports tournaments.",
             "Gaming culture, streaming channels, online multiplayer matches, and indie studio developments.",
+            "PlayStation, Xbox Series, Nintendo Switch, Steam deck, PC gaming rigs, and retro retro-gaming emulators.",
+            "MMORPG servers, competitive shooter matchmaking, speedrunning records, and gaming modding communities.",
         ],
     }
 }
@@ -153,7 +187,7 @@ pub fn sentiment_label(sentiment: &str) -> &'static str {
         }
         // Cynical, critical, aggressive, or tragic framing
         "negative" => {
-            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal"
+            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal Nazi hateful accident abortion"
         }
         _ => "",
     }

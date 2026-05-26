@@ -32,6 +32,7 @@ pub fn ArticleDetail(
 
             // Hero header image
             div {
+                key: "hero-{id}",
                 position: "absolute",
                 top: "0",
                 left: "0",
@@ -40,10 +41,12 @@ pub fn ArticleDetail(
                 z_index: "0",
                 img {
                     src: "{article.thumbnail}",
+                    key: "{article.thumbnail}",
                     width: "100%",
                     height: "100%",
                     object_fit: "cover",
                     display: "block",
+                    referrerpolicy: "no-referrer",
                 }
                 // Bottom fade to content
                 div {
@@ -65,6 +68,7 @@ pub fn ArticleDetail(
 
             // Background blurred image for the entire article
             div {
+                key: "bg-{id}",
                 position: "absolute",
                 top: "-5%",
                 left: "-5%",
@@ -73,12 +77,14 @@ pub fn ArticleDetail(
                 z_index: "1",
                 img {
                     src: "{article.thumbnail}",
+                    key: "{article.thumbnail}-blur",
                     width: "110%",
                     height: "110%",
                     object_fit: "cover",
                     filter: "blur(80px) saturate(3)",
                     opacity: "0.15",
                     display: "block",
+                    referrerpolicy: "no-referrer",
                 }
                 // Noise overlay to prevent banding
                 div {

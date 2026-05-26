@@ -143,42 +143,54 @@ fn MainLayout() -> Element {
             let list = filtered_articles.read();
             let pos = list.iter().position(|&item_id| item_id == id);
 
-            match event.key() {
-                Key::ArrowLeft | Key::ArrowRight => {
-                    if let (Some(p), false) = (pos, list.is_empty()) {
-                        let delta = if event.key() == Key::ArrowLeft {
-                            list.len() - 1
-                        } else {
-                            1
-                        };
-                        let target_id = list[(p + delta) % list.len()];
+            let navigate_delta = |delta: i32, wrap: bool| {
+                if let (Some(p), false) = (pos, list.is_empty()) {
+                    let len = list.len();
+                    let target_index = if wrap {
+                        (p as i32 + delta).rem_euclid(len as i32) as usize
+                    } else if p + 1 < len {
+                        p + 1
+                    } else {
+                        p.saturating_sub(1)
+                    };
+
+                    let target_id = list[target_index];
+                    if target_id != id {
                         navigator.push(Route::ArticleEntry {
                             tab: tab.clone(),
                             id: target_id,
                         });
                     }
                 }
-                Key::ArrowUp | Key::ArrowDown => {
-                    if let Some(handle) = content_container_handle.read().as_ref() {
-                        let amt = if event.key() == Key::ArrowUp {
-                            -1.0
-                        } else {
-                            1.0
-                        } * 350.0;
-                        let handle = handle.clone();
-                        spawn(async move {
-                            if let Ok(scroll_offset) = handle.get_scroll_offset().await {
-                                let _ = handle
-                                    .scroll(
-                                        Vector2D::new(scroll_offset.x, scroll_offset.y + amt),
-                                        ScrollBehavior::Smooth,
-                                    )
-                                    .await;
-                            }
-                        });
-                    }
+            };
+
+            let scroll_content = |direction: f64| {
+                if let Some(handle) = content_container_handle.read().as_ref() {
+                    let amt = direction * 350.0;
+                    let handle = handle.clone();
+                    spawn(async move {
+                        if let Ok(scroll_offset) = handle.get_scroll_offset().await {
+                            let _ = handle
+                                .scroll(
+                                    Vector2D::new(scroll_offset.x, scroll_offset.y + amt),
+                                    ScrollBehavior::Smooth,
+                                )
+                                .await;
+                        }
+                    });
                 }
-                Key::Character(c) => match c.as_str() {
+            };
+
+            match event.key() {
+                Key::ArrowLeft => navigate_delta(-1, true),
+                Key::ArrowRight => navigate_delta(1, true),
+                Key::ArrowUp => scroll_content(-1.0),
+                Key::ArrowDown => scroll_content(1.0),
+                Key::Character(c) => match c.to_lowercase().as_str() {
+                    "w" => scroll_content(-1.0),
+                    "s" => scroll_content(1.0),
+                    "a" => navigate_delta(-1, true),
+                    "d" => navigate_delta(1, true),
                     "1" | "2" | "3" | "4" | "5" => {
                         let rating = match c.as_str() {
                             "1" => Rating::Hated,
@@ -202,13 +214,7 @@ fn MainLayout() -> Element {
                         };
 
                         // Move to next article
-                        if let (Some(p), false) = (pos, list.is_empty()) {
-                            let target_id = list[(p + 1) % list.len()];
-                            navigator.push(Route::ArticleEntry {
-                                tab: tab.clone(),
-                                id: target_id,
-                            });
-                        }
+                        navigate_delta(1, false);
 
                         // Update article status
                         if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {

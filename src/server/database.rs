@@ -212,6 +212,7 @@ pub async fn get_or_refresh_label_embeddings_batch(
         .collect();
 
     if !stale.is_empty() {
+        info!("Refreshing {} stale label embeddings", stale.len());
         let texts: Vec<String> = stale.iter().map(|&i| entries[i].2.clone()).collect();
         for (&i, emb) in stale.iter().zip(embed_label_texts(&texts).await?) {
             let (key, hash, _) = &entries[i];

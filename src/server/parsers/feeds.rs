@@ -200,7 +200,14 @@ fn child_text<'a>(node: roxmltree::Node<'a, 'a>, name: &str, ns: Option<&str>) -
 /// Only strip known tracking parameters
 fn normalize_article_url(url: &str) -> String {
     const TRACKING_PARAMS: &[&str] = &[
-        "ref", "source", "fbclid", "gclid", "msclkid", "yclid", "igshid",
+        "ref",
+        "source",
+        "fbclid",
+        "gclid",
+        "msclkid",
+        "yclid",
+        "igshid",
+        "app-referrer",
     ];
     url_normalize::normalize_url(
         url,

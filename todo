@@ -10,10 +10,9 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
-when you move an article to binned/stored, go to the next article in the feed
-left right arrow keys to navigate between articles, up/down to scroll within the article
-1,2,3,4,5 to rate article, r to bin and t to store
+clicking to move to stored/bin bugs out sidebar, as does keybinds if theres no remaining articles to navigate to in the column
 
+regions tagging, uk, europe, north america, south america, sub-saharan africa, east asia, oceania, south asia, MENA, central asia
 
 support youtube feeds, subreddits as sources
 

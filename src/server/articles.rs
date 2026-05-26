@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 const SIMILARITY_THRESHOLD: f32 = 0.68;
 const LIKED_SERVE_THRESHOLD: f64 = 0.9; // If the liked guess is above this, it is automatically served
+const LIKED_MIN_THRESHOLD: f64 = 0.6; // If the liked guess is above this, it is served to meet quota
 const TIME_WINDOW_DAYS: i64 = 2;
 const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for merging a recent article
 
@@ -36,20 +37,20 @@ pub const fn category_new_articles(rating: Rating) -> i64 {
     match rating {
         Rating::Hated => 0,
         Rating::Disliked => 1,
-        Rating::Neutral => 4,
-        Rating::Liked => 6,
-        Rating::Loved => 10,
+        Rating::Neutral => 2,
+        Rating::Liked => 4,
+        Rating::Loved => 6,
     }
 }
 
 /// Max amount to boost or dampen the score for a rated category
 pub const fn category_bonus(rating: Rating) -> f64 {
     match rating {
-        Rating::Hated => -0.4,
-        Rating::Disliked => -0.2,
+        Rating::Hated => -0.2,
+        Rating::Disliked => -0.1,
         Rating::Neutral => 0.0,
-        Rating::Liked => 0.2,
-        Rating::Loved => 0.5,
+        Rating::Liked => 0.1,
+        Rating::Loved => 0.3,
     }
 }
 
@@ -59,8 +60,8 @@ pub const fn domain_bonus(rating: Rating) -> f64 {
         Rating::Hated => -0.4,
         Rating::Disliked => -0.2,
         Rating::Neutral => 0.0,
-        Rating::Liked => 0.2,
-        Rating::Loved => 0.5,
+        Rating::Liked => 0.15,
+        Rating::Loved => 0.4,
     }
 }
 
@@ -140,7 +141,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
         info!(
             "[NEW] {}",
             format!(
-                "'{}' {} sentiment: {:.2} importance: {:.2}",
+                "'{}' {}, sentiment: {:.2} importance: {:.2}",
                 article_text(&source, 1),
                 category,
                 sentiment,
@@ -239,7 +240,11 @@ pub async fn promote_articles() -> Result<()> {
 
         let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
         let score = estimated_liked + estimated_liked_bonus;
-        if score < LIKED_SERVE_THRESHOLD && count >= *category_articles_number {
+
+        let should_keep = score >= LIKED_SERVE_THRESHOLD
+            || (score >= LIKED_MIN_THRESHOLD && count < *category_articles_number);
+
+        if !should_keep {
             continue;
         }
 

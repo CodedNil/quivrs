@@ -515,6 +515,23 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
         format!("{}m", d.num_minutes().max(1))
     };
 
+    // Reactively watch 'is_selected' and trigger a scroll whenever it turns true
+    let mut node_handle = use_signal(|| None::<Rc<MountedData>>);
+    use_effect(use_reactive(&is_selected, move |is_selected| {
+        if is_selected && let Some(handle) = node_handle.read().as_ref() {
+            let handle = handle.clone();
+            spawn(async move {
+                let _ = handle
+                    .scroll_to_with_options(ScrollToOptions {
+                        behavior: ScrollBehavior::Smooth,
+                        vertical: ScrollLogicalPosition::Center,
+                        horizontal: ScrollLogicalPosition::Nearest,
+                    })
+                    .await;
+            });
+        }
+    }));
+
     rsx! {
         div {
             id: "article-sidebar-{article.id}",
@@ -527,20 +544,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             style: "-webkit-mask-image: -webkit-radial-gradient(white, black); mask-image: radial-gradient(white, black); border: 2px solid var(--surface1)",
             transform: "translateZ(0)",
 
-            onmounted: move |cx| {
-                if is_selected {
-                    let data = cx.data();
-                    spawn(async move {
-                        let _ = data
-                            .scroll_to_with_options(ScrollToOptions {
-                                behavior: ScrollBehavior::Smooth,
-                                vertical: ScrollLogicalPosition::Start,
-                                horizontal: ScrollLogicalPosition::Nearest,
-                            })
-                            .await;
-                    });
-                }
-            },
+            onmounted: move |cx| node_handle.set(Some(cx.data())),
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| {
                 hovered.set(false);
@@ -567,6 +571,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     transition: "transform 0.4s ease",
                     will_change: "transform",
                     decoding: "async",
+                    referrerpolicy: "no-referrer",
                 }
                 div {
                     position: "absolute",
@@ -594,27 +599,13 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     StatusButtons { id, articles, item_ratings }
                 }
 
-                if let Some(r) = article.rating {
-                    div {
-                        position: "absolute",
-                        top: "0",
-                        left: "0",
-                        width: "70px",
-                        height: "50px",
-                        clip_path: "polygon(0 0, 100% 0, 0 100%)",
-                        background_color: "color-mix(in srgb, {r.color()} 70%, transparent)",
-                        backdrop_filter: "blur(8px)",
-                        z_index: "10",
-                    }
-                }
-
                 div {
                     position: "absolute",
                     bottom: "0",
                     left: "0",
                     right: "0",
                     padding: "0.75rem",
-                    background_color: if is_selected { "color-mix(in srgb, var(--accent) 40%, rgba(24, 24, 37, 0.4))" } else { "rgba(24, 24, 37, 0.4)" },
+                    background_color: if is_selected { "color-mix(in srgb, var(--accent) 20%, rgba(24, 24, 37, 0.4))" } else { "rgba(24, 24, 37, 0.4)" },
                     backdrop_filter: "blur(16px)",
                     text_shadow: "0.5px 0.5px 1px rgba(0,0,0,0.6)",
                     transition: "background 0.5s ease",
