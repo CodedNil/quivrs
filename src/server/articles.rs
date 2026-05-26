@@ -1,10 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{
-            EMBEDDING_MODEL_NAME, article_text, classify, generate_article_embeddings,
-            get_importance_score, get_sentiment_score,
-        },
+        embeddings::{EMBEDDING_MODEL_NAME, article_text, classify, generate_article_embeddings},
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
     },
@@ -13,7 +10,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use futures::future::join_all;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -121,41 +118,45 @@ pub async fn refresh_all_feeds() -> Result<()> {
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
 
+    let mut classified_sources = Vec::with_capacity(new_entries.len());
     for ((mut source, embedding_text), embedding) in
         new_entries.into_iter().zip(texts).zip(embeddings)
     {
-        let Ok(category) = classify(&embedding).await else {
-            warn!("Classification failed for '{}'", source.title);
-            continue;
+        let (category, region, sentiment, importance) = match classify(&embedding).await {
+            Ok(scores) => scores,
+            Err(err) => {
+                warn!("Classification failed for '{}': {err:#}", source.title);
+                continue;
+            }
         };
-
-        let sentiment = get_sentiment_score(&embedding).await?;
-        let importance = get_importance_score(&embedding).await?;
 
         source.embedding = embedding;
         source.embedding_text = embedding_text;
         source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
         source.category = category;
-        source.sentiment = sentiment as f32;
-        source.importance = importance as f32;
+        source.region = region;
+        source.sentiment = sentiment;
+        source.importance = importance;
 
         info!(
             "[NEW] {}",
             format!(
-                "'{}' {}, sentiment: {:.2} importance: {:.2}",
+                "'{}' {}, {}, sentiment: {:.2} importance: {:.2}",
                 article_text(&source, 1),
                 category,
+                region,
                 sentiment,
                 importance
             )
         );
-        database::insert_source(&source).await?;
+        classified_sources.push(source);
     }
+    database::insert_sources(classified_sources).await?;
 
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize)]
 pub struct ArticleEntry {
     pub title: String,
     pub description: String,
@@ -247,7 +248,6 @@ pub async fn promote_articles() -> Result<()> {
             candidate.importance
         );
 
-        let mut sources_to_merge = vec![candidate.clone()];
         promoted_urls.insert(candidate.url.clone());
 
         let min_published = candidate.published - chrono::Duration::days(TIME_WINDOW_DAYS);
@@ -263,6 +263,7 @@ pub async fn promote_articles() -> Result<()> {
 
         let candidate_ts = candidate.published.timestamp() as f32;
         let half_life_secs = 4.0 * 3600.0_f32;
+        let mut sources_to_merge = vec![candidate];
 
         for (other, sim) in similar_sources {
             let url = other.url.clone();
@@ -286,16 +287,23 @@ pub async fn promote_articles() -> Result<()> {
             }
         }
 
-        let article_sources = sources_to_merge
-            .iter()
-            .map(|ps| ArticleSource {
-                url: ps.url.clone(),
-                domain: ps.domain.clone(),
-            })
-            .collect();
-
-        match generate_promoted_content(sources_to_merge.clone()).await {
+        match generate_promoted_content(&sources_to_merge).await {
             Ok(entry) => {
+                let mut sources = sources_to_merge.into_iter();
+                let candidate = sources.next().expect("candidate source is present");
+                let mut urls = vec![candidate.url.clone()];
+                let mut article_sources = vec![ArticleSource {
+                    url: candidate.url,
+                    domain: candidate.domain,
+                }];
+                for source in sources {
+                    urls.push(source.url.clone());
+                    article_sources.push(ArticleSource {
+                        url: source.url,
+                        domain: source.domain,
+                    });
+                }
+
                 let article = Article {
                     id: Uuid::new_v4(),
                     sources: article_sources,
@@ -306,21 +314,21 @@ pub async fn promote_articles() -> Result<()> {
                     thumbnail: entry.thumbnail,
                     published: candidate.published,
                     category: candidate.category,
+                    region: candidate.region,
                     status: ArticleStatus::New,
                     binned_at: None,
                     rating: None,
-                    embedding: candidate.embedding.clone(),
-                    embedding_text: candidate.embedding_text.clone(),
-                    embedding_model: candidate.embedding_model.clone(),
+                    embedding: candidate.embedding,
+                    embedding_text: candidate.embedding_text,
+                    embedding_model: candidate.embedding_model,
                     sentiment: candidate.sentiment,
                     importance: candidate.importance,
                 };
-                let urls: Vec<String> = sources_to_merge.into_iter().map(|s| s.url).collect();
-                database::insert_promoted_article(&article, &urls).await?;
+                database::insert_promoted_article(article, urls).await?;
             }
             Err(e) => error!(
                 "Failed to generate content for '{}': {}",
-                candidate.title, e
+                sources_to_merge[0].title, e
             ),
         }
     }
@@ -329,7 +337,7 @@ pub async fn promote_articles() -> Result<()> {
 }
 
 /// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
-async fn generate_promoted_content(sources: Vec<PendingSource>) -> Result<ArticleEntry> {
+async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleEntry> {
     let images = sources
         .iter()
         .flat_map(|source| &source.images)
@@ -415,14 +423,10 @@ Sources with information:
         .map_err(|e| anyhow!("Article generation failed: {e}"))?;
 
     // Clean the content using ammonia to prevent XSS attacks
-    let content_sanitized = ammonia::Builder::default()
-        .add_generic_attributes(&["class"])
-        .clean(&entry.content)
-        .to_string();
-    let sidebar_sanitized = ammonia::Builder::default()
-        .add_generic_attributes(&["class"])
-        .clean(&entry.sidebar)
-        .to_string();
+    let mut sanitizer = ammonia::Builder::default();
+    sanitizer.add_generic_attributes(&["class"]);
+    let content_sanitized = sanitizer.clean(&entry.content).to_string();
+    let sidebar_sanitized = sanitizer.clean(&entry.sidebar).to_string();
 
     Ok(ArticleEntry {
         content: content_sanitized,

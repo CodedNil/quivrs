@@ -1,35 +1,28 @@
 use crate::shared::{Article, ArticleStatus, Category, PendingSource, Rating};
-use anyhow::{Result, bail};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     sync::LazyLock,
 };
-use surrealdb::Surreal;
-use surrealdb::engine::local::SurrealKv;
-use surrealdb::types::{RecordId as Thing, SurrealValue};
-use tracing::{info, warn};
+use surrealdb::{
+    Surreal,
+    engine::local::{Db, SurrealKv},
+    types::{RecordId, SurrealValue},
+};
+use tracing::info;
 use uuid::Uuid;
 
-pub static DB: LazyLock<Surreal<surrealdb::engine::local::Db>> = LazyLock::new(Surreal::init);
+pub static DB: LazyLock<Surreal<Db>> = LazyLock::new(Surreal::init);
 
 const PREFERENCE_NEIGHBOURS: u32 = 64;
 const SIMILAR_SOURCE_NEIGHBOURS: u32 = 50;
 const KNN_EF: u32 = 200;
 
-#[derive(Serialize, Deserialize, SurrealValue)]
-struct ArticleUrl {
-    id: Thing,
-}
-
-#[derive(Serialize, Deserialize, SurrealValue)]
-struct ItemRatingRecord {
-    rating: Rating,
-}
-
-#[derive(Clone, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, SurrealValue)]
 pub struct LabelEmbeddingRecord {
+    pub id: RecordId,
     pub label_group: String,
     pub label_value: String,
     pub hash: String,
@@ -37,28 +30,35 @@ pub struct LabelEmbeddingRecord {
     pub embedding: Vec<f32>,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 struct LabelHashRow {
-    id: Thing,
+    id: RecordId,
     hash: String,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 pub struct LabelScore {
+    pub label_group: String,
     pub label_value: String,
     pub similarity: f32,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 struct GroupedCount {
     category: Category,
     count: i64,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 pub struct StaleEmbeddingRecord {
-    pub id: Thing,
+    pub id: RecordId,
     pub embedding_text: String,
+}
+
+#[derive(Clone, SurrealValue)]
+pub struct EmbeddingUpdate {
+    pub id: RecordId,
+    pub embedding: Vec<f32>,
 }
 
 #[derive(Deserialize)]
@@ -68,19 +68,19 @@ struct SimilarSource {
     dist: f32,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 struct PreferenceRow {
     rating: Rating,
     dist: f32,
 }
 
-#[derive(Deserialize, SurrealValue)]
+#[derive(SurrealValue)]
 struct ItemRatingRow {
-    id: Thing,
+    id: RecordId,
     rating: Rating,
 }
 
-fn record_key_to_string(id: Thing) -> String {
+fn record_key_to_string(id: RecordId) -> String {
     match id.key {
         surrealdb::types::RecordIdKey::String(s) => s,
         surrealdb::types::RecordIdKey::Number(n) => n.to_string(),
@@ -136,7 +136,7 @@ async fn run_migrations() -> Result<()> {
 /// Checks if a URL has already been processed, removes if they have.
 pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
     if urls.is_empty() {
-        return Ok(vec![]);
+        return Ok(Vec::new());
     }
 
     let mut res = DB
@@ -144,12 +144,12 @@ pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
         .bind((
             "urls",
             urls.iter()
-                .map(|u| Thing::new("article_urls", u.as_str()))
+                .map(|u| RecordId::new("article_urls", u.as_str()))
                 .collect::<Vec<_>>(),
         ))
         .await?;
 
-    let existing_ids: Vec<Thing> = res.take(0)?;
+    let existing_ids: Vec<RecordId> = res.take(0)?;
     let existing: HashSet<String> = existing_ids.into_iter().map(record_key_to_string).collect();
 
     Ok(urls
@@ -161,37 +161,39 @@ pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
 
 /// Records URLs as permanently skipped so they are never re-fetched.
 pub async fn mark_urls_dismissed(urls: &[String]) -> Result<()> {
-    for url in urls {
-        let _: Option<ArticleUrl> = DB
-            .upsert::<Option<ArticleUrl>>(("article_urls", url.as_str()))
-            .content(ArticleUrl {
-                id: Thing::new("article_urls", url.as_str()),
-            })
-            .await?;
+    if urls.is_empty() {
+        return Ok(());
     }
+
+    DB.query(
+        "FOR $url IN $urls {
+             UPSERT type::record('article_urls', $url) CONTENT {} RETURN NONE;
+         };",
+    )
+    .bind(("urls", urls.to_vec()))
+    .await?
+    .check()?;
+
     Ok(())
 }
 
-/// Inserts a newly found source.
-pub async fn insert_source(source: &PendingSource) -> Result<()> {
-    let res = DB
-        .query(
-            "BEGIN TRANSACTION;
-              CREATE pending_sources CONTENT $source;
-              UPSERT type::record('article_urls', $url) CONTENT { id: type::record('article_urls', $url) };
-              COMMIT TRANSACTION;",
-        )
-        .bind(("source", source.clone()))
-        .bind(("url", source.url.clone()))
-        .await?;
-
-    if let Err(e) = res.check() {
-        // If it's a unique constraint error on the URL, we just ignore it as it's already in the DB
-        let err_str = e.to_string();
-        if !err_str.contains("Database index `source_url` already contains") {
-            warn!("Failed to insert source '{}': {}", source.title, e);
-        }
+/// Stores newly found sources and records their URLs as processed.
+pub async fn insert_sources(sources: Vec<PendingSource>) -> Result<()> {
+    if sources.is_empty() {
+        return Ok(());
     }
+
+    DB.query(
+        "BEGIN TRANSACTION;
+         FOR $source IN $sources {
+             UPSERT pending_sources CONTENT $source WHERE url = $source.url RETURN NONE;
+             UPSERT type::record('article_urls', $source.url) CONTENT {} RETURN NONE;
+         };
+         COMMIT TRANSACTION;",
+    )
+    .bind(("sources", sources))
+    .await?
+    .check()?;
 
     Ok(())
 }
@@ -201,7 +203,7 @@ pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
     let binned_at = (status == ArticleStatus::Binned).then(Utc::now);
     DB.query(
         "UPDATE type::record('user_articles', $id)
-         SET status = $status, binned_at = $binned_at",
+         SET status = $status, binned_at = $binned_at RETURN NONE",
     )
     .bind(("id", id))
     .bind(("status", status))
@@ -213,7 +215,7 @@ pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
 
 /// Sets a user rating for an article.
 pub async fn set_rating(id: Uuid, rating: Rating) -> Result<()> {
-    DB.query("UPDATE type::record('user_articles', $id) SET rating = $rating")
+    DB.query("UPDATE type::record('user_articles', $id) SET rating = $rating RETURN NONE")
         .bind(("id", id))
         .bind(("rating", rating))
         .await?
@@ -232,9 +234,14 @@ pub async fn get_user_articles() -> Result<Vec<Article>> {
 
 /// Sets a rating for a generic item (source, feed, or tag).
 pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
-    DB.upsert::<Option<ItemRatingRecord>>(("item_ratings", key))
-        .content(ItemRatingRecord { rating })
-        .await?;
+    DB.query(
+        "UPSERT type::record('item_ratings', $key)
+         CONTENT { rating: $rating } RETURN NONE",
+    )
+    .bind(("key", key.to_string()))
+    .bind(("rating", rating))
+    .await?
+    .check()?;
     Ok(())
 }
 
@@ -248,13 +255,19 @@ pub async fn get_label_hashes() -> Result<HashMap<String, String>> {
         .collect())
 }
 
-pub async fn upsert_label_embeddings(records: &[(String, LabelEmbeddingRecord)]) -> Result<()> {
-    for (key, record) in records {
-        let _: Option<LabelEmbeddingRecord> = DB
-            .upsert(Thing::new("label_embeddings", key.as_str()))
-            .content(record.clone())
-            .await?;
+pub async fn upsert_label_embeddings(records: &[LabelEmbeddingRecord]) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
     }
+
+    DB.query(
+        "FOR $record IN $records {
+             UPSERT $record.id CONTENT $record RETURN NONE;
+         };",
+    )
+    .bind(("records", records.to_vec()))
+    .await?
+    .check()?;
 
     Ok(())
 }
@@ -262,10 +275,10 @@ pub async fn upsert_label_embeddings(records: &[(String, LabelEmbeddingRecord)])
 pub async fn delete_label_embeddings_except(keys: &HashSet<String>) -> Result<()> {
     let ids: Vec<_> = keys
         .iter()
-        .map(|key| Thing::new("label_embeddings", key.as_str()))
+        .map(|key| RecordId::new("label_embeddings", key.as_str()))
         .collect();
 
-    DB.query("DELETE label_embeddings WHERE id NOT IN $ids")
+    DB.query("DELETE label_embeddings WHERE id NOT IN $ids RETURN NONE")
         .bind(("ids", ids))
         .await?
         .check()?;
@@ -273,17 +286,14 @@ pub async fn delete_label_embeddings_except(keys: &HashSet<String>) -> Result<()
     Ok(())
 }
 
-pub async fn get_label_scores(label_group: &str, embedding: &[f32]) -> Result<Vec<LabelScore>> {
+pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
     let mut res = DB
         .query(
             "
-        SELECT label_value, vector::similarity::cosine(embedding, $embedding) AS similarity
+        SELECT label_group, label_value, vector::similarity::cosine(embedding, $embedding) AS similarity
         FROM label_embeddings
-        WHERE label_group = $label_group
-        ORDER BY similarity DESC
     ",
         )
-        .bind(("label_group", label_group.to_string()))
         .bind(("embedding", embedding.to_vec()))
         .await?;
 
@@ -342,18 +352,18 @@ pub async fn get_category_article_counts() -> Result<HashMap<Category, i64>> {
 }
 
 /// Inserts a promoted article and removes its sources from pending.
-pub async fn insert_promoted_article(article: &Article, source_urls: &[String]) -> Result<()> {
+pub async fn insert_promoted_article(article: Article, source_urls: Vec<String>) -> Result<()> {
     DB.query(
         "
         BEGIN TRANSACTION;
-        UPSERT type::record('user_articles', $id) CONTENT $article;
-        DELETE pending_sources WHERE url IN $urls;
+        UPSERT type::record('user_articles', $id) CONTENT $article RETURN NONE;
+        DELETE pending_sources WHERE url IN $urls RETURN NONE;
         COMMIT TRANSACTION;
     ",
     )
     .bind(("id", article.id))
-    .bind(("article", article.clone()))
-    .bind(("urls", source_urls.to_vec()))
+    .bind(("article", article))
+    .bind(("urls", source_urls))
     .await?
     .check()?;
 
@@ -370,7 +380,8 @@ pub async fn get_stale_embedding_records(
 
     let mut res = DB
         .query(format!(
-            "SELECT id, embedding_text FROM {table} WHERE embedding_model != $model"
+            "SELECT id, embedding_text FROM {table}
+             WHERE embedding = NONE OR embedding_model = NONE OR embedding_model != $model"
         ))
         .bind(("model", current_model))
         .await?;
@@ -378,23 +389,32 @@ pub async fn get_stale_embedding_records(
     Ok(res.take(0)?)
 }
 
-pub async fn update_record_embedding(
-    id: Thing,
-    embedding: Vec<f32>,
+pub async fn update_record_embeddings(
+    updates: &[EmbeddingUpdate],
     embedding_model: &str,
 ) -> Result<()> {
-    DB.update::<Option<surrealdb::types::Value>>(id)
-        .merge(serde_json::json!({
-            "embedding": embedding,
-            "embedding_model": embedding_model
-        }))
-        .await?;
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    DB.query(
+        "FOR $record IN $updates {
+             UPDATE $record.id MERGE {
+                 embedding: $record.embedding,
+                 embedding_model: $model
+             } RETURN NONE;
+         };",
+    )
+    .bind(("updates", updates.to_vec()))
+    .bind(("model", embedding_model.to_string()))
+    .await?
+    .check()?;
 
     Ok(())
 }
 
 pub async fn purge_old_pending_sources() -> Result<()> {
-    DB.query("DELETE pending_sources WHERE published < time::now() - 2w")
+    DB.query("DELETE pending_sources WHERE published < time::now() - 2w RETURN NONE")
         .await?
         .check()?;
 
@@ -404,8 +424,8 @@ pub async fn purge_old_pending_sources() -> Result<()> {
 pub async fn get_similar_pending_sources(
     embedding: &[f32],
     category: Category,
-    min_published: chrono::DateTime<chrono::Utc>,
-    max_published: chrono::DateTime<chrono::Utc>,
+    min_published: DateTime<Utc>,
+    max_published: DateTime<Utc>,
 ) -> Result<Vec<(PendingSource, f32)>> {
     let mut res = DB
         .query(format!(
@@ -427,7 +447,8 @@ pub async fn get_similar_pending_sources(
     let rows: Vec<SimilarSource> = rows
         .into_iter()
         .map(serde_json::from_value)
-        .collect::<std::result::Result<_, _>>()?;
+        .collect::<std::result::Result<_, _>>()
+        .context("Failed to decode a similar pending source row")?;
     Ok(rows.into_iter().map(|r| (r.source, 1.0 - r.dist)).collect())
 }
 

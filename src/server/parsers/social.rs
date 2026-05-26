@@ -1,5 +1,5 @@
 use crate::server::{HTTP_CLIENT, parsers::get_cached_or_fetch_ext};
-use crate::shared::{Category, PendingSource};
+use crate::shared::PendingSource;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -187,13 +187,8 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
         tags: Vec::new(),
         images,
         published,
-        category: Category::Technology,
-        sentiment: 0.0,
-        importance: 0.0,
 
-        embedding: Vec::new(),
-        embedding_text: String::new(),
-        embedding_model: String::new(),
+        ..Default::default()
     }))
 }
 
@@ -349,12 +344,7 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
         tags: Vec::new(),
         images,
         published,
-        category: Category::Technology,
-        sentiment: 0.0,
-        importance: 0.0,
 
-        embedding: Vec::new(),
-        embedding_text: String::new(),
-        embedding_model: String::new(),
+        ..Default::default()
     }))
 }

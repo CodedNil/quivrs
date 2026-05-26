@@ -1,36 +1,22 @@
 use crate::{
     server::database,
-    shared::{Category, PendingSource},
+    shared::{Category, PendingSource, Region},
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fmt::Write, sync::LazyLock};
+use std::{
+    collections::HashSet,
+    fmt::Write,
+    sync::{LazyLock, Mutex},
+};
 use strum::IntoEnumIterator;
-use tokio::sync::Mutex;
+use surrealdb::types::RecordId;
 use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
-
-// --- Label writing guide ---
-//
-// Labels are embedded with EmbeddingGemma 300M and classified via cosine similarity.
-// The label embedding is a mean-pool over all its token embeddings, so every token
-// contributes equally. Write labels as dense keyword lists, not prose.
-//
-// Rules:
-//   - Use single distinctive tokens. "jailed" beats "sentenced to prison".
-//   - Prefer named things: brands, people, places, organisations (NHS, Oscars, Starmer).
-//     They are uniquely associated with one category and carry strong signal.
-//   - Avoid tokens that appear across multiple labels — they dilute discrimination.
-//   - No negations: "not marketing" adds "marketing" semantics to the vector.
-//   - No filler prose: "Includes coverage of" wastes tokens on noise.
-//   - Multi-word phrases are fine when the compound is widely known (Premier League,
-//     Black Friday), but single tokens are preferred where one exists.
-//   - Commas make no difference to the embedding — they are just punctuation tokens.
-// ---
 
 const fn category_label(category: Category) -> &'static [&'static str] {
     match category {
@@ -183,15 +169,80 @@ const fn category_label(category: Category) -> &'static [&'static str] {
     }
 }
 
+const fn region_label(region: Region) -> &'static str {
+    match region {
+        Region::Worldwide => {
+            "global, worldwide, international, multilateral, transnational, global economy, global climate, United Nations, UN, G7, G20, multiple countries, across continents, global summit"
+        }
+        Region::UnitedKingdom => {
+            "United Kingdom, UK, Britain, British, Great Britain, Westminster, Whitehall, Downing Street, House of Commons, House of Lords, HM Treasury, Bank of England, UK-wide"
+        }
+        Region::England => {
+            "England, English, London, Greater London, Manchester, Birmingham, Liverpool, Leeds, Bristol, Newcastle, Yorkshire, Cornwall, Essex, Kent, English councils, English schools"
+        }
+        Region::Scotland => {
+            "Scotland, Scottish, Scots, Edinburgh, Glasgow, Aberdeen, Dundee, Highlands, Holyrood, Scottish Parliament, Scottish Government, Scotland-wide"
+        }
+        Region::Wales => {
+            "Wales, Welsh, Cymru, Cardiff, Swansea, Newport, Wrexham, Senedd, Welsh Government, Welsh language"
+        }
+        Region::NorthernIreland => {
+            "Northern Ireland, Northern Irish, Belfast, Derry, Londonderry, Stormont, Ulster, Northern Ireland Assembly, Good Friday Agreement, Irish Sea border"
+        }
+        Region::Ireland => {
+            "Ireland, Irish, Republic of Ireland, Dublin, Cork, Galway, Limerick, Dail Eireann, Taoiseach, Irish government"
+        }
+        Region::UnitedStates => {
+            "United States, USA, US, American, Washington DC, White House, Congress, Senate, Supreme Court, federal, California, Texas, New York, Florida, Pentagon, Wall Street"
+        }
+        Region::Canada => {
+            "Canada, Canadian, Ottawa, Toronto, Vancouver, Montreal, Quebec, Alberta, Ontario, British Columbia, Canadian parliament, RCMP, Bank of Canada"
+        }
+        Region::NorthAmerica => {
+            "North America, North American, continental, NAFTA, USMCA, cross-border trade, transcontinental, continental border, Great Lakes, North American Arctic, regional supply chain"
+        }
+        Region::LatinAmerica => {
+            "Latin America, Latin American, South America, Central America, Caribbean, Brazil, Brasilia, Argentina, Buenos Aires, Chile, Santiago, Colombia, Bogota, Peru, Lima, Venezuela, Mexico, Cuba, Haiti, Mercosur"
+        }
+        Region::WesternEurope => {
+            "Western Europe, European Union, EU, eurozone, Brussels, France, French, Paris, Germany, German, Berlin, Spain, Madrid, Italy, Rome, Netherlands, Amsterdam, Belgium, Austria, Switzerland, Portugal, Nordic, Denmark, Sweden, Norway"
+        }
+        Region::EasternEurope => {
+            "Eastern Europe, eastern European, Ukraine, Kyiv, Poland, Warsaw, Romania, Bucharest, Hungary, Budapest, Czechia, Prague, Slovakia, Balkans, Serbia, Croatia, Bulgaria, Moldova, Baltic, Estonia, Latvia, Lithuania, Belarus"
+        }
+        Region::MiddleEastNorthAfrica => {
+            "Middle East, North Africa, MENA, Israel, Israeli, Jerusalem, Gaza, Palestine, Palestinian, West Bank, Iran, Tehran, Iraq, Baghdad, Syria, Damascus, Lebanon, Beirut, Jordan, Amman, Saudi Arabia, Riyadh, UAE, Dubai, Qatar, Gulf, Egypt, Cairo, Morocco, Algeria, Tunisia, Libya"
+        }
+        Region::SubSaharanAfrica => {
+            "sub-Saharan Africa, African Union, Nigeria, Abuja, Lagos, Kenya, Nairobi, South Africa, Pretoria, Johannesburg, Ethiopia, Addis Ababa, Ghana, Accra, Congo, DRC, Kinshasa, Sudan, Uganda, Tanzania, Zimbabwe, Senegal, Rwanda"
+        }
+        Region::SouthAsia => {
+            "South Asia, India, Indian, New Delhi, Mumbai, Pakistan, Pakistani, Islamabad, Bangladesh, Dhaka, Sri Lanka, Colombo, Nepal, Kathmandu, Afghanistan, Kabul, Bhutan, Maldives, Kashmir, Punjab"
+        }
+        Region::EastAsia => {
+            "East Asia, China, Chinese, Beijing, Shanghai, Japan, Japanese, Tokyo, South Korea, Korean, Seoul, North Korea, Pyongyang, Taiwan, Taiwanese, Taipei, Hong Kong, Macau, Mongolia, East China Sea"
+        }
+        Region::SoutheastAsia => {
+            "Southeast Asia, ASEAN, Indonesia, Jakarta, Vietnam, Hanoi, Thailand, Bangkok, Philippines, Manila, Malaysia, Kuala Lumpur, Singapore, Myanmar, Burma, Cambodia, Laos, Brunei, Timor-Leste, South China Sea"
+        }
+        Region::CentralAsia => {
+            "Central Asia, Kazakhstan, Astana, Almaty, Uzbekistan, Tashkent, Kyrgyzstan, Bishkek, Tajikistan, Dushanbe, Turkmenistan, Ashgabat, Caspian, Silk Road, central Asian"
+        }
+        Region::Oceania => {
+            "Oceania, Australia, Australian, Canberra, Sydney, Melbourne, New Zealand, Wellington, Auckland, Pacific Islands, Fiji, Papua New Guinea, Samoa, Tonga, Solomon Islands, Tasmania"
+        }
+    }
+}
+
 pub fn sentiment_label(sentiment: &str) -> &'static str {
     match sentiment {
         // Uplifting, solutions-oriented, or curiosity-inducing framing
         "positive" => {
-            "positive milestone breakthrough triumph progress success solution forward-looking heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe-inspiring milestone unique pioneer brilliant forward-step boost stellar incredible superb outstanding together community harmony optimism win winner gain hold recovery growth peace stability safety justice exoneration"
+            "positive milestone breakthrough triumph progress success solution forward heartwarming unity inspiring resilience recovery champion recovery masterpiece miracle innovation discovery genius curiosity fascinating mystery secret unexpected intriguing awe inspiring milestone unique pioneer brilliant boost stellar incredible superb outstanding together community harmony optimism win winner gain recovery growth peace stability safety exoneration"
         }
         // Cynical, critical, aggressive, or tragic framing
         "negative" => {
-            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst-case hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology-demanded betrayal Nazi hateful accident abortion sexual-offences child-abuse murder-conviction manslaughter embezzlement-conviction corruption-scandal"
+            "negative toxic outrage controversy backlash condemnation failure disaster scandal fury brutal devastating threat bleak warning critical crisis tragedy investigation slammed gridlock error lawsuit dispute worst hostile bleak chaos bitter panic blame ruined fault shocking horrific collapse dangerous failure bleeding nightmare warning violence felony assault victim trauma grief death killed stabbed shot abuse crime jail prison convict embezzlement stolen theft fraud murder killing sexist lewd apology betrayal Nazi hateful accident abortion sexual offences abuse conviction manslaughter embezzlement corruption scandal"
         }
         _ => "",
     }
@@ -201,11 +252,11 @@ pub fn importance_label(importance: &str) -> &'static str {
     match importance {
         // Macro-scale structural changes, high-consequence policy, and permanence
         "important" => {
-            "important historic monumental unprecedented permanent landmark fundamental crisis systemic global national macro widespread structural existential core priority turning-point paradigm-shift definitive far-reaching foundation critical essential massive fundamental long-term key-factor major-overhaul catalyst prime strategic sweeping major dominant core emergency tectonic-shift paramount election-result conviction sentencing war-strike geopolitical-shift embezzlement-scandal murder-trial historic-offences national-security constitutional-crisis general-election-result"
+            "important, historic, monumental, unprecedented, permanent, landmark, fundamental, crisis, systemic, global, national, macro, widespread, structural, existential, priority, turning-point, paradigm-shift, definitive, far-reaching, critical, essential, massive, long-term, key-factor, major-overhaul, catalyst, strategic, sweeping, emergency, tectonic-shift, paramount, election-result, conviction, sentencing, war-strike, geopolitical-shift, embezzlement-scandal, murder-trial, historic-offences, national-security, constitutional-crisis, general-election-result"
         }
         // Micro-scale, transient, or routine consumer/entertainment news
         "unimportant" => {
-            "unimportant routine minor transient local niche consumer-deal retail-sale shopping-discount product-review gadget-unboxing daily-update weather-forecast minor-fixture gossip celebrity-sighting casual-mention hobbyist-tip routine-maintenance temporary-offer limited-time-deal bargain coupon discount price-drop clearance flash-sale interview documentary profile personal-story human-interest feature-article streaming-guide tv-recommendation workout-tip exercise-routine pillow mattress-sale hair-styler-review smart-lights burger"
+            "unimportant, routine, minor, transient, local, niche, consumer-deal, retail-sale, shopping-discount, product-review, gadget-unboxing, daily-update, weather-forecast, minor-fixture, gossip, celebrity-sighting, casual-mention, hobbyist-tip, routine-maintenance, temporary-offer, limited-time-deal, bargain, coupon, discount, price-drop, clearance, flash-sale, interview, documentary, profile, personal-story, human-interest, feature-article, streaming-guide, tv-recommendation, workout-tip, exercise-routine, pillow, mattress-sale, hair-styler-review, smart-lights, burger"
         }
         _ => "",
     }
@@ -245,22 +296,26 @@ fn label_definitions() -> Vec<LabelDefinition> {
         }
     }
 
-    for key in ["positive", "negative"] {
-        let text = sentiment_label(key);
+    for region in Region::iter() {
+        let text = region_label(region);
         definitions.push(LabelDefinition {
-            key: format!("sentiment:{key}"),
-            label_group: "sentiment",
-            label_value: key.to_string(),
+            key: format!("region:{region}"),
+            label_group: "region",
+            label_value: region.to_string(),
             hash: label_hash(text),
             text,
         });
     }
 
-    for key in ["important", "unimportant"] {
-        let text = importance_label(key);
+    for (group, key, text) in [
+        ("sentiment", "positive", sentiment_label("positive")),
+        ("sentiment", "negative", sentiment_label("negative")),
+        ("importance", "important", importance_label("important")),
+        ("importance", "unimportant", importance_label("unimportant")),
+    ] {
         definitions.push(LabelDefinition {
-            key: format!("importance:{key}"),
-            label_group: "importance",
+            key: format!("{group}:{key}"),
+            label_group: group,
             label_value: key.to_string(),
             hash: label_hash(text),
             text,
@@ -277,10 +332,6 @@ static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
     )
 });
 
-async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    EMBEDDING_MODEL.lock().await.embed(texts, None)
-}
-
 pub fn article_text(s: &PendingSource, title_repeat: usize) -> String {
     std::iter::repeat_n(s.title.replace('\n', " "), title_repeat)
         .chain([
@@ -296,22 +347,27 @@ pub fn article_text(s: &PendingSource, title_repeat: usize) -> String {
 }
 
 pub async fn generate_article_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    let mut embs = generate_embeddings(texts).await?;
-    for emb in &mut embs {
-        normalize(emb);
+    if texts.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(embs)
+
+    let texts = texts.to_vec();
+    let mut embeddings = tokio::task::spawn_blocking(move || {
+        EMBEDDING_MODEL
+            .lock()
+            .map_err(|_| anyhow!("Embedding model lock poisoned"))?
+            .embed(texts, None)
+    })
+    .await
+    .context("Embedding worker task failed")??;
+
+    for embedding in &mut embeddings {
+        normalize(embedding);
+    }
+    Ok(embeddings)
 }
 
-async fn embed_label_texts(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    let mut embs = generate_embeddings(texts).await?;
-    for emb in &mut embs {
-        normalize(emb);
-    }
-    Ok(embs)
-}
-
-fn normalize(v: &mut Vec<f32>) {
+fn normalize(v: &mut [f32]) {
     let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 0.0 {
         for x in v {
@@ -326,33 +382,23 @@ async fn maintenance_label_embeddings() -> Result<()> {
     let cached_hashes = database::get_label_hashes().await?;
     let stale: Vec<_> = definitions
         .iter()
-        .enumerate()
-        .filter(|(_, def)| cached_hashes.get(&def.key) != Some(&def.hash))
-        .map(|(idx, _)| idx)
+        .filter(|def| cached_hashes.get(&def.key) != Some(&def.hash))
         .collect();
 
     if !stale.is_empty() {
         info!("Refreshing {} label embeddings", stale.len());
-        let texts: Vec<_> = stale
-            .iter()
-            .map(|&idx| definitions[idx].text.to_string())
-            .collect();
-        let embeddings = embed_label_texts(&texts).await?;
+        let texts: Vec<_> = stale.iter().map(|def| def.text.to_string()).collect();
+        let embeddings = generate_article_embeddings(&texts).await?;
         let records: Vec<_> = stale
             .into_iter()
             .zip(embeddings)
-            .map(|(idx, embedding)| {
-                let def = &definitions[idx];
-                (
-                    def.key.clone(),
-                    database::LabelEmbeddingRecord {
-                        label_group: def.label_group.to_string(),
-                        label_value: def.label_value.clone(),
-                        hash: def.hash.clone(),
-                        text: def.text.to_string(),
-                        embedding,
-                    },
-                )
+            .map(|(def, embedding)| database::LabelEmbeddingRecord {
+                id: RecordId::new("label_embeddings", def.key.as_str()),
+                label_group: def.label_group.to_string(),
+                label_value: def.label_value.clone(),
+                hash: def.hash.clone(),
+                text: def.text.to_string(),
+                embedding,
             })
             .collect();
 
@@ -381,45 +427,55 @@ async fn maintenance_article_embeddings() -> Result<()> {
         for chunk in stale.chunks(100) {
             let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
             let new_embeddings = generate_article_embeddings(&texts).await?;
-
-            for (record, embedding) in chunk.iter().zip(new_embeddings) {
-                database::update_record_embedding(record.id.clone(), embedding, current_model)
-                    .await?;
-            }
+            let updates: Vec<_> = chunk
+                .iter()
+                .zip(new_embeddings)
+                .map(|(record, embedding)| database::EmbeddingUpdate {
+                    id: record.id.clone(),
+                    embedding,
+                })
+                .collect();
+            database::update_record_embeddings(&updates, current_model).await?;
         }
     }
 
     Ok(())
 }
 
-pub async fn classify(article_embedding: &[f32]) -> Result<Category> {
-    let mut best_category = None;
-    let mut highest_similarity = -1.0f32;
+pub async fn classify(article_embedding: &[f32]) -> Result<(Category, Region, f32, f32)> {
+    let scores = database::get_label_scores(article_embedding).await?;
 
-    for row in database::get_label_scores("category", article_embedding).await? {
-        let category = row.label_value.parse()?;
-        if row.similarity > highest_similarity {
-            highest_similarity = row.similarity;
-            best_category = Some(category);
-        }
-    }
-
-    best_category.ok_or_else(|| anyhow::anyhow!("No category label embeddings found"))
+    Ok((
+        best_label(&scores, "category")?,
+        best_label(&scores, "region")?,
+        binary_label_score(&scores, "sentiment", "positive")?,
+        binary_label_score(&scores, "importance", "important")?,
+    ))
 }
 
-async fn binary_label_score(
+fn best_label<T>(scores: &[database::LabelScore], group: &str) -> Result<T>
+where
+    T: std::str::FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    scores
+        .iter()
+        .filter(|row| row.label_group == group)
+        .max_by(|a, b| a.similarity.total_cmp(&b.similarity))
+        .ok_or_else(|| anyhow!("No {group} label embeddings found"))?
+        .label_value
+        .parse()
+        .map_err(Into::into)
+}
+
+fn binary_label_score(
+    rows: &[database::LabelScore],
     label_group: &str,
     positive_value: &str,
-    embedding: &[f32],
 ) -> Result<f32> {
-    let rows = database::get_label_scores(label_group, embedding).await?;
-    if rows.is_empty() {
-        bail!("No {label_group} label embeddings found");
-    }
-
     let mut positive = 0.0;
     let mut total = 0.0;
-    for row in rows {
+    for row in rows.iter().filter(|row| row.label_group == label_group) {
         let weight = (row.similarity * 10.0).exp();
         if row.label_value == positive_value {
             positive += weight;
@@ -427,13 +483,9 @@ async fn binary_label_score(
         total += weight;
     }
 
-    Ok(if total > 0.0 { positive / total } else { 0.5 })
-}
+    if total == 0.0 {
+        bail!("No {label_group} label embeddings found");
+    }
 
-pub async fn get_sentiment_score(embedding: &[f32]) -> Result<f32> {
-    binary_label_score("sentiment", "positive", embedding).await
-}
-
-pub async fn get_importance_score(embedding: &[f32]) -> Result<f32> {
-    binary_label_score("importance", "important", embedding).await
+    Ok(positive / total)
 }

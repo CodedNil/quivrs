@@ -1,5 +1,5 @@
 use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
-use crate::shared::{Category, PendingSource};
+use crate::shared::PendingSource;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use dom_smoothie::Readability;
@@ -232,13 +232,8 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
         tags,
         images,
         published: date,
-        category: Category::Technology,
-        sentiment: 0.0,
-        importance: 0.0,
 
-        embedding: Vec::new(),
-        embedding_text: String::new(),
-        embedding_model: String::new(),
+        ..Default::default()
     }))
 }
 

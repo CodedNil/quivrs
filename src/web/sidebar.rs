@@ -1,8 +1,9 @@
 use super::{
     Route,
     article::{StarRating, StatusButtons},
+    status_for_tab,
 };
-use crate::shared::{Article, ArticleStatus, Category, Rating};
+use crate::shared::{Article, ArticleStatus, Category};
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, icons::fa_solid_icons};
 use std::{
@@ -72,7 +73,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
         let mut counts = (0, 0, 0);
         let mut groups = BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>::new();
 
-        for a in &articles() {
+        for a in articles.read().iter() {
             match a.status {
                 ArticleStatus::New => counts.0 += 1,
                 ArticleStatus::Stored => counts.1 += 1,
@@ -88,11 +89,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
         (counts, groups)
     };
 
-    let current_status = match tab.as_str() {
-        "stored" => ArticleStatus::Stored,
-        "binned" => ArticleStatus::Binned,
-        _ => ArticleStatus::New,
-    };
+    let current_status = status_for_tab(&tab);
 
     let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
     let scroll_top_val = use_signal(|| 0.0);
@@ -496,16 +493,13 @@ fn CategoryGroup(
 #[component]
 fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
     let articles = use_context::<Signal<Vec<Article>>>();
-    let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
-
-    let Some(article) = articles.read().iter().find(|a| a.id == id).cloned() else {
+    let article_store = articles.read();
+    let Some(article) = article_store.iter().find(|a| a.id == id) else {
         return rsx! {};
     };
 
     let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
-    let mut pressed = use_signal(|| false);
-
     let d = chrono::Utc::now() - article.published;
     let time_ago = if d.num_days() > 0 {
         format!("{}d", d.num_days())
@@ -546,17 +540,12 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
 
             onmounted: move |cx| node_handle.set(Some(cx.data())),
             onmouseenter: move |_| hovered.set(true),
-            onmouseleave: move |_| {
-                hovered.set(false);
-                pressed.set(false);
-            },
-            onmousedown: move |_| pressed.set(true),
-            onmouseup: move |_| pressed.set(false),
+            onmouseleave: move |_| hovered.set(false),
             onclick: move |_| {
                 use_navigator()
-                    .push(Route::ArticleEntry {
+                    .push(Route::ArticleDetail {
                         tab: tab.clone(),
-                        id: article.id,
+                        id,
                     });
             },
 
@@ -589,14 +578,14 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     top: "0.5rem",
                     left: "1rem",
                     z_index: "20",
-                    StarRating { current: article.rating, id, articles }
+                    StarRating { current: article.rating, id }
                 }
                 div {
                     position: "absolute",
                     top: "0.5rem",
                     right: "0.75rem",
                     z_index: "20",
-                    StatusButtons { id, articles, item_ratings }
+                    StatusButtons { id }
                 }
 
                 div {

@@ -20,13 +20,9 @@ pub fn CenteredMessage(text: String) -> Element {
 
 /// A rating pill that expands with rating buttons on hover.
 #[component]
-pub fn RatingPill(
-    label: String,
-    item_key: String,
-    item_ratings: Signal<HashMap<String, Rating>>,
-    url: Option<String>,
-) -> Element {
-    let current = item_ratings().get(&item_key).copied();
+pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Element {
+    let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
+    let current = item_ratings.read().get(&item_key).copied();
     let bg = current.unwrap_or(Rating::Neutral).color();
     let mut hovered = use_signal(|| false);
 

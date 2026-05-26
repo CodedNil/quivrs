@@ -1,25 +1,21 @@
 use super::components::RatingPill;
 use crate::{
     shared::{
-        Article, ArticleStatus, Category, Rating,
+        Article, ArticleStatus, Rating,
         server_functions::{set_article_status, set_rating},
     },
-    web::Route,
+    web::{Route, article_ids_for_status, status_for_tab},
 };
 use dioxus::prelude::*;
 use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
-use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 #[component]
-pub fn ArticleDetail(
-    id: Uuid,
-    articles: Signal<Vec<Article>>,
-    item_ratings: Signal<HashMap<String, Rating>>,
-) -> Element {
-    let article = match articles.read().iter().find(|a| a.id == id) {
-        Some(a) => a.clone(),
-        None => return rsx! {},
+pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
+    let articles = use_context::<Signal<Vec<Article>>>();
+    let article_store = articles.read();
+    let Some(article) = article_store.iter().find(|a| a.id == id) else {
+        return rsx! {};
     };
 
     rsx! {
@@ -129,14 +125,14 @@ pub fn ArticleDetail(
                         gap: "2rem",
                         margin_bottom: "2rem",
 
-                        StatusButtons { id, articles, item_ratings }
+                        StatusButtons { id }
                         span {
                             font_size: "0.9rem",
                             color: "var(--subtext0)",
                             font_weight: "900",
                             {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                         }
-                        StarRating { current: article.rating, id, articles }
+                        StarRating { current: article.rating, id }
                         div {
                             display: "flex",
                             align_items: "center",
@@ -144,14 +140,12 @@ pub fn ArticleDetail(
                             RatingPill {
                                 label: article.category.to_string(),
                                 item_key: format!("category:{}", article.category),
-                                item_ratings,
                             }
                             for source in &article.sources {
                                 RatingPill {
                                     key: "{source.url}",
                                     label: source.domain.clone(),
                                     item_key: format!("domain:{}", source.domain),
-                                    item_ratings,
                                     url: Some(source.url.clone()),
                                 }
                             }
@@ -227,40 +221,22 @@ fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
 }
 
 #[component]
-pub fn StatusButtons(
-    id: Uuid,
-    articles: Signal<Vec<Article>>,
-    item_ratings: Signal<HashMap<String, Rating>>,
-) -> Element {
+pub fn StatusButtons(id: Uuid) -> Element {
+    let articles = use_context::<Signal<Vec<Article>>>();
     let navigator = use_navigator();
     let route = use_route::<Route>();
 
-    let article = match articles.read().iter().find(|a| a.id == id) {
-        Some(a) => a.clone(),
+    let status = match articles.read().iter().find(|a| a.id == id) {
+        Some(a) => a.status,
         None => return rsx! {},
     };
 
     let (tab, selected_id) = match route {
-        Route::ArticleEntry { tab, id } => (tab, Some(id)),
+        Route::ArticleDetail { tab, id } => (tab, Some(id)),
         Route::TabHome { tab } => (tab, None),
     };
 
-    let current_status = match tab.as_str() {
-        "stored" => ArticleStatus::Stored,
-        "binned" => ArticleStatus::Binned,
-        _ => ArticleStatus::New,
-    };
-
-    // Filter dynamic IDs reactively to find the next article
-    let filtered_articles = use_memo(move || {
-        let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
-        for a in articles.read().iter() {
-            if a.status == current_status {
-                groups.entry(a.category).or_default().push(a.id);
-            }
-        }
-        groups.into_values().flatten().collect::<Vec<Uuid>>()
-    });
+    let current_status = status_for_tab(&tab);
 
     let update_status = move |new_status: ArticleStatus| {
         let mut articles = articles;
@@ -268,13 +244,13 @@ pub fn StatusButtons(
 
         // Go to next article if selected
         if selected_id == Some(id) {
-            let list = filtered_articles.read();
+            let list = article_ids_for_status(&articles.read(), current_status);
             if let (Some(p), false) = (
                 list.iter().position(|&item_id| item_id == id),
                 list.is_empty(),
             ) {
                 let target_id = list[(p + 1) % list.len()];
-                navigator.push(Route::ArticleEntry { tab, id: target_id });
+                navigator.push(Route::ArticleDetail { tab, id: target_id });
             }
         }
 
@@ -289,7 +265,7 @@ pub fn StatusButtons(
 
     rsx! {
         div { display: "flex", align_items: "center", gap: "0.375rem",
-            if article.status != ArticleStatus::Stored {
+            if status != ArticleStatus::Stored {
                 {
                     let update_status = update_status.clone();
                     rsx! {
@@ -302,7 +278,7 @@ pub fn StatusButtons(
                     }
                 }
             }
-            if article.status != ArticleStatus::Binned {
+            if status != ArticleStatus::Binned {
                 ActionBtn {
                     icon: fa_solid_icons::FaTrash,
                     title: "Move to Bin",
@@ -315,11 +291,7 @@ pub fn StatusButtons(
 }
 
 #[component]
-pub fn StarRating(
-    current: Option<Rating>,
-    id: Uuid,
-    mut articles: Signal<Vec<Article>>,
-) -> Element {
+pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
     const RATINGS: [Rating; 5] = [
         Rating::Hated,
         Rating::Disliked,
@@ -327,6 +299,7 @@ pub fn StarRating(
         Rating::Liked,
         Rating::Loved,
     ];
+    let mut articles = use_context::<Signal<Vec<Article>>>();
     let current_idx = current.and_then(|r| RATINGS.iter().position(|&x| x == r));
     let mut hover_idx: Signal<Option<usize>> = use_signal(|| None);
     let fill_to = hover_idx().or(current_idx);

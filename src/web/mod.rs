@@ -60,23 +60,13 @@ enum Route {
     #[route("/:tab")]
     TabHome { tab: String },
     #[route("/:tab/entry/:id")]
-    ArticleEntry { tab: String, id: Uuid },
+    ArticleDetail { tab: String, id: Uuid },
 }
 
 #[component]
 fn TabHome(tab: String) -> Element {
     rsx! {
         CenteredMessage { text: "Select an article to read" }
-    }
-}
-
-#[component]
-fn ArticleEntry(tab: String, id: Uuid) -> Element {
-    let articles = use_context::<Signal<Vec<Article>>>();
-    let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
-
-    rsx! {
-        ArticleDetail { id, articles, item_ratings }
     }
 }
 
@@ -112,26 +102,15 @@ fn MainLayout() -> Element {
     let mut content_container_handle = use_signal(|| None::<Rc<MountedData>>);
 
     let (tab, selected_id) = match route {
-        Route::ArticleEntry { tab, id } => (tab, Some(id)),
+        Route::ArticleDetail { tab, id } => (tab, Some(id)),
         Route::TabHome { tab } => (tab, None),
     };
 
-    let current_status = match tab.as_str() {
-        "stored" => ArticleStatus::Stored,
-        "binned" => ArticleStatus::Binned,
-        _ => ArticleStatus::New,
-    };
+    let current_status = status_for_tab(&tab);
 
     // Filter dynamic IDs reactively
-    let filtered_articles = use_memo(move || {
-        let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
-        for a in articles.read().iter() {
-            if a.status == current_status {
-                groups.entry(a.category).or_default().push(a.id);
-            }
-        }
-        groups.into_values().flatten().collect::<Vec<Uuid>>()
-    });
+    let filtered_articles =
+        use_memo(move || article_ids_for_status(&articles.read(), current_status));
 
     let onkeydown = {
         let tab = tab.clone();
@@ -156,7 +135,7 @@ fn MainLayout() -> Element {
 
                     let target_id = list[target_index];
                     if target_id != id {
-                        navigator.push(Route::ArticleEntry {
+                        navigator.push(Route::ArticleDetail {
                             tab: tab.clone(),
                             id: target_id,
                         });
@@ -255,4 +234,22 @@ fn MainLayout() -> Element {
             }
         }
     }
+}
+
+fn status_for_tab(tab: &str) -> ArticleStatus {
+    match tab {
+        "stored" => ArticleStatus::Stored,
+        "binned" => ArticleStatus::Binned,
+        _ => ArticleStatus::New,
+    }
+}
+
+fn article_ids_for_status(articles: &[Article], status: ArticleStatus) -> Vec<Uuid> {
+    let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
+    for article in articles {
+        if article.status == status {
+            groups.entry(article.category).or_default().push(article.id);
+        }
+    }
+    groups.into_values().flatten().collect()
 }

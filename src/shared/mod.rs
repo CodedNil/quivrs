@@ -10,7 +10,7 @@ use uuid::Uuid;
 use surrealdb::types::SurrealValue;
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Deserialize, Default)]
 pub struct PendingSource {
     pub url: String,
 
@@ -22,6 +22,7 @@ pub struct PendingSource {
     pub images: Vec<(String, String)>, // (url, caption)
     pub published: DateTime<Utc>,
     pub category: Category,
+    pub region: Region,
     pub sentiment: f32,
     pub importance: f32,
 
@@ -31,7 +32,7 @@ pub struct PendingSource {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Article {
     pub id: Uuid,
 
@@ -43,6 +44,7 @@ pub struct Article {
     pub thumbnail: String,
     pub published: DateTime<Utc>,
     pub category: Category,
+    pub region: Region,
 
     pub status: ArticleStatus,
     pub binned_at: Option<DateTime<Utc>>,
@@ -63,7 +65,7 @@ impl PartialEq for Article {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct ArticleSource {
     pub url: String,
     pub domain: String,
@@ -73,7 +75,7 @@ pub struct ArticleSource {
 #[derive(
     Serialize,
     Deserialize,
-    Debug,
+    Default,
     Clone,
     Copy,
     Display,
@@ -86,6 +88,7 @@ pub struct ArticleSource {
     Hash,
 )]
 pub enum Category {
+    #[default]
     Business,
     Politics,
     Law,
@@ -103,9 +106,33 @@ pub enum Category {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(
-    Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString,
-)]
+#[derive(Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString)]
+pub enum Region {
+    #[default]
+    Worldwide,
+    UnitedKingdom,
+    England,
+    Scotland,
+    Wales,
+    NorthernIreland,
+    Ireland,
+    UnitedStates,
+    Canada,
+    NorthAmerica,
+    LatinAmerica,
+    WesternEurope,
+    EasternEurope,
+    MiddleEastNorthAfrica,
+    SubSaharanAfrica,
+    SouthAsia,
+    EastAsia,
+    SoutheastAsia,
+    CentralAsia,
+    Oceania,
+}
+
+#[cfg_attr(feature = "server", derive(SurrealValue))]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
 pub enum ArticleStatus {
     Stored,
     New,
@@ -113,10 +140,11 @@ pub enum ArticleStatus {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString)]
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Rating {
     Hated,
     Disliked,
+    #[default]
     Neutral,
     Liked,
     Loved,
