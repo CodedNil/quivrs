@@ -1,7 +1,7 @@
-use super::components::RatingPill;
+use super::components::{InfoPill, RatingPill};
 use crate::{
     shared::{
-        Article, ArticleStatus, Rating,
+        Article, ArticleStatus, Rating, Region,
         server_functions::{set_article_status, set_rating},
     },
     web::{Route, article_ids_for_status, status_for_tab},
@@ -137,9 +137,22 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                             display: "flex",
                             align_items: "center",
                             gap: "0.375rem",
+                            flex_wrap: "wrap",
                             RatingPill {
                                 label: article.category.to_string(),
                                 item_key: format!("category:{}", article.category),
+                            }
+                            if article.region != Region::Global {
+                                RatingPill {
+                                    label: article.region.to_string(),
+                                    item_key: format!("region:{}", article.region),
+                                }
+                            }
+                            InfoPill {
+                                label: format!("Sentiment {:.0}%", article.sentiment * 100.0),
+                            }
+                            InfoPill {
+                                label: format!("Importance {:.0}%", article.importance * 100.0),
                             }
                             for source in &article.sources {
                                 RatingPill {

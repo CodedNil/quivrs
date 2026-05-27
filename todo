@@ -14,6 +14,9 @@ clicking to move to stored/bin bugs out sidebar, as does keybinds if theres no r
 inline dioxus-free-icons - font-awesome-solid
 switch fastembed to using candle and hf-hub
 
+split generation into two phases, first finds the duplicates to merge
+
+
 support youtube feeds, subreddits as sources
 
 widgets for things like current polling trackers

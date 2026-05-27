@@ -18,6 +18,25 @@ pub fn CenteredMessage(text: String) -> Element {
     }
 }
 
+/// A compact, non-interactive article attribute badge.
+#[component]
+pub fn InfoPill(label: String) -> Element {
+    rsx! {
+        span {
+            display: "inline-flex",
+            align_items: "center",
+            background_color: "var(--surface0)",
+            border_radius: "9999px",
+            padding: "0.2rem 0.625rem",
+            color: "var(--subtext1)",
+            font_size: "0.62rem",
+            font_weight: "700",
+            white_space: "nowrap",
+            "{label}"
+        }
+    }
+}
+
 /// A rating pill that expands with rating buttons on hover.
 #[component]
 pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Element {

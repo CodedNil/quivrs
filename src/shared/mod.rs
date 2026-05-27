@@ -106,15 +106,16 @@ pub enum Category {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString)]
+#[derive(
+    Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString, PartialEq, Eq,
+)]
 pub enum Region {
     #[default]
-    Worldwide,
+    Global,
     UnitedKingdom,
     England,
     Scotland,
     Wales,
-    NorthernIreland,
     Ireland,
     UnitedStates,
     Canada,
