@@ -1,11 +1,10 @@
 mod category;
 mod importance;
-mod region;
 mod sentiment;
 
 use crate::{
     server::database,
-    shared::{Category, PendingSource, Region},
+    shared::{Category, PendingSource},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
@@ -51,18 +50,6 @@ fn label_definitions() -> Vec<LabelDefinition> {
                 key: format!("category:{category}:{idx}"),
                 label_group: "category",
                 label_value: category.to_string(),
-                hash: label_hash(text),
-                text,
-            });
-        }
-    }
-
-    for region in Region::iter() {
-        for (idx, text) in region::labels(region).iter().enumerate() {
-            definitions.push(LabelDefinition {
-                key: format!("region:{region}:{idx}"),
-                label_group: "region",
-                label_value: region.to_string(),
                 hash: label_hash(text),
                 text,
             });
@@ -211,12 +198,10 @@ async fn maintenance_article_embeddings() -> Result<()> {
     Ok(())
 }
 
-pub async fn classify(article_embedding: &[f32]) -> Result<(Category, Region, f32, f32)> {
+pub async fn classify(article_embedding: &[f32]) -> Result<(Category, f32, f32)> {
     let scores = database::get_label_scores(article_embedding).await?;
-
     Ok((
         best_label(&scores, "category")?,
-        best_label(&scores, "region")?,
         binary_label_score(&scores, "sentiment", "positive")?,
         binary_label_score(&scores, "importance", "important")?,
     ))

@@ -22,7 +22,6 @@ pub struct PendingSource {
     pub images: Vec<(String, String)>, // (url, caption)
     pub published: DateTime<Utc>,
     pub category: Category,
-    pub region: Region,
     pub sentiment: f32,
     pub importance: f32,
 
@@ -44,7 +43,6 @@ pub struct Article {
     pub thumbnail: String,
     pub published: DateTime<Utc>,
     pub category: Category,
-    pub region: Region,
 
     pub status: ArticleStatus,
     pub binned_at: Option<DateTime<Utc>>,
@@ -103,58 +101,6 @@ pub enum Category {
     Science,
     Sports,
     Gaming,
-}
-
-#[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(
-    Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString, PartialEq, Eq,
-)]
-pub enum Region {
-    #[default]
-    Global,
-
-    // Great Britain
-    UnitedKingdom,
-    England,
-    Scotland,
-    Wales,
-    Ireland,
-
-    // North America
-    UnitedStates,
-    Canada,
-
-    // Latin America and the Caribbean
-    LatinAmerica,
-    Caribbean,
-
-    // Europe
-    France,
-    Germany,
-    Italy,
-    Iberia,
-    Nordic,
-    WesternEurope,
-    CentralEurope,
-    Balkans,
-    EasternEurope,
-
-    // Middle East and Africa
-    MiddleEastNorthAfrica,
-    SubSaharanAfrica,
-
-    // Asia
-    India,
-    WestAsia,
-    China,
-    Japan,
-    Korea,
-    Taiwan,
-    SoutheastAsia,
-    CentralAsia,
-
-    // Oceania
-    Oceania,
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]

@@ -49,17 +49,6 @@ pub const fn category_bonus(rating: Rating) -> f32 {
     }
 }
 
-/// Max amount to boost or dampen the score for a rated region.
-pub const fn region_bonus(rating: Rating) -> f32 {
-    match rating {
-        Rating::Hated => -0.2,
-        Rating::Disliked => -0.1,
-        Rating::Neutral => 0.0,
-        Rating::Liked => 0.1,
-        Rating::Loved => 0.3,
-    }
-}
-
 /// Max amount to boost or dampen the score for a rated domain
 pub const fn domain_bonus(rating: Rating) -> f32 {
     match rating {
@@ -132,7 +121,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     for ((mut source, embedding_text), embedding) in
         new_entries.into_iter().zip(texts).zip(embeddings)
     {
-        let (category, region, sentiment, importance) = match classify(&embedding).await {
+        let (category, sentiment, importance) = match classify(&embedding).await {
             Ok(scores) => scores,
             Err(err) => {
                 warn!("Classification failed for '{}': {err:#}", source.title);
@@ -144,17 +133,15 @@ pub async fn refresh_all_feeds() -> Result<()> {
         source.embedding_text = embedding_text;
         source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
         source.category = category;
-        source.region = region;
         source.sentiment = sentiment;
         source.importance = importance;
 
         info!(
             "[NEW] {}",
             format!(
-                "'{}' {}, {}, sentiment: {:.2} importance: {:.2}",
+                "'{}' {}, sentiment: {:.2} importance: {:.2}",
                 article_text(&source, 1),
                 category,
-                region,
                 sentiment,
                 importance
             )
@@ -200,16 +187,13 @@ pub async fn promote_articles() -> Result<()> {
         estimated_liked_bonus += p.sentiment * SENTIMENT_BONUS;
         estimated_liked_bonus += p.importance * IMPORTANCE_BONUS;
 
-        // Boost for category, region, and domain ratings.
+        // Boost for category and domain ratings.
         let category_articles_number = item_ratings
             .get(&format!("category:{}", p.category))
             .map_or(category_new_articles(Rating::Neutral), |rating| {
                 estimated_liked_bonus += category_bonus(*rating);
                 category_new_articles(*rating)
             });
-        if let Some(rating) = item_ratings.get(&format!("region:{}", p.region)) {
-            estimated_liked_bonus += region_bonus(*rating);
-        }
         if let Some(rating) = item_ratings.get(&format!("domain:{}", p.domain)) {
             estimated_liked_bonus += domain_bonus(*rating);
         }
@@ -326,7 +310,6 @@ pub async fn promote_articles() -> Result<()> {
                     thumbnail: entry.thumbnail,
                     published: candidate.published,
                     category: candidate.category,
-                    region: candidate.region,
                     status: ArticleStatus::New,
                     binned_at: None,
                     rating: None,
