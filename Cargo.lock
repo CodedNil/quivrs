@@ -4929,6 +4929,7 @@ dependencies = [
  "html-escape",
  "itertools 0.14.0",
  "postcard",
+ "rayon",
  "reqwest 0.13.4",
  "ron",
  "roxmltree",

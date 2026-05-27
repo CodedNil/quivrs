@@ -2,6 +2,9 @@ mod category;
 mod importance;
 mod sentiment;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     server::database,
     shared::{Category, PendingSource},
@@ -9,6 +12,7 @@ use crate::{
 use anyhow::{Context, Result, anyhow, bail};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use itertools::Itertools;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -21,6 +25,8 @@ use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300m";
+
+pub const EMBEDDING_TITLE_REPEAT: usize = 5;
 
 pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
@@ -87,11 +93,12 @@ static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
     )
 });
 
-pub fn article_text(s: &PendingSource, title_repeat: usize) -> String {
-    std::iter::repeat_n(s.title.replace('\n', " "), title_repeat)
+pub fn article_text(source: &PendingSource, title_repeat: usize) -> String {
+    std::iter::repeat_n(source.title.replace('\n', " "), title_repeat)
         .chain([
-            s.tags.iter().take(8).join(", ").replace('\n', " "),
-            s.summary
+            source.tags.iter().take(8).join(", ").replace('\n', " "),
+            source
+                .summary
                 .chars()
                 .take(200)
                 .collect::<String>()
@@ -106,29 +113,26 @@ pub async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
         return Ok(Vec::new());
     }
 
-    let texts = texts.to_vec();
+    let texts_vec = texts.to_vec();
     let mut embeddings = tokio::task::spawn_blocking(move || {
         EMBEDDING_MODEL
             .lock()
             .map_err(|_| anyhow!("Embedding model lock poisoned"))?
-            .embed(texts, None)
+            .embed(texts_vec, None)
     })
     .await
     .context("Embedding worker task failed")??;
 
-    for embedding in &mut embeddings {
-        normalize(embedding);
-    }
-    Ok(embeddings)
-}
-
-fn normalize(v: &mut [f32]) {
-    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for x in v {
-            *x /= norm;
+    embeddings.par_iter_mut().for_each(|embedding| {
+        let norm: f32 = embedding.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        if norm > f32::EPSILON {
+            let inv_norm = 1.0 / norm;
+            for x in embedding {
+                *x *= inv_norm;
+            }
         }
-    }
+    });
+    Ok(embeddings)
 }
 
 pub async fn maintenance_embeddings() -> Result<()> {

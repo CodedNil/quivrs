@@ -1,7 +1,10 @@
 use crate::{
     server::{
         database,
-        embeddings::{EMBEDDING_MODEL_NAME, article_text, classify, generate_embeddings},
+        embeddings::{
+            EMBEDDING_MODEL_NAME, EMBEDDING_TITLE_REPEAT, article_text, classify,
+            generate_embeddings,
+        },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
     },
@@ -112,7 +115,10 @@ pub async fn refresh_all_feeds() -> Result<()> {
         "Generating embeddings for {} new articles...",
         new_entries.len()
     );
-    let texts: Vec<String> = new_entries.iter().map(|a| article_text(a, 5)).collect();
+    let texts: Vec<String> = new_entries
+        .iter()
+        .map(|a| article_text(a, EMBEDDING_TITLE_REPEAT))
+        .collect();
     let embeddings = generate_embeddings(&texts)
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;

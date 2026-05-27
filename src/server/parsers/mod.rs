@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use websites::fetch_source_content;
 
-const MAX_ARTICLE_AGE_DAYS: i64 = 7;
+const MAX_ARTICLE_AGE_DAYS: i64 = 4;
 
 pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
     let result = if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app")
