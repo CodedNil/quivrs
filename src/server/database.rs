@@ -1,6 +1,6 @@
 use crate::shared::{Article, ArticleStatus, Category, PendingSource, Rating};
 use anyhow::{Context, Result, bail};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -421,26 +421,15 @@ pub async fn purge_old_pending_sources() -> Result<()> {
     Ok(())
 }
 
-pub async fn get_similar_pending_sources(
-    embedding: &[f32],
-    category: Category,
-    min_published: DateTime<Utc>,
-    max_published: DateTime<Utc>,
-) -> Result<Vec<(PendingSource, f32)>> {
+pub async fn get_similar_pending_sources(embedding: &[f32]) -> Result<Vec<(PendingSource, f32)>> {
     let mut res = DB
         .query(format!(
             "SELECT *, vector::distance::knn() AS dist
              FROM pending_sources
-             WHERE category = $category
-               AND published > $min
-               AND published < $max
-               AND embedding <|{SIMILAR_SOURCE_NEIGHBOURS},{KNN_EF}|> $embedding
+             WHERE embedding <|{SIMILAR_SOURCE_NEIGHBOURS},{KNN_EF}|> $embedding
              ORDER BY dist"
         ))
         .bind(("embedding", embedding.to_vec()))
-        .bind(("category", category))
-        .bind(("min", min_published))
-        .bind(("max", max_published))
         .await?;
 
     let rows: Vec<serde_json::Value> = res.take(0)?;
