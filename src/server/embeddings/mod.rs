@@ -21,8 +21,7 @@ use surrealdb::types::RecordId;
 use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
-pub const EMBEDDING_MODEL_NAME: &str = "EmbeddingGemma300M";
-const CLASSIFICATION_PROMPT: &str = "task: classification | query: ";
+pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300m";
 
 pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
@@ -52,7 +51,7 @@ fn label_definitions() -> Vec<LabelDefinition> {
                 key: format!("category:{category}:{idx}"),
                 label_group: "category",
                 label_value: category.to_string(),
-                hash: label_hash(&classification_input(text)),
+                hash: label_hash(text),
                 text,
             });
         }
@@ -64,7 +63,7 @@ fn label_definitions() -> Vec<LabelDefinition> {
                 key: format!("region:{region}:{idx}"),
                 label_group: "region",
                 label_value: region.to_string(),
-                hash: label_hash(&classification_input(text)),
+                hash: label_hash(text),
                 text,
             });
         }
@@ -85,17 +84,13 @@ fn label_definitions() -> Vec<LabelDefinition> {
                 key: format!("{group}:{key}:{idx}"),
                 label_group: group,
                 label_value: key.to_string(),
-                hash: label_hash(&classification_input(text)),
+                hash: label_hash(text),
                 text,
             });
         }
     }
 
     definitions
-}
-
-pub fn classification_input(text: &str) -> String {
-    format!("{CLASSIFICATION_PROMPT}{text}")
 }
 
 static EMBEDDING_MODEL: LazyLock<Mutex<TextEmbedding>> = LazyLock::new(|| {
@@ -119,7 +114,7 @@ pub fn article_text(s: &PendingSource, title_repeat: usize) -> String {
         .join(". ")
 }
 
-pub async fn generate_article_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+pub async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     if texts.is_empty() {
         return Ok(Vec::new());
     }
@@ -149,6 +144,12 @@ fn normalize(v: &mut [f32]) {
     }
 }
 
+pub async fn maintenance_embeddings() -> Result<()> {
+    maintenance_label_embeddings().await?;
+    maintenance_article_embeddings().await?;
+    Ok(())
+}
+
 async fn maintenance_label_embeddings() -> Result<()> {
     let definitions = label_definitions();
     let keys: HashSet<_> = definitions.iter().map(|def| def.key.clone()).collect();
@@ -160,11 +161,8 @@ async fn maintenance_label_embeddings() -> Result<()> {
 
     if !stale.is_empty() {
         info!("Refreshing {} label embeddings", stale.len());
-        let texts: Vec<_> = stale
-            .iter()
-            .map(|def| classification_input(def.text))
-            .collect();
-        let embeddings = generate_article_embeddings(&texts).await?;
+        let texts: Vec<_> = stale.iter().map(|def| def.text.to_string()).collect();
+        let embeddings = generate_embeddings(&texts).await?;
         let records: Vec<_> = stale
             .into_iter()
             .zip(embeddings)
@@ -185,12 +183,6 @@ async fn maintenance_label_embeddings() -> Result<()> {
     Ok(())
 }
 
-pub async fn maintenance_embeddings() -> Result<()> {
-    maintenance_label_embeddings().await?;
-    maintenance_article_embeddings().await?;
-    Ok(())
-}
-
 async fn maintenance_article_embeddings() -> Result<()> {
     let current_model = EMBEDDING_MODEL_NAME;
 
@@ -203,7 +195,7 @@ async fn maintenance_article_embeddings() -> Result<()> {
         info!("Updating embeddings for {} records in {table}", stale.len());
         for chunk in stale.chunks(100) {
             let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
-            let new_embeddings = generate_article_embeddings(&texts).await?;
+            let new_embeddings = generate_embeddings(&texts).await?;
             let updates: Vec<_> = chunk
                 .iter()
                 .zip(new_embeddings)

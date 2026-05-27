@@ -10,7 +10,6 @@ dioxus-free-icons = { version = "0.10.0", features = ["font-awesome-solid"] }
 tracing = "0.1.44"
 anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
-tap = "1.0.1"
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 chrono = { version = "0.4.44", default-features = false, features = [
     "clock",
@@ -52,12 +51,14 @@ tower-http = { version = "0.6.11", features = [
     "compression-deflate",
     "compression-gzip",
 ] }
-surrealdb = { version = "3.0.5", features = ["kv-surrealkv"] }
+surrealdb = { version = "3.0.5", default-features = false, features = [
+    "kv-surrealkv",
+] }
 ammonia = "4.1.2"
 dom_smoothie = "0.17.0"
 scraper = "0.27.0"
 futures = "0.3.32"
-fastembed = { version = "5.13.4", default-features = false, features = [
+fastembed = { version = "5.14.0", default-features = false, features = [
     "hf-hub-rustls-tls",
     "ort-download-binaries-rustls-tls",
 ] }
@@ -86,7 +87,7 @@ volatile_composites = "allow"
 opt-level = 1
 
 [profile.dev.package."*"]
-opt-level = 3
+opt-level = 2
 
 [profile.release]
 lto = true

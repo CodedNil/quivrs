@@ -10,7 +10,8 @@ pkgs.mkShell {
     just
     dioxus-cli
     pkg-config
-    surrealdb
+    mold
+    lld
   ];
   buildInputs = with pkgs; [
     openssl

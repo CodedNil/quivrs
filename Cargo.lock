@@ -1644,7 +1644,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
+ "wasm-streams",
  "web-sys",
  "xxhash-rust",
 ]
@@ -2004,7 +2004,7 @@ dependencies = [
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
+ "wasm-streams",
  "web-sys",
 ]
 
@@ -2323,9 +2323,9 @@ dependencies = [
 
 [[package]]
 name = "fastembed"
-version = "5.13.4"
+version = "5.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0112bd54a5d1903b19c85609c282949523bb8bb39f1614d4db0017e0ef3b0ff"
+checksum = "5fbd3f77d023203962ea5e60bbfd8443b4c9bd079e16b5122346cce8d30772f5"
 dependencies = [
  "anyhow",
  "hf-hub",
@@ -3129,9 +3129,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6299f016b246a94207e63da54dbe807655bf9e00044f73ded42c3ac5305fbcca"
+checksum = "eb92f162bf56536459fc83c79b974bb12837acfed43d6bc370a7916d0ae15ecc"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -3162,7 +3162,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.7",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -3683,9 +3683,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libredox"
-version = "0.1.16"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e02f3bb43d335493c96bf3fd3a321600bf6bd07ed34bc64118e9293bdffea46c"
+checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
 ]
@@ -4938,7 +4938,6 @@ dependencies = [
  "sha2 0.11.0",
  "strum",
  "surrealdb",
- "tap",
  "tokio",
  "tower-http",
  "tracing",
@@ -5193,9 +5192,9 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
+ "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.7",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -5209,7 +5208,6 @@ dependencies = [
  "cookie",
  "cookie_store",
  "futures-core",
- "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -5218,7 +5216,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -5230,14 +5227,12 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
- "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.5.0",
  "web-sys",
 ]
 
@@ -6284,9 +6279,7 @@ dependencies = [
  "indexmap",
  "js-sys",
  "path-clean",
- "reqwest 0.13.4",
  "ring",
- "rustls",
  "rustls-pki-types",
  "semver",
  "serde",
@@ -6295,7 +6288,6 @@ dependencies = [
  "surrealdb-types",
  "surrealdb-types-derive",
  "tokio",
- "tokio-tungstenite 0.28.0",
  "tokio-tungstenite-wasm",
  "tokio-util",
  "tracing",
@@ -6442,9 +6434,9 @@ dependencies = [
 
 [[package]]
 name = "surrealdb-types"
-version = "3.1.1"
+version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d5c51712b6638a945afde846e6fd21d665781d8e5754b2648f435c29561cfe"
+checksum = "8b24fe0d9852fdd25f4746be5ea3570f2b56273cfa4e3303fb77fa770a3e33a8"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6469,9 +6461,9 @@ dependencies = [
 
 [[package]]
 name = "surrealdb-types-derive"
-version = "3.1.1"
+version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99e040c6029fc81bd3f5e097e1d71779bb9f4bfeef0578c83f1cd78c23bd8bc4"
+checksum = "19d50454f56d5e0d633541054feffd0b1c907079585e7286cdc6e6c5d13ce4c9"
 dependencies = [
  "heck 0.4.1",
  "proc-macro2",
@@ -6819,12 +6811,8 @@ checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
 dependencies = [
  "futures-util",
  "log",
- "rustls",
- "rustls-pki-types",
  "tokio",
- "tokio-rustls",
  "tungstenite 0.28.0",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -7131,11 +7119,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.4",
- "rustls",
- "rustls-pki-types",
  "sha1",
  "thiserror 2.0.18",
- "url",
  "utf-8",
 ]
 
@@ -7265,7 +7250,7 @@ dependencies = [
  "socks",
  "ureq-proto",
  "utf8-zero",
- "webpki-roots 1.0.7",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -7518,19 +7503,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-streams"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
-dependencies = [
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "wasmparser"
 version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7606,15 +7578,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.7",
 ]
 
 [[package]]

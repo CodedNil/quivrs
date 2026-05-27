@@ -1,10 +1,7 @@
 use crate::{
     server::{
         database,
-        embeddings::{
-            EMBEDDING_MODEL_NAME, article_text, classification_input, classify,
-            generate_article_embeddings,
-        },
+        embeddings::{EMBEDDING_MODEL_NAME, article_text, classify, generate_embeddings},
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
     },
@@ -128,32 +125,21 @@ pub async fn refresh_all_feeds() -> Result<()> {
         new_entries.len()
     );
     let texts: Vec<String> = new_entries.iter().map(|a| article_text(a, 5)).collect();
-    let embeddings = generate_article_embeddings(&texts)
+    let embeddings = generate_embeddings(&texts)
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
-    let classification_texts: Vec<_> = texts
-        .iter()
-        .map(|text| classification_input(text))
-        .collect();
-    let classification_embeddings = generate_article_embeddings(&classification_texts)
-        .await
-        .inspect_err(|e| error!("Classification embedding generation failed: {e}"))?;
 
     let mut classified_sources = Vec::with_capacity(new_entries.len());
-    for (((mut source, embedding_text), embedding), classification_embedding) in new_entries
-        .into_iter()
-        .zip(texts)
-        .zip(embeddings)
-        .zip(classification_embeddings)
+    for ((mut source, embedding_text), embedding) in
+        new_entries.into_iter().zip(texts).zip(embeddings)
     {
-        let (category, region, sentiment, importance) =
-            match classify(&classification_embedding).await {
-                Ok(scores) => scores,
-                Err(err) => {
-                    warn!("Classification failed for '{}': {err:#}", source.title);
-                    continue;
-                }
-            };
+        let (category, region, sentiment, importance) = match classify(&embedding).await {
+            Ok(scores) => scores,
+            Err(err) => {
+                warn!("Classification failed for '{}': {err:#}", source.title);
+                continue;
+            }
+        };
 
         source.embedding = embedding;
         source.embedding_text = embedding_text;
