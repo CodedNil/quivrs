@@ -112,23 +112,48 @@ pub enum Category {
 pub enum Region {
     #[default]
     Global,
+
+    // Great Britain
     UnitedKingdom,
     England,
     Scotland,
     Wales,
     Ireland,
+
+    // North America
     UnitedStates,
     Canada,
-    NorthAmerica,
+
+    // Latin America and the Caribbean
     LatinAmerica,
+    Caribbean,
+
+    // Europe
+    France,
+    Germany,
+    Italy,
+    Iberia,
+    Nordic,
     WesternEurope,
+    CentralEurope,
+    Balkans,
     EasternEurope,
+
+    // Middle East and Africa
     MiddleEastNorthAfrica,
     SubSaharanAfrica,
-    SouthAsia,
-    EastAsia,
+
+    // Asia
+    India,
+    WestAsia,
+    China,
+    Japan,
+    Korea,
+    Taiwan,
     SoutheastAsia,
     CentralAsia,
+
+    // Oceania
     Oceania,
 }
 

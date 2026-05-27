@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use tokio::fs;
 use websites::fetch_source_content;
 
+const MAX_ARTICLE_AGE_DAYS: i64 = 7;
+
 pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
     let result = if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app")
     {
@@ -22,7 +24,7 @@ pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
     };
     // Drop result if older than a week
     if let Ok(Some(result)) = &result
-        && result.published < Utc::now() - Duration::days(7)
+        && is_article_too_old(result.published)
     {
         return Ok(None);
     }
@@ -58,4 +60,8 @@ async fn get_cached_or_fetch_ext(url: &str, ext: &str) -> Result<String> {
         let _ = fs::write(&cache_path, text.as_bytes()).await;
     }
     Ok(text)
+}
+
+fn is_article_too_old(published: chrono::DateTime<Utc>) -> bool {
+    published < Utc::now() - Duration::days(MAX_ARTICLE_AGE_DAYS)
 }

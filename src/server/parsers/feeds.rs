@@ -1,5 +1,6 @@
 use crate::server::HTTP_CLIENT;
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tracing::warn;
 use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
@@ -68,6 +69,10 @@ fn rss_items<'a>(nodes: impl Iterator<Item = roxmltree::Node<'a, 'a>>) -> Vec<St
 }
 
 fn parse_rss_item(item: roxmltree::Node) -> Option<String> {
+    if node_is_too_old(item, &["pubDate", "date"]) {
+        return None;
+    }
+
     let thread_url = child_text(item, "link", None)
         .map(|s| s.trim().to_string())
         .or_else(|| {
@@ -76,17 +81,17 @@ fn parse_rss_item(item: roxmltree::Node) -> Option<String> {
                 .map(|a| a.value().to_string())
         })?;
 
-    let normalized = normalize_article_url(&thread_url);
-    if is_base_url(&normalized) {
-        return None;
-    }
-    Some(normalized)
+    usable_article_url(&thread_url)
 }
 
 fn parse_atom(root: roxmltree::Node) -> Vec<String> {
     root.children()
         .filter(|n| n.is_element() && n.tag_name().name() == "entry")
         .filter_map(|entry| {
+            if node_is_too_old(entry, &["published", "updated"]) {
+                return None;
+            }
+
             let thread_url = entry
                 .children()
                 .filter(|n| n.is_element() && n.tag_name().name() == "link")
@@ -104,11 +109,7 @@ fn parse_atom(root: roxmltree::Node) -> Vec<String> {
                 .and_then(|n| n.attribute("href"))
                 .map(str::trim)?;
 
-            let normalized = normalize_article_url(thread_url);
-            if is_base_url(&normalized) {
-                return None;
-            }
-            Some(normalized)
+            usable_article_url(thread_url)
         })
         .collect()
 }
@@ -134,6 +135,7 @@ struct RedditPost {
     url: String,
     score: i32,
     upvote_ratio: f32,
+    created_utc: Option<f64>,
 }
 
 fn parse_reddit_json(bytes: &[u8]) -> Result<Vec<String>> {
@@ -148,6 +150,11 @@ fn parse_reddit_json(bytes: &[u8]) -> Result<Vec<String>> {
         .children
         .into_iter()
         .map(|c| c.data)
+        .filter(|p| {
+            !p.created_utc
+                .and_then(|timestamp| DateTime::from_timestamp(timestamp as i64, 0))
+                .is_some_and(super::is_article_too_old)
+        })
         .filter(|p| p.score > 10 && p.upvote_ratio > 0.8)
         .map(|p| p.url)
         .filter(|url| !url.contains("reddit.com") && !url.contains("redd.it"))
@@ -165,6 +172,8 @@ struct JsonFeed {
 #[derive(Deserialize)]
 struct JsonFeedItem {
     url: Option<String>,
+    date_published: Option<String>,
+    date_modified: Option<String>,
 }
 
 fn parse_json_feed(bytes: &[u8]) -> Result<Vec<String>> {
@@ -174,16 +183,33 @@ fn parse_json_feed(bytes: &[u8]) -> Result<Vec<String>> {
         .items
         .into_iter()
         .filter_map(|item| {
-            item.url.and_then(|u| {
-                let normalized = normalize_article_url(&u);
-                if is_base_url(&normalized) {
-                    None
-                } else {
-                    Some(normalized)
-                }
-            })
+            if [&item.date_published, &item.date_modified]
+                .into_iter()
+                .flatten()
+                .find_map(|date| parse_feed_date(date))
+                .is_some_and(super::is_article_too_old)
+            {
+                return None;
+            }
+
+            item.url.and_then(|url| usable_article_url(&url))
         })
         .collect())
+}
+
+fn node_is_too_old(node: roxmltree::Node, date_names: &[&str]) -> bool {
+    date_names
+        .iter()
+        .filter_map(|name| child_text(node, name, None))
+        .find_map(|date| parse_feed_date(&date))
+        .is_some_and(super::is_article_too_old)
+}
+
+fn parse_feed_date(date: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(date)
+        .or_else(|_| DateTime::parse_from_rfc2822(date))
+        .ok()
+        .map(|date| date.with_timezone(&Utc))
 }
 
 fn child_text<'a>(node: roxmltree::Node<'a, 'a>, name: &str, ns: Option<&str>) -> Option<String> {
@@ -234,4 +260,9 @@ fn is_base_url(url: &str) -> bool {
         let path = parsed.path();
         path == "/" || path.is_empty()
     })
+}
+
+fn usable_article_url(url: &str) -> Option<String> {
+    let normalized = normalize_article_url(url);
+    (!is_base_url(&normalized)).then_some(normalized)
 }

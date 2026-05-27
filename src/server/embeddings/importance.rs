@@ -13,6 +13,9 @@ pub fn labels(importance: &str) -> &'static [&'static str] {
             "A major scientific or technological milestone with broad societal consequences.",
             "A systemic abuse, civil rights, child safety, or human rights development.",
             "A major regulator, court, or government action affecting an industry or large population.",
+            "A national household energy price cap change or utility bill increase affecting millions of people.",
+            "A major space programme mission or medical discovery intended to treat a serious disease.",
+            "A national defence spending plan, preparation for war, or security warning about critical national infrastructure.",
         ],
         "unimportant" => &[
             "A shopping discount, seasonal sale, coupon, price drop, or bargain recommendation.",
@@ -27,6 +30,9 @@ pub fn labels(importance: &str) -> &'static [&'static str] {
             "A promotional travel offer, shopping list, gift guide, or buying guide.",
             "A personal profile, opinion piece, interview, or human-interest feature without wider impact.",
             "A niche hobby update, casual tutorial, game recommendation, or routine leisure story.",
+            "A routine voting-intention poll, local council by-election result, candidate list, or political snapshot without a change of government.",
+            "A routine product release, AI model benchmark update, software feature announcement, or company promotion without broad consequences.",
+            "A rumoured phone or wearable refresh, device comparison, accessory review, or expected incremental consumer launch.",
         ],
         _ => &[],
     }

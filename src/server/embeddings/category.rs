@@ -13,6 +13,9 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "Banking, liquidity crisis, insolvency, commercial lenders, central banks, Wall Street, and fiscal policies.",
             "Supply chain logistics, manufacturing output, trade deficits, export tariffs, and global commerce hubs.",
             "An IPO, share sale, or flotation involving a commercial space or technology company.",
+            "A company's tax bill, corporate tax payment, operating costs, employment costs, or contribution to a national economy.",
+            "Universities offering work placements, graduate employment opportunities, apprenticeships, or career preparation for students.",
+            "Financial literacy, household saving, pensions, or numeracy discussed as drivers of national economic growth.",
         ],
         // Government, parliament, elections, political parties, and military/defence affairs
         Category::Politics => &[
@@ -32,6 +35,7 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "News about government regulation of online platforms or protections for children online.",
             "National polling, voting intention, party leadership challenges, council by-elections, and election candidates.",
             "Government decisions about school policy, public regulation, or national public services.",
+            "Newspaper headlines led by criticism of a prime minister, governing party, opposition leader, or national political plan.",
         ],
         // Courts, crime, police investigations, and criminal justice
         Category::Law => &[
@@ -47,6 +51,11 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "A local emergency report about a fatal fall, stabbing, fire, explosion, missing person, or body recovered from water.",
             "An investigation into leaked exams, unlawful conduct, regulatory breaches, or evidence before a court.",
             "A court ruling on consumer rights, a criminal prosecution, or a police arrest after a serious offence.",
+            "Professional misconduct proceedings involving a doctor suspended for sexual conduct, abuse of trust, or improper prescribing.",
+            "Police and emergency services responding to a major building fire, industrial explosion, or suspected attack.",
+            "A fatal industrial accident, tank rupture, paper mill explosion, or workplace blast leaving people dead or missing.",
+            "A fatal fall or accidental death investigated by police or reported after a body is recovered.",
+            "A regulator banning advertisements, gambling activity, or unsafe commercial conduct after an investigation.",
         ],
         // Clinical medicine and personal health — NHS, diagnosis, treatment, fitness, diet
         Category::Health => &[
@@ -70,6 +79,7 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "YouTube creators, TikTok influencers, viral memes, podcast series, and digital internet culture.",
             "A music story about a band, concert, live performance, album, or touring artist.",
             "A story about a musician, jazz legend, obituary, synthesizer, or electronic musical instrument.",
+            "Entertainment merchandise, character toys, puppets, film franchise collectibles, or television tie-in products.",
         ],
         // Domestic life, cooking, home, fashion, consumer tips, and personal finance
         Category::Lifestyle => &[
@@ -138,6 +148,7 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "AI assistants, and software features powered by artificial intelligence.",
             "OpenAI, Anthropic, DeepMind, Midjourney, transformer architecture, fine-tuning, and weights training datasets.",
             "Computer vision, natural language processing NLP, reinforcement learning, and token generation benchmarks.",
+            "A language model release, AI model benchmark result, inference API pricing change, or open-weights model announcement.",
         ],
         // Scientific research, astronomy, biology, and academic discovery
         Category::Science => &[
