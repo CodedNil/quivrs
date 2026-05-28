@@ -5,7 +5,7 @@ use crate::{
         Article, ArticleStatus, Rating, Region,
         server_functions::{set_article_status, set_rating},
     },
-    web::{Route, article_ids_for_status, status_for_tab},
+    web::{Route, article_exists_in_tab, route_after_status_change, status_for_tab},
 };
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -14,6 +14,19 @@ use uuid::Uuid;
 pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
     let articles = use_context::<Signal<Vec<Article>>>();
     let article_store = articles.read();
+    let articles_loaded = use_context::<Signal<bool>>();
+    let navigator = use_navigator();
+    let is_valid = article_exists_in_tab(&article_store, &tab, id);
+    let tab_for_redirect = tab.clone();
+
+    use_effect(move || {
+        if articles_loaded() && !is_valid {
+            navigator.replace(Route::TabHome {
+                tab: tab_for_redirect.clone(),
+            });
+        }
+    });
+
     let Some(article) = article_store.iter().find(|a| a.id == id) else {
         return rsx! {};
     };
@@ -227,7 +240,10 @@ fn ActionBtn(
             title,
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
-            onclick,
+            onclick: move |evt| {
+                evt.stop_propagation();
+                onclick.call(evt);
+            },
             MaterialIcon { name: icon, size: 15 }
         }
     }
@@ -255,16 +271,10 @@ pub fn StatusButtons(id: Uuid) -> Element {
         let mut articles = articles;
         let tab = tab.clone();
 
-        // Go to next article if selected
+        // Keep the user in the same section by jumping to a sibling article.
         if selected_id == Some(id) {
-            let list = article_ids_for_status(&articles.read(), current_status);
-            if let (Some(p), false) = (
-                list.iter().position(|&item_id| item_id == id),
-                list.is_empty(),
-            ) {
-                let target_id = list[(p + 1) % list.len()];
-                navigator.push(Route::ArticleDetail { tab, id: target_id });
-            }
+            let route = route_after_status_change(tab, &articles.read(), current_status, id);
+            navigator.push(route);
         }
 
         // Update status
@@ -339,7 +349,8 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                             display: "inline-block",
                             onmouseenter: move |_| hover_idx.set(Some(i)),
                             onmouseleave: move |_| hover_idx.set(None),
-                            onclick: move |_| async move {
+                            onclick: move |evt| async move {
+                                evt.stop_propagation();
                                 let new = if is_current { Rating::Neutral } else { this_rating };
                                 if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
                                     a.rating = if is_current { None } else { Some(new) };

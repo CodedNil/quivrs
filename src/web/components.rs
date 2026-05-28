@@ -35,6 +35,7 @@ pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
         "sports_and_outdoors" => {
             include_str!("../../assets/icons/sports_and_outdoors.svg")
         }
+        "sports_esports" => include_str!("../../assets/icons/sports_esports.svg"),
         "health_metrics" => {
             include_str!("../../assets/icons/health_metrics.svg")
         }

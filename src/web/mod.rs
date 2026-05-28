@@ -87,12 +87,14 @@ fn TabHome(tab: String) -> Element {
 
 pub fn app() -> Element {
     let mut articles = use_context_provider(|| Signal::new(Vec::<Article>::new()));
+    let mut articles_loaded = use_context_provider(|| Signal::new(false));
     let mut item_ratings = use_context_provider(|| Signal::new(HashMap::<String, Rating>::new()));
 
     use_resource(move || async move {
         if let Ok(data) = get_user_articles().await {
             articles.set(data);
         }
+        articles_loaded.set(true);
     });
     use_resource(move || async move {
         if let Ok(data) = get_all_item_ratings().await {
@@ -207,10 +209,14 @@ fn MainLayout() -> Element {
                             ArticleStatus::Stored
                         };
 
-                        // Move to next article
-                        navigate_delta(1, false);
+                        let route = route_after_status_change(
+                            tab.clone(),
+                            &articles.read(),
+                            current_status,
+                            id,
+                        );
+                        navigator.push(route);
 
-                        // Update article status
                         if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
                             a.status = status;
                         }
@@ -267,4 +273,35 @@ fn article_ids_for_status(articles: &[Article], status: ArticleStatus) -> Vec<Uu
         }
     }
     groups.into_values().flatten().collect()
+}
+
+fn article_exists_in_tab(articles: &[Article], tab: &str, id: Uuid) -> bool {
+    let status = status_for_tab(tab);
+    articles
+        .iter()
+        .any(|article| article.id == id && article.status == status)
+}
+
+fn route_after_status_change(
+    tab: String,
+    articles: &[Article],
+    current_status: ArticleStatus,
+    id: Uuid,
+) -> Route {
+    let list = article_ids_for_status(articles, current_status);
+    if let Some(pos) = list.iter().position(|&item_id| item_id == id)
+        && list.len() > 1
+    {
+        let target_index = if pos + 1 < list.len() {
+            pos + 1
+        } else {
+            pos.saturating_sub(1)
+        };
+        let target_id = list[target_index];
+        if target_id != id {
+            return Route::ArticleDetail { tab, id: target_id };
+        }
+    }
+
+    Route::TabHome { tab }
 }
