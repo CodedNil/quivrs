@@ -2,53 +2,40 @@ use crate::shared::{Rating, server_functions::set_item_rating};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 
+macro_rules! material_icon_svg {
+    ($name:literal) => {
+        include_str!(concat!("../../assets/icons/", $name, ".svg"))
+    };
+}
+
 #[component]
 pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
     let size = size.saturating_mul(5) / 4;
     let svg = match name {
-        "keyboard_double_arrow_left" => {
-            include_str!("../../assets/icons/keyboard_double_arrow_left.svg")
-        }
-        "keyboard_arrow_left" => {
-            include_str!("../../assets/icons/keyboard_arrow_left.svg")
-        }
-        "keyboard_arrow_right" => {
-            include_str!("../../assets/icons/keyboard_arrow_right.svg")
-        }
-        "keyboard_double_arrow_right" => {
-            include_str!("../../assets/icons/keyboard_double_arrow_right.svg")
-        }
-        "business_center" => {
-            include_str!("../../assets/icons/business_center.svg")
-        }
-        "account_balance" => {
-            include_str!("../../assets/icons/account_balance.svg")
-        }
-        "gavel" => include_str!("../../assets/icons/gavel.svg"),
-        "movie" => include_str!("../../assets/icons/movie.svg"),
-        "directions_car" => {
-            include_str!("../../assets/icons/directions_car.svg")
-        }
-        "memory" => include_str!("../../assets/icons/memory.svg"),
-        "code" => include_str!("../../assets/icons/code.svg"),
-        "science" => include_str!("../../assets/icons/science.svg"),
-        "sports_and_outdoors" => {
-            include_str!("../../assets/icons/sports_and_outdoors.svg")
-        }
-        "sports_esports" => include_str!("../../assets/icons/sports_esports.svg"),
-        "health_metrics" => {
-            include_str!("../../assets/icons/health_metrics.svg")
-        }
-        "home_and_garden" => {
-            include_str!("../../assets/icons/home_and_garden.svg")
-        }
-        "neurology" => include_str!("../../assets/icons/neurology.svg"),
-        "nature" => include_str!("../../assets/icons/nature.svg"),
-        "delete" => include_str!("../../assets/icons/delete.svg"),
-        "star" => include_str!("../../assets/icons/star.svg"),
-        "bookmark_star" => {
-            include_str!("../../assets/icons/bookmark_star.svg")
-        }
+        "keyboard_double_arrow_left" => material_icon_svg!("keyboard_double_arrow_left"),
+        "keyboard_arrow_left" => material_icon_svg!("keyboard_arrow_left"),
+        "keyboard_arrow_right" => material_icon_svg!("keyboard_arrow_right"),
+        "keyboard_double_arrow_right" => material_icon_svg!("keyboard_double_arrow_right"),
+
+        "star" => material_icon_svg!("star"),
+        "delete" => material_icon_svg!("delete"),
+        "bookmark_star" => material_icon_svg!("bookmark_star"),
+
+        "business" => material_icon_svg!("business_center"),
+        "politics" => material_icon_svg!("account_balance"),
+        "law" => material_icon_svg!("gavel"),
+        "health" => material_icon_svg!("health_metrics"),
+        "culture" => material_icon_svg!("theater_comedy"),
+        "lifestyle" => material_icon_svg!("chair"),
+        "transport" => material_icon_svg!("directions_car"),
+        "nature" => material_icon_svg!("nature"),
+        "technology" => material_icon_svg!("memory"),
+        "software" => material_icon_svg!("code"),
+        "ai" => material_icon_svg!("neurology"),
+        "science" => material_icon_svg!("science"),
+        "sports" => material_icon_svg!("sports_and_outdoors"),
+        "gaming" => material_icon_svg!("sports_esports"),
+
         other => panic!("unsupported material icon: {other}"),
     };
     let svg = svg.replacen(
@@ -62,7 +49,7 @@ pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
             class: "material-icon",
             style: "width: {size}px; height: {size}px;",
             aria_hidden: "true",
-            dangerous_inner_html: "{svg}"
+            dangerous_inner_html: "{svg}",
         }
     }
 }

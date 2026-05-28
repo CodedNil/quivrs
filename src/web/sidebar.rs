@@ -43,20 +43,20 @@ pub const SIDEBAR_STYLES: &str = "
 
 const fn category_icon(category: Category) -> &'static str {
     match category {
-        Category::Business => "business_center",
-        Category::Politics => "account_balance",
-        Category::Law => "gavel",
-        Category::Health => "health_metrics",
-        Category::Culture => "movie",
-        Category::Lifestyle => "home_and_garden",
-        Category::Transport => "directions_car",
+        Category::Business => "business",
+        Category::Politics => "politics",
+        Category::Law => "law",
+        Category::Health => "health",
+        Category::Culture => "culture",
+        Category::Lifestyle => "lifestyle",
+        Category::Transport => "transport",
         Category::Nature => "nature",
-        Category::Technology => "memory",
-        Category::Software => "code",
-        Category::AI => "neurology",
+        Category::Technology => "technology",
+        Category::Software => "software",
+        Category::AI => "ai",
         Category::Science => "science",
-        Category::Sports => "sports_and_outdoors",
-        Category::Gaming => "sports_esports",
+        Category::Sports => "sports",
+        Category::Gaming => "gaming",
     }
 }
 
@@ -252,19 +252,14 @@ fn TabNav(tab: String, new_count: usize, stored_count: usize, binned_count: usiz
                 ("binned", "Binned", binned_count),
             ]
             {
-                TabButton {
-                    slug,
-                    label,
-                    count,
-                    active: tab == slug,
-                }
+                TabButton { slug, label, count }
             }
         }
     }
 }
 
 #[component]
-fn TabButton(slug: &'static str, label: &'static str, count: usize, active: bool) -> Element {
+fn TabButton(slug: &'static str, label: &'static str, count: usize) -> Element {
     let nav = use_navigator();
     let mut pressed = use_signal(|| false);
     let mut hovered = use_signal(|| false);
@@ -423,7 +418,9 @@ fn CategoryScrollbar(
                             z_index: "-1",
                         }
                     }
-                    span { filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
+                    span {
+                        filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
+                        margin_top: "3px",
                         MaterialIcon { name: category_icon(category), size: 13 }
                     }
                 }
@@ -493,6 +490,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
         return rsx! {};
     };
 
+    let navigator = use_navigator();
     let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
     let d = chrono::Utc::now() - article.published;
@@ -537,7 +535,7 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
             onclick: move |_| {
-                use_navigator()
+                navigator
                     .push(Route::ArticleDetail {
                         tab: tab.clone(),
                         id,

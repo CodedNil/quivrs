@@ -17,13 +17,10 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
     let articles_loaded = use_context::<Signal<bool>>();
     let navigator = use_navigator();
     let is_valid = article_exists_in_tab(&article_store, &tab, id);
-    let tab_for_redirect = tab.clone();
 
     use_effect(move || {
         if articles_loaded() && !is_valid {
-            navigator.replace(Route::TabHome {
-                tab: tab_for_redirect.clone(),
-            });
+            navigator.replace(Route::TabHome { tab: tab.clone() });
         }
     });
 
@@ -161,12 +158,8 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                                     item_key: format!("region:{}", article.region),
                                 }
                             }
-                            InfoPill {
-                                label: format!("Sentiment {:.0}%", article.sentiment * 100.0),
-                            }
-                            InfoPill {
-                                label: format!("Importance {:.0}%", article.importance * 100.0),
-                            }
+                            InfoPill { label: format!("Sentiment {:.0}%", article.sentiment * 100.0) }
+                            InfoPill { label: format!("Importance {:.0}%", article.importance * 100.0) }
                             for source in &article.sources {
                                 RatingPill {
                                     key: "{source.url}",
@@ -268,7 +261,6 @@ pub fn StatusButtons(id: Uuid) -> Element {
     let current_status = status_for_tab(&tab);
 
     let update_status = move |new_status: ArticleStatus| {
-        let mut articles = articles;
         let tab = tab.clone();
 
         // Keep the user in the same section by jumping to a sibling article.
@@ -277,10 +269,7 @@ pub fn StatusButtons(id: Uuid) -> Element {
             navigator.push(route);
         }
 
-        // Update status
-        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-            a.status = new_status;
-        }
+        set_article_status_local(articles, id, new_status);
         spawn(async move {
             let _ = set_article_status(id, new_status).await;
         });
@@ -290,13 +279,13 @@ pub fn StatusButtons(id: Uuid) -> Element {
         div { display: "flex", align_items: "center", gap: "0.375rem",
             if status != ArticleStatus::Stored {
                 {
-                    let update_status = update_status.clone();
+                    let save_to_read_later = update_status.clone();
                     rsx! {
                         ActionBtn {
                             icon: "bookmark_star",
                             title: "Save to Read Later",
                             color: "var(--accent)",
-                            onclick: move |_| update_status(ArticleStatus::Stored),
+                            onclick: move |_| save_to_read_later(ArticleStatus::Stored),
                         }
                     }
                 }
@@ -322,7 +311,7 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
         Rating::Liked,
         Rating::Loved,
     ];
-    let mut articles = use_context::<Signal<Vec<Article>>>();
+    let articles = use_context::<Signal<Vec<Article>>>();
     let current_idx = current.and_then(|r| RATINGS.iter().position(|&x| x == r));
     let mut hover_idx: Signal<Option<usize>> = use_signal(|| None);
     let fill_to = hover_idx().or(current_idx);
@@ -352,9 +341,11 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                             onclick: move |evt| async move {
                                 evt.stop_propagation();
                                 let new = if is_current { Rating::Neutral } else { this_rating };
-                                if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                    a.rating = if is_current { None } else { Some(new) };
-                                }
+                                set_article_rating_local(
+                                    articles,
+                                    id,
+                                    if is_current { None } else { Some(new) },
+                                );
                                 let _ = set_rating(id, new).await;
                             },
                             MaterialIcon { name: "star", size: 15 }
@@ -363,5 +354,19 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                 }
             }
         }
+    }
+}
+
+fn set_article_status_local(articles: Signal<Vec<Article>>, id: Uuid, status: ArticleStatus) {
+    let mut articles = articles;
+    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
+        article.status = status;
+    }
+}
+
+fn set_article_rating_local(articles: Signal<Vec<Article>>, id: Uuid, rating: Option<Rating>) {
+    let mut articles = articles;
+    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
+        article.rating = rating;
     }
 }
