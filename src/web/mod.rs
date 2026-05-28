@@ -48,6 +48,21 @@ fn AppHead() -> Element {
                 margin: 0; padding: 0px;
                 background-color: var(--mantle);
             }}
+
+            .material-icon {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex: 0 0 auto;
+                line-height: 0;
+                color: inherit;
+            }}
+
+            .material-icon svg {{
+                width: 100%;
+                height: 100%;
+            }}
+
             {SIDEBAR_STYLES}"
         }
     }

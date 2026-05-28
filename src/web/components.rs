@@ -1,7 +1,70 @@
 use crate::shared::{Rating, server_functions::set_item_rating};
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
 use std::collections::HashMap;
+
+#[component]
+pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
+    let size = size.saturating_mul(5) / 4;
+    let svg = match name {
+        "keyboard_double_arrow_left" => {
+            include_str!("../../assets/icons/keyboard_double_arrow_left.svg")
+        }
+        "keyboard_arrow_left" => {
+            include_str!("../../assets/icons/keyboard_arrow_left.svg")
+        }
+        "keyboard_arrow_right" => {
+            include_str!("../../assets/icons/keyboard_arrow_right.svg")
+        }
+        "keyboard_double_arrow_right" => {
+            include_str!("../../assets/icons/keyboard_double_arrow_right.svg")
+        }
+        "business_center" => {
+            include_str!("../../assets/icons/business_center.svg")
+        }
+        "account_balance" => {
+            include_str!("../../assets/icons/account_balance.svg")
+        }
+        "gavel" => include_str!("../../assets/icons/gavel.svg"),
+        "movie" => include_str!("../../assets/icons/movie.svg"),
+        "directions_car" => {
+            include_str!("../../assets/icons/directions_car.svg")
+        }
+        "memory" => include_str!("../../assets/icons/memory.svg"),
+        "code" => include_str!("../../assets/icons/code.svg"),
+        "science" => include_str!("../../assets/icons/science.svg"),
+        "sports_and_outdoors" => {
+            include_str!("../../assets/icons/sports_and_outdoors.svg")
+        }
+        "health_metrics" => {
+            include_str!("../../assets/icons/health_metrics.svg")
+        }
+        "home_and_garden" => {
+            include_str!("../../assets/icons/home_and_garden.svg")
+        }
+        "neurology" => include_str!("../../assets/icons/neurology.svg"),
+        "nature" => include_str!("../../assets/icons/nature.svg"),
+        "delete" => include_str!("../../assets/icons/delete.svg"),
+        "star" => include_str!("../../assets/icons/star.svg"),
+        "bookmark_star" => {
+            include_str!("../../assets/icons/bookmark_star.svg")
+        }
+        other => panic!("unsupported material icon: {other}"),
+    };
+    let svg = svg.replacen(
+        "<svg ",
+        "<svg style=\"fill:currentColor;width:100%;height:100%;display:block;\" ",
+        1,
+    );
+
+    rsx! {
+        span {
+            class: "material-icon",
+            style: "width: {size}px; height: {size}px;",
+            aria_hidden: "true",
+            dangerous_inner_html: "{svg}"
+        }
+    }
+}
 
 #[component]
 pub fn CenteredMessage(text: String) -> Element {
@@ -80,14 +143,14 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
                 pointer_events: if hovered() { "auto" } else { "none" },
                 transition: "opacity 0.15s ease 0.05s",
                 RatingPillBtn {
-                    icon: fa_solid_icons::FaAnglesLeft,
+                    icon: "keyboard_double_arrow_left",
                     target: Rating::Hated,
                     current,
                     item_key: item_key.clone(),
                     item_ratings,
                 }
                 RatingPillBtn {
-                    icon: fa_solid_icons::FaAngleLeft,
+                    icon: "keyboard_arrow_left",
                     target: Rating::Disliked,
                     current,
                     item_key: item_key.clone(),
@@ -132,14 +195,14 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
                 pointer_events: if hovered() { "auto" } else { "none" },
                 transition: "opacity 0.15s ease 0.05s",
                 RatingPillBtn {
-                    icon: fa_solid_icons::FaAngleRight,
+                    icon: "keyboard_arrow_right",
                     target: Rating::Liked,
                     current,
                     item_key: item_key.clone(),
                     item_ratings,
                 }
                 RatingPillBtn {
-                    icon: fa_solid_icons::FaAnglesRight,
+                    icon: "keyboard_double_arrow_right",
                     target: Rating::Loved,
                     current,
                     item_key,
@@ -151,8 +214,8 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
 }
 
 #[component]
-pub fn RatingPillBtn<T: IconShape + Clone + PartialEq + 'static>(
-    icon: T,
+pub fn RatingPillBtn(
+    icon: &'static str,
     target: Rating,
     current: Option<Rating>,
     item_key: String,
@@ -180,7 +243,7 @@ pub fn RatingPillBtn<T: IconShape + Clone + PartialEq + 'static>(
                     item_ratings.write().insert(k, new_rating);
                 }
             },
-            Icon { icon, width: 12, height: 12 }
+            MaterialIcon { name: icon, size: 12 }
         }
     }
 }

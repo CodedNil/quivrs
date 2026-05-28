@@ -1,3 +1,4 @@
+use super::components::MaterialIcon;
 use super::components::{InfoPill, RatingPill};
 use crate::{
     shared::{
@@ -7,7 +8,6 @@ use crate::{
     web::{Route, article_ids_for_status, status_for_tab},
 };
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, IconShape, icons::fa_solid_icons};
 use uuid::Uuid;
 
 #[component]
@@ -205,8 +205,8 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
 }
 
 #[component]
-fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
-    icon: T,
+fn ActionBtn(
+    icon: &'static str,
     title: String,
     color: &'static str,
     onclick: EventHandler<MouseEvent>,
@@ -228,7 +228,7 @@ fn ActionBtn<T: IconShape + Clone + PartialEq + 'static>(
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
             onclick,
-            Icon { icon, width: 15, height: 15 }
+            MaterialIcon { name: icon, size: 15 }
         }
     }
 }
@@ -283,7 +283,7 @@ pub fn StatusButtons(id: Uuid) -> Element {
                     let update_status = update_status.clone();
                     rsx! {
                         ActionBtn {
-                            icon: fa_solid_icons::FaBookmark,
+                            icon: "bookmark_star",
                             title: "Save to Read Later",
                             color: "var(--accent)",
                             onclick: move |_| update_status(ArticleStatus::Stored),
@@ -293,7 +293,7 @@ pub fn StatusButtons(id: Uuid) -> Element {
             }
             if status != ArticleStatus::Binned {
                 ActionBtn {
-                    icon: fa_solid_icons::FaTrash,
+                    icon: "delete",
                     title: "Move to Bin",
                     color: "var(--accent)",
                     onclick: move |_| update_status(ArticleStatus::Binned),
@@ -346,7 +346,7 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                                 }
                                 let _ = set_rating(id, new).await;
                             },
-                            Icon { icon: fa_solid_icons::FaStar, width: 15, height: 15 }
+                            MaterialIcon { name: "star", size: 15 }
                         }
                     }
                 }

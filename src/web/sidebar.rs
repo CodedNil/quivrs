@@ -1,11 +1,11 @@
 use super::{
     Route,
     article::{StarRating, StatusButtons},
+    components::MaterialIcon,
     status_for_tab,
 };
 use crate::shared::{Article, ArticleStatus, Category};
 use dioxus::prelude::*;
-use dioxus_free_icons::{Icon, icons::fa_solid_icons};
 use std::{
     collections::{BTreeMap, HashMap},
     rc::Rc,
@@ -41,27 +41,22 @@ pub const SIDEBAR_STYLES: &str = "
     .tab-bubble-active { animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
 ";
 
-fn category_icon(category: Category, size: u32) -> Element {
-    macro_rules! ico {
-        ($i:expr) => {
-            rsx! { Icon { width: size, height: size, fill: "currentColor", icon: $i } }
-        };
-    }
+const fn category_icon(category: Category) -> &'static str {
     match category {
-        Category::Business => ico!(fa_solid_icons::FaBriefcase),
-        Category::Politics => ico!(fa_solid_icons::FaLandmark),
-        Category::Law => ico!(fa_solid_icons::FaGavel),
-        Category::Health => ico!(fa_solid_icons::FaHeart),
-        Category::Culture => ico!(fa_solid_icons::FaFilm),
-        Category::Lifestyle => ico!(fa_solid_icons::FaHouse),
-        Category::Transport => ico!(fa_solid_icons::FaCar),
-        Category::Nature => ico!(fa_solid_icons::FaLeaf),
-        Category::Technology => ico!(fa_solid_icons::FaMicrochip),
-        Category::Software => ico!(fa_solid_icons::FaCode),
-        Category::AI => ico!(fa_solid_icons::FaBrain),
-        Category::Science => ico!(fa_solid_icons::FaFlask),
-        Category::Sports => ico!(fa_solid_icons::FaFootball),
-        Category::Gaming => ico!(fa_solid_icons::FaGamepad),
+        Category::Business => "business_center",
+        Category::Politics => "account_balance",
+        Category::Law => "gavel",
+        Category::Health => "health_metrics",
+        Category::Culture => "movie",
+        Category::Lifestyle => "home_and_garden",
+        Category::Transport => "directions_car",
+        Category::Nature => "nature",
+        Category::Technology => "memory",
+        Category::Software => "code",
+        Category::AI => "neurology",
+        Category::Science => "science",
+        Category::Sports => "sports_and_outdoors",
+        Category::Gaming => "sports_esports",
     }
 }
 
@@ -429,7 +424,7 @@ fn CategoryScrollbar(
                         }
                     }
                     span { filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
-                        {category_icon(category, 13)}
+                        MaterialIcon { name: category_icon(category), size: 13 }
                     }
                 }
             }
@@ -465,7 +460,7 @@ fn CategoryGroup(
                 align_items: "center",
                 padding: "0.8rem",
                 gap: "0.75rem",
-                {category_icon(category, 24)}
+                MaterialIcon { name: category_icon(category), size: 24 }
                 div {
                     writing_mode: "vertical-rl",
                     transform: "rotate(180deg)",
