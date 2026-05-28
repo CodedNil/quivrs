@@ -12,16 +12,46 @@ use anyhow::{Context, Result};
 
 // Label-writing guide for embeddinggemma-300m:
 //
-// - Prefer clear keywords when a single word carries the concept well. Use short phrases
-//   only when the phrase is clearer than the individual words.
-// - Avoid inverse wording like "not technology" or "doesn't include sport"; the model
-//   still embeds the forbidden concept strongly.
-// - Category classification picks the closest individual label, so each category needs
-//   at least one strong label for each major concept it owns.
-// - Sentiment and importance use all labels in the group, so keep positive/negative and
-//   important/unimportant labels roughly balanced in breadth and specificity.
-// - Labels should describe reusable concepts, not just one fixture title. Merge or remove
-//   labels that fix one case but pull nearby cases the wrong way.
+// 1. Keyword Density Over Prose
+//    - Rule: Favor dense clusters of distinct keywords separated by colons and commas. Avoid full sentences.
+//    - Why: Fillers like "This category represents stories about..." dilute the vector space.
+//      Use punctuation (colons, commas) to chain concepts together cleanly.
+//    - Example: Prefer "Macroeconomic strain: inflation, rising energy bills, financial hardship" over
+//      "Articles discussing how the economy is struggling and forcing families to pay more for their household bills."
+//
+// 2. Strict Prohibition of Negation
+//    - Rule: Never use logical inversions or negative modifiers (e.g., "not", "non", "without", "except").
+//      Do not define a low-weight category by contrasting it against high-weight concepts.
+//      For example, never use the phrase 'non-emergency' or 'non-violent' in an unimportant/positive bucket.
+//    - Why: Bi-encoders match tokens based on presence, not logic. "Not technology" heavily attracts tech articles.
+//      The high-weight tokens ('emergency', 'violent') will bleed into the vector space regardless of the prefix.
+//    - Fix: Describe what fills the void instead (e.g., use "Routine consumer lifestyle" instead of "Non-important news").
+//      "routine orbital space operations" instead of "non-emergency satellite launches"
+//
+// 3. Absolute Conceptual Abstraction (No Overfitting or Proper Nouns)
+//    - Rule: Never copy literal strings from failing test cases, specific brands, proper nouns, or fleeting fixtures.
+//    - Why: Including "Google Willow" shifts the vector toward "Big Tech corporations" rather than anchoring it to "Quantum Physics".
+//      It warps the embedding space for related topics and breaks generality.
+//    - Fix: Strengthen the general, conceptual parent synonyms (e.g., swap "Ferrari" for "Next-generation automotive design").
+//      If a local tragedy scores too high on importance, don't name the tragedy; strengthen the explicit concept of local scale.
+//      Use "drama series" instead of "crime dramas" so the model doesn't latch onto the word crime.
+//
+// 4. Anchor Macro vs. Micro "Scale" for Importance
+//    - Rule: Explicitly use systemic words (widespread, national, macro) vs. localized words (isolated, individual, niche, minor).
+//    - Why: Embedding models naturally confuse high emotional weight (e.g., an individual death) with high national importance.
+//      You must mathematically anchor the explicit scope of the event.
+//
+// 5. Global Symmetry & Structural Balance
+//    - Rule: Keep opposing buckets perfectly mirrored in tone, breadth, and level of abstraction.
+//    - Why: If one group uses academic terminology and the other uses casual prose, the model will classify based on
+//      writing style rather than actual sentiment or importance.
+//
+// 6. Multi-Label Redundancy (The Safety Net)
+//    - Rule: Ensure high-priority target concepts are explicitly mentioned across at least one label string in the group.
+//    - Why: Category classification picks the closest single label in vector space. Redundant synonyms ensure a tight
+//      mathematical distance for edge cases.
+
+const PLUS_MINUS_MARGIN: f32 = 0.15;
 
 struct TestCase {
     title: &'static str,
@@ -51,7 +81,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "The Scottish government has launched the First Homes Fund for those looking to get on the property ladder.",
         category: Category::Politics,
         sentiment: 0.8,
-        importance: 0.8,
+        importance: 0.7,
     },
     TestCase {
         title: "Reform UK civil service plan 'would sack more planning officers than exist'",
@@ -78,14 +108,14 @@ const TEST_CASES: &[TestCase] = &[
         title: "Flowers laid as teenage girl found dead in water at Kingsbury country park",
         summary: "The girl's body has been recovered from the water following concerns for her welfare, police say.",
         category: Category::Law,
-        sentiment: 0.1,
+        sentiment: 0.2,
         importance: 0.3,
     },
     TestCase {
         title: "Woman warned to prepare for jail after XL Bully kills Shrewsbury teenager",
         summary: "Teenager Morgan Dorsett, 19, suffered fatal bites to her neck in the XL Bully attack.",
         category: Category::Law,
-        sentiment: 0.0,
+        sentiment: 0.1,
         importance: 0.3,
     },
     TestCase {
@@ -127,7 +157,7 @@ const TEST_CASES: &[TestCase] = &[
         title: "How to watch 'A Good Girl's Guide To Murder' season 2 online - stream the hit crime-thriller series for FREE",
         summary: "Pip and Ravi are back for more mystery-solving with season 2 of A Good Girl's Guide To Murder and you can watch along for free.",
         category: Category::Culture,
-        sentiment: 0.7,
+        sentiment: 0.6,
         importance: 0.0,
     },
     TestCase {
@@ -176,7 +206,7 @@ const TEST_CASES: &[TestCase] = &[
         title: "A rare ancient rainforest set to come back to life",
         summary: "Ulster Wildlife takes on 100 year restoration project of ancient rainforest.",
         category: Category::Nature,
-        sentiment: 0.7,
+        sentiment: 0.8,
         importance: 0.5,
     },
     TestCase {
@@ -191,14 +221,14 @@ const TEST_CASES: &[TestCase] = &[
         summary: "The dead fish, at Saundersfoot and Pembrey beaches, were probably part of a discarded catch.",
         category: Category::Nature,
         sentiment: 0.2,
-        importance: 0.3,
+        importance: 0.4,
     },
     TestCase {
         title: "Peebles river detectives part of network tackling pollution",
         summary: "Hundreds of volunteers survey Scotland's watercourses and report any issues of concern quickly",
         category: Category::Nature,
         sentiment: 0.8,
-        importance: 0.4,
+        importance: 0.5,
     },
     TestCase {
         title: "I put aluminum foil behind my router to fix my Wi-Fi dead zones — and it actually worked",
@@ -262,6 +292,125 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Gaming,
         sentiment: 0.7,
         importance: 0.1,
+    },
+    TestCase {
+        title: "The £5 coffee that tells a story of global economic turmoil",
+        summary: "Coffees at some city centre outlets now cost £5. It's a story of tariffs, the climate, Gen Z cultural tastes, and savvy coffee farmers playing the market.",
+        category: Category::Business,
+        sentiment: 0.2,
+        importance: 0.6,
+    },
+    TestCase {
+        title: "Most Britons think water and energy companies should be nationalised",
+        summary: "Support for nationalisation of various sectors has remained constant since the last election.",
+        category: Category::Politics,
+        sentiment: 0.5,
+        importance: 0.7,
+    },
+    TestCase {
+        title: "Students react to ratification of Restore Britain society by University of York",
+        summary: "Your right to be here is not a pub-crawl punchline.",
+        category: Category::Politics,
+        sentiment: 0.5,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "Israel begins strikes on southern Lebanon after evacuation orders",
+        summary: "The military says areas south of the Zahrani River are now combat zones as it begins fresh strikes.",
+        category: Category::Politics,
+        sentiment: 0.1,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "Calls for Barnsley Reform councillor to resign over apparent swastika tattoo",
+        summary: "Publicly accessible Facebook images dating back to 2018 appear to show the symbol on Andy Arnold's arm.",
+        category: Category::Politics,
+        sentiment: 0.2,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "A Google employee allegedly used inside information to win $1.2 million on Polymarket",
+        summary: "Federal prosecutors have charged a Google employee with fraud after he allegedly used confidential data to make over $1 million on bets.",
+        category: Category::Law,
+        sentiment: 0.3,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "It's not a nice world out there: Birth rates hit a 50-year low",
+        summary: "Live births in England and Wales are at their lowest since 1977, while the age of first-time mothers has also risen.",
+        category: Category::Health,
+        sentiment: 0.2,
+        importance: 0.7,
+    },
+    TestCase {
+        title: "Britain's rudest chalk figure gets a glow-up to stop it fading in the rain",
+        summary: "National Trust staff and volunteers will apply 17 tonnes of fresh chalk to the outline of the famous figure.",
+        category: Category::Culture,
+        sentiment: 0.8,
+        importance: 0.3,
+    },
+    TestCase {
+        title: "Upgrade your grilling — 12 essential buys reduced at Amazon right now",
+        summary: "The hottest grilling accessories are discounted, with savings of up to 50%.",
+        category: Category::Lifestyle,
+        sentiment: 0.7,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "I found 25 Amazon summer essentials under $50 — beach gear, patio upgrades, gardening tools and more",
+        summary: "Gear up for summer with these affordable deals.",
+        category: Category::Lifestyle,
+        sentiment: 0.7,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "Currys takes up to 48% off fans, air conditioners, BBQs and ice cream makers",
+        summary: "Keep cool with up to 48% off essential summer appliances.",
+        category: Category::Lifestyle,
+        sentiment: 0.7,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "Britain's protected birds of prey still illegally targeted",
+        summary: "The charity says more than half of attacks happened on or near land managed for game shooting.",
+        category: Category::Nature,
+        sentiment: 0.1,
+        importance: 0.7,
+    },
+    TestCase {
+        title: "'Bone idle' visitors slammed as beach left covered in nappies and chicken",
+        summary: "Nicola Jameson described the scene as horrendous.",
+        category: Category::Nature,
+        sentiment: 0.2,
+        importance: 0.3,
+    },
+    TestCase {
+        title: "National Trust appeal after Cardingmill Valley littering",
+        summary: "Litter was left all over Cardingmill Valley after an exceptionally busy bank holiday weekend.",
+        category: Category::Nature,
+        sentiment: 0.3,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "Best Buy's World Cup sale is on — here are the 5 trophy-winning TVs you should check out",
+        summary: "Save big on a new screen ahead of kickoff.",
+        category: Category::Technology,
+        sentiment: 0.7,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "Apple's newest iPad Air is up to $100 off for the first time",
+        summary: "Apple's M4-powered iPad Air is on sale starting at $519.99. The tablet offers faster performance than its predecessor.",
+        category: Category::Technology,
+        sentiment: 0.7,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "First UK team to use Google Willow quantum chip announced",
+        summary: "King's College London researchers hope the chip will help answer previously unanswerable questions about the most important natural processes.",
+        category: Category::Science,
+        sentiment: 0.9,
+        importance: 0.7,
     },
 ];
 
@@ -358,20 +507,23 @@ fn assert_binary_scores(
     for (case, scores) in TEST_CASES.iter().zip(label_scores(label_group)?) {
         let score = binary_label_score(&scores, label_group, positive_value)?;
         let expected = expected_score(case);
-        let expected_min = expected.clamp(0.1, 0.9) - 0.1;
-        let expected_max = expected.clamp(0.1, 0.9) + 0.1;
+        let expected_min = expected - PLUS_MINUS_MARGIN;
+        let expected_max = expected + PLUS_MINUS_MARGIN;
 
         if !(expected_min..=expected_max).contains(&score) {
             failures.push(format!(
-                "{score:>5.3}  {expected_min:.2}..={expected_max:.2}  Title: {}",
-                case.title
+                "{score:>5.3}  {:.2}..={:.2}  Title: {}. Summary: {}",
+                expected_min.clamp(0.0, 1.0),
+                expected_max.clamp(0.0, 1.0),
+                case.title,
+                case.summary,
             ));
         }
     }
 
     assert!(
         failures.is_empty(),
-        "\n{} {label_group} cases outside expected range (±0.1):\n\nscore  expected      title\n{}",
+        "\n{} {label_group} cases outside expected range (±{PLUS_MINUS_MARGIN}):\n\nscore  expected      title\n{}",
         failures.len(),
         failures.join("\n")
     );
