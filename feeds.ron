@@ -11,8 +11,6 @@
     "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics.json",
     "reddit_unitedkingdom": "https://www.reddit.com/r/unitedkingdom.json",
     "reddit_uknews": "https://www.reddit.com/r/uknews.json",
-    "lobste.rs": "https://lobste.rs/rss",
-    "hacker_news": "https://hnrss.org/frontpage",
     "artificial_analysis": "https://x.com/ArtificialAnlys",
     // https://www.youtube.com/@TomScottGo
 }

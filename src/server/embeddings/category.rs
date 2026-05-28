@@ -4,113 +4,88 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
     match category {
         // Companies, money, employment, markets, and the economy.
         Category::Business => &[
-            "Companies, profits, earnings, investment, ownership, mergers, acquisitions, bankruptcy, retail, manufacturing, suppliers, and corporate strategy.",
-            "Financial markets and services: stocks, shares, bonds, banking, lending, mortgages, pensions, insurance, fintech, cryptocurrency, and IPOs.",
-            "Macroeconomics and commerce: inflation, interest rates, taxation, wages, trade, productivity, growth, export, import, and market conditions.",
-            "Employment and enterprise: jobs, salaries, redundancies, industrial relations, entrepreneurship, workplace policy, skills, careers, and hiring.",
-            "Business operations and supply chains: factories, production, logistics, wholesale, distribution, sourcing, contracts, and commercial deals.",
+            "Business, companies, commerce, retail, manufacturing, suppliers, contracts, corporate strategy, profits, earnings, investment, ownership, mergers, acquisitions, bankruptcy, commercial deals, logistics, production, distribution, and supply chains.",
+            "Finance and the economy: markets, stocks, shares, bonds, banking, lending, mortgages, pensions, insurance, inflation, interest rates, taxation, wages, trade, productivity, growth, exports, imports, prices, and market conditions.",
+            "Employment and enterprise: jobs, hiring, salaries, redundancies, workplace policy, industrial relations, entrepreneurship, skills, careers, apprenticeships, placements, universities working with employers, and workforce development.",
         ],
         // Government, elections, policy, diplomacy, defence, and public affairs.
         Category::Politics => &[
-            "Government and parliament: ministers, parliament, legislation, public administration, budgets, policy, and accountability.",
-            "Elections and campaigns: parties, candidates, polling, voting, manifestos, leadership contests, coalitions, and results.",
-            "Foreign affairs and national security: diplomacy, treaties, sanctions, defence policy, armed forces, intelligence, war, and foreign relations.",
-            "Public policy: schools, migration, housing policy, first-time buyers, loans, grants, public services, local government, civil service, planning officers, council officers, public sector staffing, infrastructure, regulation, and government decisions.",
-            "Political analysis: strategy, ideology, public opinion, constitutional questions, devolution, independence, and relations between states.",
+            "Government, parliament, ministers, legislation, public administration, budgets, public services, civil service, planning officers, regulation, public sector staffing, policy decisions, housing policy, first-time buyers, interest-free loans, grants, public funds, schools policy, migration, and local government.",
+            "Elections and political leadership: parties, candidates, polling, voting, manifestos, campaigns, debates, presidents, prime ministers, first ladies, White House, leadership contests, coalitions, devolution, independence, and public opinion.",
+            "Foreign affairs and national security: diplomacy, defence policy, armed forces, intelligence agencies, GCHQ, espionage, hostile states, Russia, China, sanctions, treaties, war, infrastructure threats, democracy threats, and relations between states.",
         ],
         // Crime, courts, policing, legal rights, enforcement, and public safety cases.
         Category::Law => &[
-            "Courts and justice: judges, trials, legal rulings, appeals, lawsuits, rights, liability, sentencing, prisons, and constitutional judgments.",
-            "Crime and policing: murder, assault, sexual offences, abuse, fraud, theft, arrests, charges, criminal investigations, evidence, suspects, and convictions.",
-            "Regulatory enforcement: unlawful conduct, official investigations, fines, bans, misconduct hearings, safeguarding breaches, and legal duty.",
-            "Inquests and public safety incidents involving people: unexplained deaths, missing people, fatal accidents, fires, emergency searches, and official investigations.",
-            "Justice for victims and vulnerable people: domestic abuse, exploitation, discrimination, negligence, and institutional accountability.",
+            "Courts, justice, legal process, trials, judges, lawsuits, appeals, rulings, rights, liability, sentencing, prisons, constitutional judgments, compensation claims, environmental litigation, corporate liability, and government legal action.",
+            "Crime and policing: murder, assault, sexual offences, abuse, fraud, theft, arrests, charges, suspects, evidence, convictions, criminal investigations, safeguarding breaches, victims, vulnerable people, exploitation, and institutional accountability.",
+            "Public safety investigations involving people: unexplained deaths, missing people, bodies recovered from water, fatal accidents, dog attacks, fires, emergency searches, inquests, misconduct hearings, official investigations, bans, fines, and legal duty.",
         ],
         // Healthcare, disease, treatment, wellbeing, and medical systems.
         Category::Health => &[
-            "Health and medicine: patients, doctors, hospitals, NHS, clinics, diagnosis, treatment, surgery, prescriptions, care quality, and healthcare services.",
-            "Disease and public health: cancer, diagnosed with cancer, cancer diagnosis, oncology, diagnosis, treatment, patients, doctors, infections, outbreaks, chronic illness, mental illness, addiction, mortality, vaccination, prevention, and population health.",
-            "Medical research and therapy: clinical trials, pharmaceuticals, drug discovery, medical devices, treatment effectiveness, patient safety, and medical evidence.",
-            "Mental health, wellbeing, nutrition, weight management, rehabilitation, physical activity, and health advice.",
-            "Healthcare failures and safeguarding concerns involving patients, medical records, clinical decisions, hospital trusts, care providers, or regulators.",
+            "Cancer, oncology, diagnosed, diagnosis, illness, treatment, chemotherapy, patient, medical condition, and public figure health.",
+            "Health services and medicine: patients, doctors, hospitals, NHS, clinics, diagnosis, diagnosed with cancer, cancer diagnosis, public figures with illness, politicians or officials diagnosed with cancer, treatment, surgery, prescriptions, care quality, healthcare services, medical records, hospital trusts, care providers, and regulators.",
+            "Disease and public health: cancer, oncology, infections, outbreaks, chronic illness, mental illness, addiction, mortality, vaccination, prevention, population health, diagnosis, treatment, patient safety, and safeguarding concerns.",
+            "Medical research and wellbeing: clinical trials, pharmaceuticals, drug discovery, medical devices, treatment effectiveness, medical evidence, mental health, nutrition, rehabilitation, physical activity, and health advice.",
         ],
         // Entertainment, media, arts, celebrity, and cultural life.
         Category::Culture => &[
-            "Films, television, streaming, books, theatre, art, music, concerts, festivals, performers, and reviews.",
-            "Media and broadcasting: broadcasters, documentaries, presenters, podcasts, journalism, schedules, and media controversies.",
-            "Celebrities and showbusiness: actors, musicians, famous personalities, awards, franchises, fandom, and celebrity news.",
-            "Social and cultural features: identity, public attitudes, heritage, cities, traditions, language, racism, and society.",
-            "Entertainment recommendations and releases: what to watch, streaming catalogues, trailers, cast announcements, rankings, crime thriller series, and merchandise.",
+            "Entertainment and the arts: films, television, streaming, books, theatre, art, music, concerts, festivals, performers, reviews, trailers, cast announcements, awards, franchises, fandom, and showbusiness.",
+            "Media and cultural life: broadcasters, documentaries, presenters, podcasts, journalism, media controversies, celebrities, famous personalities, identity, public attitudes, heritage, cities, traditions, language, racism, and society.",
+            "Recommendations and releases: what to watch, streaming catalogues, online viewing guides, television previews, film rankings, crime thriller series, pop culture, merchandise, and leisure entertainment.",
         ],
         // Home life, shopping, food, travel, style, and everyday personal interests.
         Category::Lifestyle => &[
-            "Home and lifestyle: cooking, recipes, kitchens, cleaning, decorating, gardening, furniture, household upkeep, hosting, and domestic advice.",
-            "Consumer shopping and deals: mattresses, clothing, shoes, appliances, outdoor goods, sales, discounts, and buying guides.",
-            "Food, drink, restaurants, holidays, travel, hotels, leisure, festivals, hobbies, dating, family life, beauty, fashion, and style.",
-            "Everyday living: homes, interiors, moving, renting, neighbourhood life, household improvements, utilities, energy bills, household bills, and cost of living.",
-            "Personal routines: comfort, recreation, relationships, productivity, and everyday advice.",
+            "Home and everyday living: cooking, recipes, kitchens, cleaning, decorating, furniture, household upkeep, hosting, interiors, moving, renting, neighbourhood life, household improvements, utilities, energy bills, household bills, and cost of living.",
+            "Consumer shopping and personal life: mattresses, clothing, shoes, appliances, outdoor goods, sales, discounts, buying guides, food, drink, restaurants, holidays, travel, hotels, leisure, hobbies, dating, family life, beauty, fashion, and style.",
+            "Personal routines and advice: comfort, recreation, relationships, daily habits, practical tips, home comfort, wellness routines, and everyday service journalism.",
         ],
         // Vehicles, travel networks, public transport, and movement infrastructure.
         Category::Transport => &[
-            "Transport and mobility: cars, electric vehicles, roads, motorways, traffic, driving, vehicle engineering, automotive manufacturers, and road safety.",
-            "Railways and public transport: trains, stations, buses, metros, ticketing, passenger services, fares, delays, commuting, and rail infrastructure.",
-            "Aviation and shipping: airlines, airports, aircraft, flights, ports, ferries, freight, shipping, logistics, and transport operators.",
-            "Transport disruption or improvement involving vehicles or travel networks, such as road closures, vehicle crashes or fires, service suspensions, new routes, or passenger connectivity.",
-            "Autonomous mobility and transport technology: self-driving cars, robotaxis, delivery vehicles, traffic systems, charging networks, or travel-focused drones.",
+            "Road transport and vehicles: cars, electric vehicles, EVs, car launches, car design, automotive brands, Ferrari, driving, vehicle engineering, automotive manufacturers, road safety, crashes, vehicle fires, traffic, roads, and motorways.",
+            "Public transport and travel networks: trains, stations, buses, metros, ticketing, passenger services, fares, delays, commuting, rail infrastructure, road closures, service suspensions, new routes, and passenger connectivity.",
+            "Aviation, shipping, freight, and mobility technology: airlines, airports, aircraft, flights, ports, ferries, shipping, logistics, transport operators, self-driving cars, robotaxis, charging networks, delivery vehicles, and travel drones.",
         ],
         // Environment, wildlife, climate, weather, conservation, and natural habitats.
         Category::Nature => &[
-            "Wildlife and conservation: animals, birds, fish, plants, forests, habitats, biodiversity, ecology, conservation groups, and protected land.",
-            "Climate and weather: climate change, global warming, emissions, heatwaves, temperature records, flooding, drought, storms, wildfires, and extreme conditions.",
-            "Environmental harm and restoration: pollution, sewage, waste, contaminated rivers, habitat destruction, rewilding, rainforest restoration, and ecosystem recovery.",
-            "Sustainability: renewables, net zero, green jobs, recycling, decarbonisation, and clean technology.",
-            "Earth systems: oceans, rivers, geology, earthquakes, volcanoes, landscapes, environmental monitoring, and ecological research.",
+            "Wildlife, plants, habitats, and conservation: animals, birds, fish, sharks, plants, tomatoes, gardening, growing, pruning, harvesting, forests, rainforest restoration, biodiversity, ecology, conservation groups, protected land, rewilding, and habitat recovery.",
+            "Climate, weather, and environmental harm: climate change, global warming, emissions, heatwaves, temperature records, flooding, drought, storms, wildfires, pollution, sewage, waste, contaminated rivers, ecosystem damage, and sustainability.",
+            "Earth systems and waterways: oceans, beaches, coasts, dead fish, washed up sea life, discarded catch, rivers, watercourses, landscapes, geology, earthquakes, volcanoes, environmental monitoring, ecological research, renewables, net zero, and recycling.",
         ],
         // Physical consumer electronics, computing devices, and hardware products.
         Category::Technology => &[
-            "Consumer hardware: phones, tablets, laptops, televisions, cameras, headphones, speakers, smart home devices, and electronic gadgets.",
-            "Hardware engineering: processors, chips, GPUs, screens, batteries, sensors, networking equipment, semiconductors, and device performance.",
-            "Wearables and personal devices: smartwatches, fitness trackers, smart rings, augmented-reality glasses, virtual-reality headsets, accessories, and reviews.",
-            "Device launches, specifications, comparisons, prototypes, hands-on testing, upgrades, pricing, and manufacturer announcements.",
-            "Connected household electronics: security cameras, doorbells, televisions, routers, appliances, and audio equipment.",
+            "Consumer electronics and hardware: phones, tablets, laptops, televisions, physical cameras, headphones, speakers, routers, smart home devices, wearables, smartwatches, fitness trackers, smart rings, VR headsets, AR glasses, accessories, and gadgets.",
+            "Hardware engineering and product coverage: processors, chips, GPUs, screens, batteries, sensors, networking equipment, semiconductors, device performance, specifications, comparisons, prototypes, hands-on testing, upgrades, pricing, and device manufacturer announcements.",
+            "Connected household and personal devices: security cameras, doorbells, televisions, appliances, audio equipment, Wi-Fi, routers, home networking, battery life, device reviews, product launches, and consumer tech refreshes.",
         ],
         // Programs, online systems, privacy, cybersecurity, and developer work.
         Category::Software => &[
-            "Programming and development: code, source code, databases, APIs, open source, testing, deployment, compilers, language runtimes, virtual machines, bytecode, register allocators, compiler internals, and ZJIT.",
-            "Editors and developer tools: Emacs, terminals, libraries, packages, frameworks, IDEs, plugins, build tools, JITs, compiler toolchains, and bytecode interpreters.",
-            "Cybersecurity and digital safety: hacking, malware, vulnerabilities, data breaches, ransomware, encryption, and security research.",
-            "Apps and internet services: apps, browsers, cloud platforms, productivity software, updates, extensions, subscriptions, and digital features.",
-            "Infrastructure and system administration: servers, cloud computing, containers, networks, GitHub, performance, reliability, and operations.",
+            "Programming and developer work: code, source code, databases, APIs, open source, testing, deployment, compilers, language runtimes, virtual machines, bytecode, register allocators, compiler internals, ZJIT, libraries, packages, frameworks, and build tools.",
+            "Apps, editors, and internet services: Emacs, terminals, IDEs, plugins, browsers, cloud platforms, productivity software, camera apps, photo editors, iPhone apps, RAW processing, updates, extensions, subscriptions, digital features, and online systems.",
+            "Cybersecurity and operations: hacking, malware, vulnerabilities, data breaches, ransomware, encryption, security research, servers, cloud computing, containers, networks, GitHub, performance, reliability, and system administration.",
         ],
         // AI models, machine learning, agents, generation, and AI policy effects.
         Category::AI => &[
-            "Machine learning and neural networks: language models, foundation models, training, inference, evaluation, and research.",
-            "Generative models and assistants: ChatGPT, Claude, Gemini, copilots, chatbots, image generation, voice models, prompts, and agents.",
-            "Model releases and benchmarks: OpenAI, Anthropic, DeepMind, DeepSeek, leaderboards, token pricing, capabilities, and open weights.",
-            "Model safety and training: model risk, training data, benchmarks, open weights, and fine-tuning.",
-            "Chatbots and language-model products: machine-generated content, autonomous agents, AI-assisted science, and assistant products.",
+            "Machine learning and models: neural networks, language models, foundation models, training, inference, evaluation, benchmarks, open weights, fine-tuning, model safety, model risk, training data, and AI research.",
+            "Generative AI products and assistants: ChatGPT, Claude, Gemini, OpenAI, Anthropic, DeepMind, DeepSeek, copilots, chatbots, image generation, voice models, prompts, prompt engineering, AI productivity, AI workflow tricks, agents, autonomous assistants, and machine-generated content.",
+            "AI industry and policy effects: model releases, leaderboards, token pricing, capabilities, assistant products, AI-assisted science, workplace automation, governance, safety debates, and commercial AI services.",
         ],
         // Scientific research, space exploration, and discovery.
         Category::Science => &[
-            "Science and research: experiments, researchers, laboratories, discoveries, evidence, scientific papers, universities, theories, and academic findings.",
-            "Space and astronomy: NASA, astronauts, rockets, Moon missions, space stations, satellites, telescopes, planets, stars, galaxies, and spaceflight.",
-            "Physics, chemistry, biology, genetics, evolution, archaeology, palaeontology, materials science, and fundamental scientific investigation.",
-            "Exploration and scientific equipment developed to measure, observe, test, or operate in extreme environments including space or the deep ocean.",
+            "Science and research: experiments, researchers, laboratories, discoveries, evidence, scientific papers, universities, theories, academic findings, physics, chemistry, biology, genetics, evolution, archaeology, palaeontology, and materials science.",
+            "Space and astronomy: NASA, astronauts, payload scientists, rockets, Moon missions, space stations, satellites, telescopes, planets, stars, galaxies, spaceflight, space missions, crew announcements, and exploration.",
+            "Scientific instruments and exploration: equipment developed to measure, observe, test, or operate in extreme environments, including space, deep ocean, laboratories, field research, major discoveries, and fundamental investigation.",
         ],
         // Competitive sport, teams, athletes, competitions, and results.
         Category::Sports => &[
-            "Sport and athletic competition: football, rugby, cricket, tennis, golf, athletics, cycling, boxing, racing, and organised sport.",
-            "Teams and athletes: players, managers, coaches, transfers, contracts, selection, injuries, training, club affairs, leagues, and careers.",
-            "Matches and tournaments: fixtures, results, scores, goals, championships, cups, tours, qualification, rankings, records, and title races.",
-            "International and elite sport: Olympics, Paralympics, World Cups, Grand Slams, Six Nations, IPL, Premier League, Formula One, and major sporting events.",
-            "Sport features: finances, discrimination, participation, performance, and sporting legacy.",
+            "Sport and athletic competition: football, rugby, cricket, tennis, golf, athletics, cycling, boxing, racing, organised sport, players, managers, coaches, transfers, contracts, selection, injuries, training, club affairs, leagues, and careers.",
+            "Matches and tournaments: fixtures, results, scores, goals, championships, cups, tours, qualification, rankings, records, title races, Olympics, Paralympics, World Cups, Grand Slams, Six Nations, IPL, Premier League, Formula One, and elite events.",
+            "Sports business and culture: team finances, discrimination, participation, performance, sporting legacy, fan discussion, match controversy, rows, handshake disputes, player comments, and tournament chatter.",
         ],
         // Video games, game studios, esports, releases, and gameplay.
         Category::Gaming => &[
-            "Video games and interactive entertainment: game releases, gameplay, reviews, story campaigns, characters, levels, mechanics, updates, downloadable content, and game deals.",
-            "Games industry and studios: developers, publishers, consoles, PlayStation, Xbox, Nintendo, PC gaming, acquisitions, cancellations, and launch plans.",
-            "Gaming communities and competition: esports, multiplayer games, live-service games, streamers, speedruns, mods, online shooters, and player communities.",
-            "Video game hardware and accessories: controllers, consoles, gaming PCs, handhelds, virtual-reality games, and game discounts.",
+            "Video games and interactive entertainment: game releases, gameplay, reviews, story campaigns, characters, levels, mechanics, updates, downloadable content, game deals, PlayStation, Xbox, Nintendo, PC gaming, and console games.",
+            "Games industry and communities: developers, publishers, studios, acquisitions, cancellations, launch plans, esports, multiplayer games, live-service games, streamers, speedruns, mods, online shooters, and player communities.",
+            "Gaming hardware and promotions: controllers, consoles, gaming PCs, handhelds, virtual-reality games, accessories, PS5 games, game discounts, limited-time deals, and promotional sales.",
         ],
     }
 }

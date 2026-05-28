@@ -10,6 +10,19 @@ use crate::{
 };
 use anyhow::{Context, Result};
 
+// Label-writing guide for embeddinggemma-300m:
+//
+// - Prefer clear keywords when a single word carries the concept well. Use short phrases
+//   only when the phrase is clearer than the individual words.
+// - Avoid inverse wording like "not technology" or "doesn't include sport"; the model
+//   still embeds the forbidden concept strongly.
+// - Category classification picks the closest individual label, so each category needs
+//   at least one strong label for each major concept it owns.
+// - Sentiment and importance use all labels in the group, so keep positive/negative and
+//   important/unimportant labels roughly balanced in breadth and specificity.
+// - Labels should describe reusable concepts, not just one fixture title. Merge or remove
+//   labels that fix one case but pull nearby cases the wrong way.
+
 struct TestCase {
     title: &'static str,
     summary: &'static str,
@@ -48,6 +61,20 @@ const TEST_CASES: &[TestCase] = &[
         importance: 0.5,
     },
     TestCase {
+        title: "Jill Biden says she thought Joe Biden was having a stroke during 2024 debate",
+        summary: "The former US first lady told CBS News that she was frightened by Joe Biden's performance against Donald Trump.",
+        category: Category::Politics,
+        sentiment: 0.3,
+        importance: 0.6,
+    },
+    TestCase {
+        title: "Russia is targeting UK’s infrastructure and democracy, GCHQ head to say",
+        summary: "Anne Keast-Butler will also warn of narrowing window to stay ahead of China in ‘new era of radical uncertainty’",
+        category: Category::Politics,
+        sentiment: 0.2,
+        importance: 0.8,
+    },
+    TestCase {
         title: "Flowers laid as teenage girl found dead in water at Kingsbury country park",
         summary: "The girl's body has been recovered from the water following concerns for her welfare, police say.",
         category: Category::Law,
@@ -60,6 +87,27 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Law,
         sentiment: 0.0,
         importance: 0.3,
+    },
+    TestCase {
+        title: "Australia sues 3M over 'forever chemicals' in firefighting foam",
+        summary: "The A$2bn case, which centres on contamination at defence sites, is the largest ever brought by the government.",
+        category: Category::Law,
+        sentiment: 0.3,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "Men arrested after alleged sexual assault of teens on beach.",
+        summary: "Two men were arrested on Bournemouth Beach yesterday on suspicion of sexually assaulting two teenage girls.",
+        category: Category::Law,
+        sentiment: 0.2,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "Utumishi Girls school fire: Sixteen students killed in Kenya school blaze.",
+        summary: "Search-and-rescue operations are ongoing, with the number of casualties yet to be confirmed",
+        category: Category::Law,
+        sentiment: 0.1,
+        importance: 0.8,
     },
     TestCase {
         title: "Teenage patients 'ignored' before fatal NHS trust failures",
@@ -104,11 +152,25 @@ const TEST_CASES: &[TestCase] = &[
         importance: 0.1,
     },
     TestCase {
+        title: "All the news about Ferrari’s polarizing Luce EV",
+        summary: "The first electric car from Ferrari is here, and the design of the Luce has fans saying it doesn’t look like a true Ferrari.",
+        category: Category::Transport,
+        sentiment: 0.7,
+        importance: 0.4,
+    },
+    TestCase {
         title: "Why temperature records are being not only broken but smashed",
         summary: "The combined effects of a heat dome and climate change have brought extreme warmth to western Europe.",
         category: Category::Nature,
         sentiment: 0.2,
         importance: 0.8,
+    },
+    TestCase {
+        title: "Tom's Guide to tomatoes",
+        summary: "Everything you need to know about planting, growing, pruning, and harvesting tomatoes.",
+        category: Category::Nature,
+        sentiment: 0.6,
+        importance: 0.2,
     },
     TestCase {
         title: "A rare ancient rainforest set to come back to life",
@@ -139,6 +201,27 @@ const TEST_CASES: &[TestCase] = &[
         importance: 0.4,
     },
     TestCase {
+        title: "I put aluminum foil behind my router to fix my Wi-Fi dead zones — and it actually worked",
+        summary: "Curved aluminum foil behind your router reflects Wi-Fi signals directly toward your dead zones, instead of letting them scatter",
+        category: Category::Technology,
+        sentiment: 0.7,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "Oura Ring 5 could be unveiled this week with new design — here's why I'm concerned. Smart Rings.",
+        summary: "A thinner design could have implications for battery life",
+        category: Category::Technology,
+        sentiment: 0.4,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "The new Halide camera app launches with film looks and an upgraded photo editor.",
+        summary: "Halide Mark III is now available for iPhones and iPads with an updated interface, new film looks, and an upgraded editor that can process third-party RAW files.",
+        category: Category::Software,
+        sentiment: 0.7,
+        importance: 0.2,
+    },
+    TestCase {
         title: "space-tree: Workspace Management Trees in Emacs",
         summary: "space-tree is a tree-based workspace manager for Emacs. Workspaces are a battle-tested UX concept across operating systems, but in Emacs and most OSes alike.",
         category: Category::Software,
@@ -158,6 +241,13 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Science,
         sentiment: 0.9,
         importance: 0.3,
+    },
+    TestCase {
+        title: "I used the ChatGPT ‘circus’ prompt — and it's a surprisingly effective prioritization hack for multitasking",
+        summary: "When I'm juggling a lot, this prompt is my secret to seeing my day more clearly",
+        category: Category::AI,
+        sentiment: 0.7,
+        importance: 0.1,
     },
     TestCase {
         title: "French Open 2026 results: Tamara Korpatsch and Wang Xinyu have heated exchange and avoid handshake in Roland Garros row",
