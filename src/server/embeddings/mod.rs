@@ -77,14 +77,10 @@ fn label_definitions() -> Vec<LabelDefinition> {
     }
 
     for (group, key, texts) in [
-        ("sentiment", "positive", sentiment::labels("positive")),
-        ("sentiment", "negative", sentiment::labels("negative")),
-        ("importance", "important", importance::labels("important")),
-        (
-            "importance",
-            "unimportant",
-            importance::labels("unimportant"),
-        ),
+        ("sentiment", "positive", sentiment::labels(true)),
+        ("sentiment", "negative", sentiment::labels(false)),
+        ("importance", "important", importance::labels(true)),
+        ("importance", "unimportant", importance::labels(false)),
     ] {
         for (idx, text) in texts.iter().enumerate() {
             definitions.push(LabelDefinition {

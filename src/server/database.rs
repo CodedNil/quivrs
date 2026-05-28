@@ -289,10 +289,8 @@ pub async fn delete_label_embeddings_except(keys: &HashSet<String>) -> Result<()
 pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
     let mut res = DB
         .query(
-            "
-        SELECT label_group, label_value, vector::similarity::cosine(embedding, $embedding) AS similarity
-        FROM label_embeddings
-    ",
+            "SELECT label_group, label_value, vector::similarity::cosine(embedding, $embedding) AS similarity
+             FROM label_embeddings",
         )
         .bind(("embedding", embedding.to_vec()))
         .await?;

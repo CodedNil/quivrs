@@ -1,6 +1,6 @@
-pub fn labels(importance: &str) -> &'static [&'static str] {
-    match importance {
-        "important" => &[
+pub const fn labels(positive: bool) -> &'static [&'static str] {
+    if positive {
+        &[
             "Macroeconomic state directives and fiscal legislation: statutory national economic systems, country-wide housing financial initiatives, state-backed financial subsidy programs, national first-buyer loan schemes, binding multi-million regulatory price caps, mandatory utility adjustments, household energy price cap increases, major global trade realignments.",
             "Sovereign political governance and legislative changes: constitutional law amendments, state executive appointments, parliamentary legislation updates, national civil service systemic re-organizations, public ownership polling, nationalisation of essential utilities.",
             "Geopolitical intelligence strategy and transnational defense: high-level intelligence agency directives, sovereign state security alerts, cross-border defense alliances, national democratic protection strategies, macro-threat assessments.",
@@ -10,8 +10,10 @@ pub fn labels(importance: &str) -> &'static [&'static str] {
             "Macro ecological preservation: extensive statutory conservation efforts, sweeping river system safety mandates, high-level wildlife protections, widespread protected species persecution, national wildlife crime evidence.",
             "Major institutional education and research access: university-wide undergraduate employment guarantees, large academic placement programmes, broad student career infrastructure, national research teams using advanced quantum hardware.",
             "Household affordability and utility pressure: cost-of-living pressure, household energy price rises, bill shock, regulated price cap increases, domestic affordability crisis, fuel bills, heating bills, consumer price pressure.",
-        ],
-        "unimportant" => &[
+            "School disasters and fatal emergency response: school fires, school blazes, student fatalities, casualty counts, search-and-rescue operations, mass-casualty fire scenes, child safety emergencies, urgent evacuation response.",
+        ]
+    } else {
+        &[
             "Routine consumer lifestyle and retail commerce: personal shopping guides, household appliance discounts, commercial furniture promotions, general electronics product updates, consumer car rumors, localized retail shopping events, personal culinary trends, backyard grilling guides, tomato gardening tips, mattress sale recommendations, shoe discount roundups, gaming discounts, tablet price drops, television sale lists, smart ring rumors, sale pages, bargain roundups, discount guides, retail promotions, streaming guides.",
             "Niche technical walkthroughs, internal software configurations, and low-level programming code adjustments: localized digital setups, code compiler optimizations, compiler internals, register allocator details, interference graphs, linear scan, method inlining, JIT internals, personal development workspace tools, isolated runtime programming tutorials, software documentation extracts, prompt optimization strategies, prompt tricks, productivity hacks, multitasking tips, individual computer networking advice, wireless router signal fixes, camera app feature releases.",
             "Localized community incidents and municipal occurrences: regional neighborhood disputes, local council administrative arguments, municipal park code updates, regional leisure destination news.",
@@ -21,7 +23,11 @@ pub fn labels(importance: &str) -> &'static [&'static str] {
             "Isolated local criminal incidents and singular offences: localized felony arrests, single-incident park accidents, localized beach law enforcement interventions, municipal anti-social behavior warnings.",
             "Minor regional conservation activities and local park upkeep: regional public access maintenance, localized volunteer community cleanups, municipal landmark preservation efforts, minor regional wildlife tracking, localized pollution surveying, chalk landmark restoration, beach litter complaints.",
             "Tactical combat updates, defense site liabilities, and local border actions: field military maneuvers, specific local evacuation bulletins, localized territorial artillery strikes, active tactical field deployments, regional corporate environmental liability cases.",
-        ],
-        _ => &[],
+            "Routine consumer promotions, deal pages, and media access: last-chance sales, price-drop listicles, discount roundups, seasonal bargain guides, retail promotion articles, promotional sale pages, watch guides, streaming access guides, where to watch, watch online, stream free, episode access guides, season availability, broadcast timing, smart ring speculation, tablet rumors, TV discount stories, footwear sale posts, mattress deal articles, appliance offer pages, product launch chatter, retail launch previews, tournament tie-in sales, kickoff promotions, world cup sale pages.",
+            "Consumer gadget rumors and product teaser coverage: smart ring speculation, wearable gadget rumors, tablet rumors, TV discount stories, footwear sale posts, mattress deal articles, appliance offer pages, product launch chatter, retail launch previews.",
+            "Entertainment watch pages and streaming instructions: where to watch, watch online, stream free, episode access guides, season availability, broadcast timing, crime-thriller series viewing tips, drama streaming availability.",
+            "Backyard cooking and hobby guides: backyard grilling guides, grilling accessories, home cooking tips, tomato gardening tips, practical hobby advice, seasonal lifestyle tutorials.",
+            "Low-level engineering notes and everyday tech troubleshooting: compiler internals, register allocators, JIT implementation details, method inlining, interference graphs, linear scan, router fixes, Wi-Fi dead zone tips, prompt tricks, productivity hacks, chat prompts, multitasking hacks, prioritization tricks, workflow shortcuts, time-management tips, routine organization advice.",
+        ]
     }
 }

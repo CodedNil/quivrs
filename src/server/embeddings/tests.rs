@@ -427,7 +427,7 @@ const TEST_CASES: &[TestCase] = &[
         title: "'Bone idle' visitors slammed as beach left covered in nappies and chicken",
         summary: "Nicola Jameson described the scene as horrendous.",
         category: Category::Nature,
-        regions: &[Region::Global],
+        regions: &[Region::Global, Region::UnitedKingdom, Region::England],
         sentiment: 0.2,
         importance: 0.3,
     },
