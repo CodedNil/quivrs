@@ -28,6 +28,7 @@ const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
 pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300m";
 
 pub const EMBEDDING_TITLE_REPEAT: usize = 5;
+const REGION_FALLBACK_MARGIN: f32 = 0.04;
 
 pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
@@ -230,14 +231,23 @@ where
     T: std::str::FromStr,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
-    scores
+    let best = scores
         .iter()
         .filter(|row| row.label_group == group)
         .max_by(|a, b| a.similarity.total_cmp(&b.similarity))
-        .ok_or_else(|| anyhow!("No {group} label embeddings found"))?
-        .label_value
-        .parse()
-        .map_err(Into::into)
+        .ok_or_else(|| anyhow!("No {group} label embeddings found"))?;
+
+    if group == "region"
+        && best.label_value != "Global"
+        && let Some(global) = scores
+            .iter()
+            .find(|row| row.label_group == group && row.label_value == "Global")
+        && best.similarity <= global.similarity + REGION_FALLBACK_MARGIN
+    {
+        return "Global".parse().map_err(Into::into);
+    }
+
+    best.label_value.parse().map_err(Into::into)
 }
 
 fn binary_label_score(

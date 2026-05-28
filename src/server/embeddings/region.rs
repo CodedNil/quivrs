@@ -3,32 +3,35 @@ use crate::shared::Region;
 pub const fn labels(region: Region) -> &'static [&'static str] {
     match region {
         Region::Global => &[
-            "Global scale: worldwide scope, international reach, transnational markets, cross-border coverage, multinational systems, borderless, location-agnostic, universal themes, world economy, global supply chains, international trade networks, multilateral treaties, worldwide policy, universal scientific phenomena, atmospheric science, commodity markets, international economic turmoil, global trade tariffs.",
-            "Global digital & consumer ecosystem: internet culture, software deployment, open-source programming, corporate technology releases, product launches, digital applications, consumer apps, entertainment industry, hardware architecture, tech platforms, software engineering, web apps, tech industry trends, general lifestyle guides, consumer electronics, smart rings, gaming consoles, streaming television series releases, global television premier, online streaming guides, global media franchises, international brands like Sony, Ferrari, Oura, Netflix, Apple, Google.",
-            "Universal topics: general gardening, how-to guides, tomato planting, agricultural botany, global flora, universal domestic tips with no specific country affinity, worldwide internet trends, location-independent viral news.",
+            "Global scale: worldwide scope, international reach, transnational markets, cross-border coverage, multinational systems, universal themes, world economy, global supply chains, international trade networks, multilateral treaties, worldwide policy, universal scientific phenomena, atmospheric science, commodity markets, international economic turmoil, global trade tariffs.",
+            "Location-independent digital culture: internet culture, software deployment, open-source programming, developer tooling, workspace managers, compiler engineering, register allocation, runtime optimization, web applications, prompt workflows, router configuration, wireless signal advice, consumer applications, camera apps, smart devices, gaming hardware, tablet hardware, consumer electronics updates.",
+            "Location-independent consumer and media guides: streaming television guides, online viewing options, drama series releases, mystery thrillers, entertainment reviews, consumer product launches, brand news, shopping guides, deal roundups, product comparisons, general lifestyle advice.",
+            "General consumer product coverage: retail brand launches, sale roundups, product reviews, shopping advice, consumer electronics, gaming deals, appliance deals, wearable devices, lifestyle bargains, market promotions.",
+            "Universal local-interest topics: park upkeep, community cleanup appeals, heritage appeals, general gardening, tomato planting, agricultural botany, global flora, worldwide internet trends, viral news.",
         ],
 
         // Great Britain
         Region::UnitedKingdom => &[
-            "United Kingdom: UK, U.K., Great Britain, Britain, British, Briton, British national scope, nationwide UK territory, Westminster administration, Whitehall departments, Downing Street executive, Parliament legislation, UK sovereign governance, British national infrastructure, UK sterling currency, pound sterling finance, £ symbol, GBP banknotes, British pound currency, £ prices, £199.9, UK",
+            "United Kingdom: UK, U.K., Great Britain, Britain, British, Briton, British national scope, nationwide UK territory, Westminster administration, Whitehall departments, Downing Street executive, Parliament legislation, UK sovereign governance, British national infrastructure, nationalised utilities, water companies, energy companies, birth rates across England and Wales.",
+            "UK consumer economy: sterling currency, pound sterling finance, GBP banknotes, British pound pricing, city centre cafe prices, high street prices, domestic household energy bills, national utility regulators, British retail costs, grocery prices, food production investment, supplier agreements, British grocery supply chains, cost-of-living pressures.",
         ],
         Region::England => &[
-            "England: English territory, Anglo geography, English municipalities, English local government councils, English regional constituencies, London metro, Manchester urban area, Birmingham district, Liverpool region, Yorkshire counties, Midlands, English shires, southern counties, northern English towns, English inland waterways, English environmental zones, regional preservation sites, community parklands, Bournemouth Beach, Cardingmill Valley, Shrewsbury, River Waveney, National Trust property, English coastlines, English local attractions, English towns, England domestic bills, local marketplace transactions.",
+            "England: English territory, Anglo geography, English municipalities, English local government councils, English regional constituencies, London metro, Manchester urban area, Birmingham district, Liverpool region, Yorkshire counties, Midlands, English shires, southern counties, northern English towns, English inland waterways, English environmental zones, regional preservation sites, community parklands, Bournemouth Beach, Cardingmill Valley, Shrewsbury, River Waveney, National Trust property, English coastlines, English local attractions, English towns, English beaches, coastal incidents, local incidents, heritage appeals, local conservation appeals, countryside cleanup appeals, bank holiday weekend, rural littering, heritage landmarks, England domestic bills, local marketplace transactions.",
         ],
         Region::Scotland => &[
             "Scotland: Scottish nation, Scots territory, Scottish highlands, Scottish lowlands, Scottish regional authorities, Scottish island chains, Holyrood administration, Scottish parliament, Edinburgh metro, Glasgow urban area, Aberdeen district, Scottish municipal councils, historic Scottish burghs, local Scottish waterways, Scottish pound notes, local Scottish retail transactions.",
         ],
         Region::Wales => &[
-            "Wales: Welsh nation, Cymru territory, Welsh valleys, Welsh regional authorities, local Welsh municipal districts, Senedd administration, Cardiff metro, Swansea urban area, Newport district, Welsh county councils, Welsh coastal zones, historic Welsh principalities, Welsh regional transactions,  local Welsh community funding.",
+            "Wales: Welsh nation, Cymru territory, Welsh valleys, Welsh regional authorities, local Welsh municipal districts, Senedd administration, Cardiff metro, Swansea urban area, Newport district, Welsh county councils, Welsh coastal zones, Welsh beaches, Welsh seaside incidents, Welsh shoreline litter, historic Welsh principalities, Welsh regional transactions, local Welsh community funding.",
         ],
         Region::Ireland => &[
-            "Ireland: Republic of Ireland, Eire, Northern Ireland, Northern Irish territory, Ulster province, Stormont assembly, Belfast metro, Derry district, Northern Irish municipal boundaries, Dublin metro, Cork region, Irish national governance, Irish provincial geography, Irish counties.",
+            "Ireland: Republic of Ireland, Eire, Northern Ireland, Northern Irish territory, Ulster province, Stormont assembly, Belfast metro, Derry district, Northern Irish municipal boundaries, Dublin metro, Cork region, Irish national governance, Irish provincial geography, Irish counties, Ulster Wildlife, Irish countryside, native woodland restoration, peatland recovery, habitat restoration, biodiversity projects.",
         ],
 
         // North America
         Region::UnitedStates => &[
             "United States: USA, US, U.S., America, American, Washington DC executive, federal governance, American nationwide scope, California state, Texas territory, New York geography, Florida peninsula, Washington state, Midwest, Pacific Northwest, New England, major American metropolitan areas, US state legislatures, American municipal counties, domestic US interstate commerce, American regional infrastructure.",
-            "US Markets & Commerce: United States dollar currency, USD bills, $ symbol, American dollar pricing, $ commercial retail, $ promotional discounts, Memorial Day shopping events, federal court prosecutions, US retail market, Amazon store, Best Buy outlets, Polymarket betting platforms, US federal agencies, American tech headquarters, Silicon Valley corporate news.",
+            "US public institutions and commerce: United States dollar currency, USD bills, $ symbol, dollar pricing, American retail ads, online shopping deals, holiday sales, Memorial Day, White House, attorney general, federal court prosecutions, federal prosecutors, US federal agencies, American tech headquarters, Silicon Valley corporate news, corporate headquarters, venture capital, business regulation.",
         ],
         Region::Canada => &[
             "Canada: Canadian nation, Canadian provinces, Canadian territories, Ottawa federal executive, Canadian nationwide scope, Ontario geography, Quebec territory, Alberta region, British Columbia coast, Toronto metro, Montreal urban area, Vancouver district, Canadian municipal sectors, Canadian dollar financing, CAD market, domestic Canada pricing.",
@@ -107,7 +110,7 @@ pub const fn labels(region: Region) -> &'static [&'static str] {
 
         // Oceania
         Region::Oceania => &[
-            "Oceania: Australasia, Pacific region, South Pacific, Australia, Australian, Canberra, Sydney, Melbourne, Perth, Brisbane, Queensland, New Zealand, New Zealander, Wellington, Auckland, Christchurch, Aotearoa, Kiwi, Pacific islands, Fiji, Samoa, Tonga, Papua New Guinea.",
+            "Oceania: Australasia, Pacific region, South Pacific, Australia, Australian, Canberra, Sydney, Melbourne, Perth, Brisbane, Queensland, New Zealand, New Zealander, Wellington, Auckland, Christchurch, Aotearoa, Kiwi, Pacific islands, Fiji, Samoa, Tonga, Papua New Guinea, Australian federal matters, defence sites, environmental contamination, national legal cases, A$ pricing.",
         ],
     }
 }
