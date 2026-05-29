@@ -1,3 +1,5 @@
+set shell := ["bash", "-o", "pipefail", "-eu", "-c"]
+
 default:
     dx serve --port 5460
 
@@ -20,3 +22,7 @@ migration name:
 # Fetch a rounded Material Symbol SVG from Google's repo into assets/icons/materialsymbolsrounded/<name>.svg
 fetch-icon name:
     curl -L --fail "https://chromium.googlesource.com/external/github.com/google/material-design-icons/+/master/symbols/web/{{ name }}/materialsymbolsrounded/{{ name }}_wght700fill1_48px.svg?format=TEXT" | base64 -d > "assets/icons/{{ name }}.svg"
+
+# Pull Kagi Kite feeds, strip display names, and apply feed/category blacklists
+pull_kagi:
+    tmp="$(mktemp)" && curl -L --fail "https://raw.githubusercontent.com/kagisearch/kite-public/main/kite_feeds.json" | jq --slurpfile config scripts/kagi_filters.json -f scripts/kagi_feeds.jq > "$tmp" && chmod 0644 "$tmp" && mv "$tmp" kite_feeds.json

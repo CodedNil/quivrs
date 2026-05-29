@@ -12,6 +12,7 @@ pkgs.mkShell {
     pkg-config
     mold
     lld
+    jq
   ];
   buildInputs = with pkgs; [
     openssl
