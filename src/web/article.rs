@@ -1,5 +1,5 @@
 use super::components::MaterialIcon;
-use super::components::{InfoPill, RatingPill};
+use super::components::{CenteredMessage, InfoPill, RatingPill};
 use crate::{
     shared::{
         Article, ArticleStatus, Rating, Region,
@@ -17,6 +17,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
     let articles_loaded = use_context::<Signal<bool>>();
     let navigator = use_navigator();
     let is_valid = article_exists_in_tab(&article_store, &tab, id);
+    let loaded = articles_loaded();
 
     use_effect(move || {
         if articles_loaded() && !is_valid {
@@ -25,11 +26,14 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
     });
 
     let Some(article) = article_store.iter().find(|a| a.id == id) else {
-        return rsx! {};
+        return rsx! {
+            CenteredMessage { text: if loaded { "Article not found".to_string() } else { "Loading article".to_string() } }
+        };
     };
 
     rsx! {
         div {
+            class: "article-detail-shell",
             position: "relative",
             width: "100%",
             background_color: "var(--base)",
@@ -109,6 +113,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
             }
 
             div {
+                class: "article-detail-body",
                 position: "relative",
                 z_index: "2",
                 padding: "16rem 2rem 5rem",
@@ -120,6 +125,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                     align_items: "center",
 
                     h1 {
+                        class: "article-title",
                         font_size: "1.625rem",
                         font_weight: "800",
                         line_height: "1.2",
@@ -130,6 +136,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                     }
 
                     div {
+                        class: "article-meta-row",
                         display: "flex",
                         align_items: "center",
                         gap: "2rem",
@@ -220,6 +227,7 @@ fn ActionBtn(
     let mut hovered = use_signal(|| false);
     rsx! {
         button {
+            aria_label: "{title}",
             padding: "0.375rem",
             border_radius: "0.375rem",
             border: "none",
@@ -325,6 +333,7 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                     let is_current = current_idx == Some(i);
                     rsx! {
                         button {
+                            aria_label: "Rate article {i + 1} out of 5",
                             key: "{i}",
                             background: "none",
                             border: "none",

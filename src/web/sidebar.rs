@@ -41,25 +41,6 @@ pub const SIDEBAR_STYLES: &str = "
     .tab-bubble-active { animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
 ";
 
-const fn category_icon(category: Category) -> &'static str {
-    match category {
-        Category::Business => "business",
-        Category::Politics => "politics",
-        Category::Law => "law",
-        Category::Health => "health",
-        Category::Culture => "culture",
-        Category::Lifestyle => "lifestyle",
-        Category::Transport => "transport",
-        Category::Nature => "nature",
-        Category::Technology => "technology",
-        Category::Software => "software",
-        Category::AI => "ai",
-        Category::Science => "science",
-        Category::Sports => "sports",
-        Category::Gaming => "gaming",
-    }
-}
-
 #[component]
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let articles = use_context::<Signal<Vec<Article>>>();
@@ -93,6 +74,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 
     rsx! {
         div {
+            id: "sidebar-panel",
             width: SIDEBAR_WIDTH,
             display: "flex",
             flex_direction: "column",
@@ -266,6 +248,7 @@ fn TabButton(slug: &'static str, label: &'static str, count: usize) -> Element {
 
     rsx! {
         button {
+            aria_label: "{label} articles, {count} items",
             flex: "1",
             position: "relative",
             z_index: "2",
@@ -421,7 +404,7 @@ fn CategoryScrollbar(
                     span {
                         filter: "drop-shadow(0.5px 0.5px 1px rgba(0,0,0,0.6))",
                         margin_top: "3px",
-                        MaterialIcon { name: category_icon(category), size: 13 }
+                        MaterialIcon { name: category.to_string(), size: 13 }
                     }
                 }
             }
@@ -457,7 +440,7 @@ fn CategoryGroup(
                 align_items: "center",
                 padding: "0.8rem",
                 gap: "0.75rem",
-                MaterialIcon { name: category_icon(category), size: 24 }
+                MaterialIcon { name: category.to_string(), size: 24 }
                 div {
                     writing_mode: "vertical-rl",
                     transform: "rotate(180deg)",
@@ -493,6 +476,8 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
     let navigator = use_navigator();
     let is_selected = selected == Some(id);
     let mut hovered = use_signal(|| false);
+    let tab_for_key = tab.clone();
+    let tab_for_click = tab;
     let d = chrono::Utc::now() - article.published;
     let time_ago = if d.num_days() > 0 {
         format!("{}d", d.num_days())
@@ -522,6 +507,9 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
     rsx! {
         div {
             id: "article-sidebar-{article.id}",
+            aria_label: "Open article: {article.title}",
+            role: "button",
+            tabindex: "0",
             height: "{ARTICLE_HEIGHT_PX}px",
             cursor: "pointer",
             border_radius: "20px 30px 30px 20px",
@@ -534,10 +522,24 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
             onmounted: move |cx| node_handle.set(Some(cx.data())),
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
+            onkeydown: move |event| {
+                let should_open = match event.key() {
+                    Key::Enter => true,
+                    Key::Character(c) => c == " ",
+                    _ => false,
+                };
+                if should_open {
+                    navigator
+                        .push(Route::ArticleDetail {
+                            tab: tab_for_key.clone(),
+                            id,
+                        });
+                }
+            },
             onclick: move |_| {
                 navigator
                     .push(Route::ArticleDetail {
-                        tab: tab.clone(),
+                        tab: tab_for_click.clone(),
                         id,
                     });
             },

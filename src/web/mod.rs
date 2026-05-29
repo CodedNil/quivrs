@@ -25,6 +25,10 @@ fn AppHead() -> Element {
         }
         document::Style {
             "*, *::before, *::after {{ box-sizing: border-box; }}
+            html {{
+                min-height: 100%;
+                background: var(--mantle);
+            }}
             body {{
                 --crust: #181926;
                 --mantle: #1e2030;
@@ -43,10 +47,33 @@ fn AppHead() -> Element {
                 --crust-transparent: color-mix(in srgb, var(--crust) 30%, transparent);
                 --mantle-transparent: color-mix(in srgb, var(--mantle) 30%, transparent);
                 --base-transparent: color-mix(in srgb, var(--base) 30%, transparent);
+                --ring: color-mix(in srgb, var(--accent) 65%, white);
+                --shadow-soft: 0 18px 60px rgba(0, 0, 0, 0.25);
 
                 font-family: 'Inter', system-ui, sans-serif;
                 margin: 0; padding: 0px;
-                background-color: var(--mantle);
+                background:
+                    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 28rem),
+                    radial-gradient(circle at 88% 12%, rgba(245, 197, 24, 0.08), transparent 24rem),
+                    linear-gradient(135deg, var(--crust), var(--mantle) 45%, var(--base));
+                color: var(--text);
+                overflow: hidden;
+            }}
+
+            button, a {{
+                font: inherit;
+            }}
+
+            button:focus-visible,
+            a:focus-visible,
+            #main-app-container:focus-visible {{
+                outline: 2px solid var(--ring);
+                outline-offset: 3px;
+            }}
+
+            ::selection {{
+                background: color-mix(in srgb, var(--accent) 45%, transparent);
+                color: var(--text);
             }}
 
             .material-icon {{
@@ -80,8 +107,24 @@ enum Route {
 
 #[component]
 fn TabHome(tab: String) -> Element {
+    let articles = use_context::<Signal<Vec<Article>>>();
+    let articles_loaded = use_context::<Signal<bool>>();
+    let status = status_for_tab(&tab);
+    let count = articles
+        .read()
+        .iter()
+        .filter(|article| article.status == status)
+        .count();
+    let text = if !articles_loaded() {
+        "Loading articles".to_string()
+    } else if count == 0 {
+        format!("No {tab} articles")
+    } else {
+        "Select an article to read".to_string()
+    };
+
     rsx! {
-        CenteredMessage { text: "Select an article to read" }
+        CenteredMessage { text }
     }
 }
 
@@ -242,7 +285,11 @@ fn MainLayout() -> Element {
             autofocus: true,
             onkeydown,
             Sidebar { tab, selected_id }
-            main { flex: "1", overflow: "hidden", padding: "10px",
+            main {
+                id: "article-main",
+                flex: "1",
+                overflow: "hidden",
+                padding: "10px",
                 div {
                     id: "article-content-container",
                     background_color: "var(--base)",

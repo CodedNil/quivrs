@@ -9,9 +9,9 @@ macro_rules! material_icon_svg {
 }
 
 #[component]
-pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
+pub fn MaterialIcon(name: String, size: u32) -> Element {
     let size = size.saturating_mul(5) / 4;
-    let svg = match name {
+    let svg = match name.as_str() {
         "keyboard_double_arrow_left" => material_icon_svg!("keyboard_double_arrow_left"),
         "keyboard_arrow_left" => material_icon_svg!("keyboard_arrow_left"),
         "keyboard_arrow_right" => material_icon_svg!("keyboard_arrow_right"),
@@ -21,20 +21,20 @@ pub fn MaterialIcon(name: &'static str, size: u32) -> Element {
         "delete" => material_icon_svg!("delete"),
         "bookmark_star" => material_icon_svg!("bookmark_star"),
 
-        "business" => material_icon_svg!("business_center"),
-        "politics" => material_icon_svg!("account_balance"),
-        "law" => material_icon_svg!("gavel"),
-        "health" => material_icon_svg!("health_metrics"),
-        "culture" => material_icon_svg!("theater_comedy"),
-        "lifestyle" => material_icon_svg!("chair"),
-        "transport" => material_icon_svg!("directions_car"),
-        "nature" => material_icon_svg!("nature"),
-        "technology" => material_icon_svg!("memory"),
-        "software" => material_icon_svg!("code"),
-        "ai" => material_icon_svg!("neurology"),
-        "science" => material_icon_svg!("science"),
-        "sports" => material_icon_svg!("sports_and_outdoors"),
-        "gaming" => material_icon_svg!("sports_esports"),
+        "Business" => material_icon_svg!("business_center"),
+        "Politics" => material_icon_svg!("account_balance"),
+        "Law" => material_icon_svg!("gavel"),
+        "Health" => material_icon_svg!("health_metrics"),
+        "Culture" => material_icon_svg!("theater_comedy"),
+        "Lifestyle" => material_icon_svg!("chair"),
+        "Transport" => material_icon_svg!("directions_car"),
+        "Nature" => material_icon_svg!("nature"),
+        "Technology" => material_icon_svg!("memory"),
+        "Software" => material_icon_svg!("code"),
+        "AI" => material_icon_svg!("neurology"),
+        "Science" => material_icon_svg!("science"),
+        "Sports" => material_icon_svg!("sports_and_outdoors"),
+        "Gaming" => material_icon_svg!("sports_esports"),
 
         other => panic!("unsupported material icon: {other}"),
     };
@@ -211,6 +211,7 @@ pub fn RatingPillBtn(
 ) -> Element {
     rsx! {
         button {
+            aria_label: "Set item rating",
             padding: "0.125rem 0.375rem",
             background_color: "transparent",
             border: "none",

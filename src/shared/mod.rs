@@ -158,9 +158,10 @@ pub enum Region {
 }
 
 #[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
 pub enum ArticleStatus {
     Stored,
+    #[default]
     New,
     Binned,
 }
