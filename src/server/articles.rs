@@ -11,6 +11,7 @@ use crate::{
     shared::{Article, ArticleSource, ArticleStatus, PendingSource, Rating},
 };
 use anyhow::{Result, anyhow};
+use chrono::Utc;
 use futures::future::join_all;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -335,8 +336,9 @@ pub async fn promote_articles() -> Result<()> {
                     category: candidate.category,
                     region: candidate.region,
                     status: ArticleStatus::New,
-                    binned_at: None,
+                    status_changed: Utc::now(),
                     rating: None,
+                    estimated_liked: Some(estimated_liked),
                     embedding: candidate.embedding,
                     embedding_text: candidate.embedding_text,
                     embedding_model: candidate.embedding_model,

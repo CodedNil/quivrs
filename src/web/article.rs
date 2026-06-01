@@ -149,7 +149,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                             font_weight: "900",
                             {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                         }
-                        StarRating { current: article.rating, id }
+                        StarRating { current: article.rating, estimated_liked: article.estimated_liked, id }
                         div {
                             display: "flex",
                             align_items: "center",
@@ -311,7 +311,43 @@ pub fn StatusButtons(id: Uuid) -> Element {
 }
 
 #[component]
-pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
+fn StarGlyph(fill: f32, opacity: f32) -> Element {
+    let width = format!("{:.2}%", fill.clamp(0.0, 1.0) * 100.0);
+
+    rsx! {
+        div {
+            position: "relative",
+            width: "18px",
+            height: "18px",
+            flex_shrink: "0",
+            div {
+                position: "absolute",
+                top: "0",
+                left: "0",
+                right: "0",
+                bottom: "0",
+                color: "var(--subtext0)",
+                opacity: "0.7",
+                MaterialIcon { name: "star", size: 15 }
+            }
+            div {
+                position: "absolute",
+                top: "0",
+                left: "0",
+                right: "0",
+                bottom: "0",
+                width: "{width}",
+                overflow: "hidden",
+                color: "#f5c518",
+                opacity: "{opacity}",
+                MaterialIcon { name: "star", size: 15 }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn StarRating(current: Option<Rating>, estimated_liked: Option<f32>, id: Uuid) -> Element {
     const RATINGS: [Rating; 5] = [
         Rating::Hated,
         Rating::Disliked,
@@ -323,12 +359,18 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
     let current_idx = current.and_then(|r| RATINGS.iter().position(|&x| x == r));
     let mut hover_idx: Signal<Option<usize>> = use_signal(|| None);
     let fill_to = hover_idx().or(current_idx);
+    let estimated_fill = estimated_liked.unwrap_or_default().clamp(0.0, 1.0) * 5.0;
+    let ghost_mode = fill_to.is_none();
 
     rsx! {
         div { display: "flex", align_items: "center", gap: "0.05rem",
             for (i, &this_rating) in RATINGS.iter().enumerate() {
                 {
-                    let filled = fill_to.is_some_and(|h| i <= h);
+                    let fill = fill_to.map_or_else(
+                        || (estimated_fill - i as f32).clamp(0.0, 1.0),
+                        |h| if i <= h { 1.0 } else { 0.0 },
+                    );
+                    let filled = fill > 0.0;
                     let is_hover = hover_idx().is_some_and(|h| i == h);
                     let is_current = current_idx == Some(i);
                     rsx! {
@@ -339,12 +381,11 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                             border: "none",
                             padding: "0.1rem 0.075rem",
                             cursor: "pointer",
-                            font_size: "1.2rem",
-                            line_height: "1",
-                            color: if filled { "#f5c518" } else { "var(--subtext0)" },
                             transform: if is_hover { "scale(1.35)" } else if filled { "scale(1.05)" } else { "scale(1)" },
                             transition: "color 0.1s, transform 0.12s",
-                            display: "inline-block",
+                            display: "inline-flex",
+                            align_items: "center",
+                            justify_content: "center",
                             onmouseenter: move |_| hover_idx.set(Some(i)),
                             onmouseleave: move |_| hover_idx.set(None),
                             onclick: move |evt| async move {
@@ -357,7 +398,7 @@ pub fn StarRating(current: Option<Rating>, id: Uuid) -> Element {
                                 );
                                 let _ = set_rating(id, new).await;
                             },
-                            MaterialIcon { name: "star", size: 15 }
+                            StarGlyph { fill, opacity: if ghost_mode { 0.2 } else { 1.0 } }
                         }
                     }
                 }

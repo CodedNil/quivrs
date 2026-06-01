@@ -21,7 +21,6 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 use strum::IntoEnumIterator;
-use surrealdb::types::RecordId;
 use tracing::info;
 
 const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
@@ -160,52 +159,56 @@ async fn maintenance_label_embeddings() -> Result<()> {
         .filter(|def| cached_hashes.get(&def.key) != Some(&def.hash))
         .collect();
 
-    if !stale.is_empty() {
+    let records = if stale.is_empty() {
+        Vec::new()
+    } else {
         info!("Refreshing {} label embeddings", stale.len());
         let texts: Vec<_> = stale.iter().map(|def| def.text.to_string()).collect();
         let embeddings = generate_embeddings(&texts).await?;
-        let records: Vec<_> = stale
+        stale
             .into_iter()
             .zip(embeddings)
             .map(|(def, embedding)| database::LabelEmbeddingRecord {
-                id: RecordId::new("label_embeddings", def.key.as_str()),
+                id: def.key.clone(),
                 label_group: def.label_group.to_string(),
                 label_value: def.label_value.clone(),
                 hash: def.hash.clone(),
                 text: def.text.to_string(),
                 embedding,
             })
-            .collect();
+            .collect()
+    };
 
-        database::upsert_label_embeddings(&records).await?;
-    }
-
-    database::delete_label_embeddings_except(&keys).await?;
+    database::sync_label_embeddings(&records, &keys).await?;
     Ok(())
 }
 
 async fn maintenance_article_embeddings() -> Result<()> {
     let current_model = EMBEDDING_MODEL_NAME;
 
-    for table in ["pending_sources", "user_articles"] {
+    for table in [
+        database::EmbeddingTable::PendingSources,
+        database::EmbeddingTable::UserArticles,
+    ] {
         let stale = database::get_stale_embedding_records(table, current_model).await?;
         if stale.is_empty() {
             continue;
         }
 
-        info!("Updating embeddings for {} records in {table}", stale.len());
+        info!(
+            "Updating embeddings for {} records in {}",
+            stale.len(),
+            table.name()
+        );
         for chunk in stale.chunks(100) {
-            let texts: Vec<String> = chunk.iter().map(|r| r.embedding_text.clone()).collect();
+            let texts: Vec<String> = chunk.iter().map(|(_, text)| text.clone()).collect();
             let new_embeddings = generate_embeddings(&texts).await?;
             let updates: Vec<_> = chunk
                 .iter()
                 .zip(new_embeddings)
-                .map(|(record, embedding)| database::EmbeddingUpdate {
-                    id: record.id.clone(),
-                    embedding,
-                })
+                .map(|((id, _), embedding)| (id.clone(), embedding))
                 .collect();
-            database::update_record_embeddings(&updates, current_model).await?;
+            database::update_record_embeddings(table, &updates, current_model).await?;
         }
     }
 

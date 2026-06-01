@@ -4,7 +4,7 @@ Quivrs is a Rust-based service that ingests RSS-style feeds, applies configurabl
 
 ## Features
 
-- Refreshes multiple feeds defined in `feeds.json`, storing normalised data in a Redb database.
+- Refreshes multiple feeds defined in `feeds.json`, storing normalised data in a SQLite database.
 - Supports website, YouTube, Twitter, and Reddit sources with source-specific handling.
 - Allows per feed filtering in plain english, to filter out unwanted content.
 - Can condense feeds to timed summaries instead of individual articles.

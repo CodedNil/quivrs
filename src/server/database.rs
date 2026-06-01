@@ -1,28 +1,29 @@
 use crate::shared::{Article, ArticleStatus, Category, PendingSource, Rating};
-use anyhow::{Context, Result, bail};
-use chrono::Utc;
-use serde::Deserialize;
+use anyhow::{Context, Result};
+use chrono::{DateTime, TimeDelta, Utc};
+use sqlx::{
+    QueryBuilder, Row, Sqlite, SqlitePool,
+    sqlite::{
+        SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow, SqliteSynchronous,
+    },
+};
 use std::{
     collections::{HashMap, HashSet},
-    sync::LazyLock,
+    str::FromStr,
+    sync::{Once, OnceLock},
 };
-use surrealdb::{
-    Surreal,
-    engine::local::{Db, SurrealKv},
-    types::{RecordId, SurrealValue},
-};
-use tracing::info;
 use uuid::Uuid;
 
-pub static DB: LazyLock<Surreal<Db>> = LazyLock::new(Surreal::init);
+static DB: OnceLock<SqlitePool> = OnceLock::new();
+static REGISTER_SQLITE_VEC: Once = Once::new();
 
-const PREFERENCE_NEIGHBOURS: u32 = 64;
-const SIMILAR_SOURCE_NEIGHBOURS: u32 = 50;
-const KNN_EF: u32 = 200;
+const DEFAULT_DATABASE_URL: &str = "sqlite://quivrs.db";
+const PREFERENCE_NEIGHBOURS: usize = 64;
+const SIMILAR_SOURCE_NEIGHBOURS: usize = 50;
 
-#[derive(Clone, SurrealValue)]
+#[derive(Clone)]
 pub struct LabelEmbeddingRecord {
-    pub id: RecordId,
+    pub id: String,
     pub label_group: String,
     pub label_value: String,
     pub hash: String,
@@ -30,107 +31,125 @@ pub struct LabelEmbeddingRecord {
     pub embedding: Vec<f32>,
 }
 
-#[derive(SurrealValue)]
-struct LabelHashRow {
-    id: RecordId,
-    hash: String,
-}
-
-#[derive(SurrealValue)]
 pub struct LabelScore {
     pub label_group: String,
     pub label_value: String,
     pub similarity: f32,
 }
 
-#[derive(SurrealValue)]
-struct GroupedCount {
-    category: Category,
-    count: i64,
+#[derive(Clone, Copy)]
+pub enum EmbeddingTable {
+    PendingSources,
+    UserArticles,
 }
 
-#[derive(SurrealValue)]
-pub struct StaleEmbeddingRecord {
-    pub id: RecordId,
-    pub embedding_text: String,
-}
-
-#[derive(Clone, SurrealValue)]
-pub struct EmbeddingUpdate {
-    pub id: RecordId,
-    pub embedding: Vec<f32>,
-}
-
-#[derive(Deserialize)]
-struct SimilarSource {
-    #[serde(flatten)]
-    source: PendingSource,
-    dist: f32,
-}
-
-#[derive(SurrealValue)]
-struct PreferenceRow {
-    rating: Rating,
-    dist: f32,
-}
-
-#[derive(SurrealValue)]
-struct ItemRatingRow {
-    id: RecordId,
-    rating: Rating,
-}
-
-fn record_key_to_string(id: RecordId) -> String {
-    match id.key {
-        surrealdb::types::RecordIdKey::String(s) => s,
-        surrealdb::types::RecordIdKey::Number(n) => n.to_string(),
-        surrealdb::types::RecordIdKey::Uuid(u) => u.to_string(),
-        other => format!("{other:?}"),
+impl EmbeddingTable {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PendingSources => "pending_sources",
+            Self::UserArticles => "user_articles",
+        }
     }
+
+    const fn stale_sql(self) -> &'static str {
+        match self {
+            Self::PendingSources => {
+                "SELECT url AS id, embedding_text
+                 FROM pending_sources
+                 WHERE embedding = '[]' OR embedding_model = '' OR embedding_model != ?"
+            }
+            Self::UserArticles => {
+                "SELECT id, embedding_text
+                 FROM user_articles
+                 WHERE embedding = '[]' OR embedding_model = '' OR embedding_model != ?"
+            }
+        }
+    }
+
+    const fn update_sql(self) -> &'static str {
+        match self {
+            Self::PendingSources => {
+                "UPDATE pending_sources
+                 SET embedding = ?, embedding_model = ?
+                 WHERE url = ?"
+            }
+            Self::UserArticles => {
+                "UPDATE user_articles
+                 SET embedding = ?, embedding_model = ?
+                 WHERE id = ?"
+            }
+        }
+    }
+}
+
+fn pool() -> Result<&'static SqlitePool> {
+    DB.get()
+        .context("Database has not been initialised; call database::init first")
+}
+
+fn article_from_row(row: &SqliteRow) -> Result<Article> {
+    let mut article: Article = serde_json::from_str(&row.get::<String, _>("payload"))?;
+    article.status = row.get::<String, _>("status").parse()?;
+    article.status_changed =
+        DateTime::parse_from_rfc3339(&row.get::<String, _>("status_changed"))?.with_timezone(&Utc);
+    article.rating = row
+        .get::<Option<String>, _>("rating")
+        .map(|rating| rating.parse())
+        .transpose()?;
+    article.embedding = serde_json::from_str(&row.get::<String, _>("embedding"))?;
+    article.embedding_model = row.get("embedding_model");
+    Ok(article)
+}
+
+fn pending_source_from_row(row: &SqliteRow) -> Result<PendingSource> {
+    let mut source: PendingSource = serde_json::from_str(&row.get::<String, _>("payload"))?;
+    source.embedding = serde_json::from_str(&row.get::<String, _>("embedding"))?;
+    source.embedding_model = row.get("embedding_model");
+    Ok(source)
 }
 
 pub async fn init() -> Result<()> {
-    DB.connect::<SurrealKv>("quivrs.db").await?;
-    DB.use_ns("quivrs").use_db("quivrs").await?;
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
+    if let Some(path) = database_url.strip_prefix("sqlite://")
+        && path != ":memory:"
+        && let Some(parent) = std::path::Path::new(path).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    register_sqlite_vec();
 
-    // Simple migration runner
-    run_migrations().await?;
+    let options = SqliteConnectOptions::from_str(&database_url)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .foreign_keys(true);
+    let db = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
+        .await?;
+
+    DB.set(db).ok().context("Database already initialised")?;
+    sqlx::migrate!().run(pool()?).await?;
 
     Ok(())
 }
 
-async fn run_migrations() -> Result<()> {
-    // Ensure migrations table exists
-    DB.query("DEFINE TABLE IF NOT EXISTS migrations SCHEMALESS;")
-        .await?
-        .check()?;
-
-    let mut dir = tokio::fs::read_dir("migrations").await?;
-    let mut entries = Vec::new();
-    while let Some(entry) = dir.next_entry().await? {
-        let path = entry.path();
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if ext == "surql" || ext == "sql" {
-            entries.push(entry.path());
-        }
-    }
-    entries.sort();
-
-    for path in entries {
-        let name = path.file_name().unwrap().to_str().unwrap();
-        let check: Option<surrealdb::types::Value> = DB.select(("migrations", name)).await?;
-
-        if check.is_none() {
-            info!("Running migration: {}", name);
-            let sql = tokio::fs::read_to_string(&path).await?;
-            DB.query(sql).await?.check()?;
-            DB.create::<Option<surrealdb::types::Value>>(("migrations", name))
-                .content(serde_json::json!({ "executed_at": Utc::now() }))
-                .await?;
-        }
-    }
-
-    Ok(())
+#[allow(unsafe_code)]
+fn register_sqlite_vec() {
+    REGISTER_SQLITE_VEC.call_once(|| unsafe {
+        libsqlite3_sys::sqlite3_auto_extension(Some(std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut libsqlite3_sys::sqlite3,
+                *mut *mut std::ffi::c_char,
+                *const libsqlite3_sys::sqlite3_api_routines,
+            ) -> i32,
+        >(
+            sqlite_vec::sqlite3_vec_init as *const ()
+        )));
+    });
 }
 
 /// Checks if a URL has already been processed, removes if they have.
@@ -139,18 +158,19 @@ pub async fn filter_new_urls(urls: &HashSet<String>) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
 
-    let mut res = DB
-        .query("SELECT VALUE id FROM article_urls WHERE id IN $urls")
-        .bind((
-            "urls",
-            urls.iter()
-                .map(|u| RecordId::new("article_urls", u.as_str()))
-                .collect::<Vec<_>>(),
-        ))
-        .await?;
+    let mut existing = HashSet::new();
+    for chunk in urls.iter().collect::<Vec<_>>().chunks(256) {
+        let mut query = QueryBuilder::new("SELECT url FROM article_urls WHERE url IN (");
+        let mut values = query.separated(", ");
+        for url in chunk {
+            values.push_bind(*url);
+        }
+        values.push_unseparated(")");
 
-    let existing_ids: Vec<RecordId> = res.take(0)?;
-    let existing: HashSet<String> = existing_ids.into_iter().map(record_key_to_string).collect();
+        for row in query.build().fetch_all(pool()?).await? {
+            existing.insert(row.get::<String, _>("url"));
+        }
+    }
 
     Ok(urls
         .iter()
@@ -165,14 +185,11 @@ pub async fn mark_urls_dismissed(urls: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    DB.query(
-        "FOR $url IN $urls {
-             UPSERT type::record('article_urls', $url) CONTENT {} RETURN NONE;
-         };",
-    )
-    .bind(("urls", urls.to_vec()))
-    .await?
-    .check()?;
+    let mut query = QueryBuilder::new("INSERT OR IGNORE INTO article_urls (url) ");
+    query.push_values(urls, |mut row, url| {
+        row.push_bind(url);
+    });
+    query.build().execute(pool()?).await?;
 
     Ok(())
 }
@@ -183,144 +200,219 @@ pub async fn insert_sources(sources: Vec<PendingSource>) -> Result<()> {
         return Ok(());
     }
 
-    DB.query(
-        "BEGIN TRANSACTION;
-         FOR $source IN $sources {
-             UPSERT pending_sources CONTENT $source WHERE url = $source.url RETURN NONE;
-             UPSERT type::record('article_urls', $source.url) CONTENT {} RETURN NONE;
-         };
-         COMMIT TRANSACTION;",
-    )
-    .bind(("sources", sources))
-    .await?
-    .check()?;
+    let mut tx = pool()?.begin().await?;
+    for source in sources {
+        sqlx::query(
+            "INSERT INTO pending_sources
+                (url, payload, published, embedding, embedding_text, embedding_model)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(url) DO UPDATE SET
+                payload = excluded.payload,
+                published = excluded.published,
+                embedding = excluded.embedding,
+                embedding_text = excluded.embedding_text,
+                embedding_model = excluded.embedding_model",
+        )
+        .bind(&source.url)
+        .bind(serde_json::to_string(&source)?)
+        .bind(source.published.to_rfc3339())
+        .bind(serde_json::to_string(&source.embedding)?)
+        .bind(&source.embedding_text)
+        .bind(&source.embedding_model)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("INSERT OR IGNORE INTO article_urls (url) VALUES (?)")
+            .bind(&source.url)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
 
     Ok(())
 }
 
 /// Updates the user status (new, read, binned) for an article.
 pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
-    let binned_at = (status == ArticleStatus::Binned).then(Utc::now);
-    DB.query(
-        "UPDATE type::record('user_articles', $id)
-         SET status = $status, binned_at = $binned_at RETURN NONE",
+    sqlx::query(
+        "UPDATE user_articles
+         SET status = ?, status_changed = ?
+         WHERE id = ?",
     )
-    .bind(("id", id))
-    .bind(("status", status))
-    .bind(("binned_at", binned_at))
-    .await?
-    .check()?;
+    .bind(status.to_string())
+    .bind(Utc::now().to_rfc3339())
+    .bind(id.to_string())
+    .execute(pool()?)
+    .await?;
     Ok(())
 }
 
 /// Sets a user rating for an article.
 pub async fn set_rating(id: Uuid, rating: Rating) -> Result<()> {
-    DB.query("UPDATE type::record('user_articles', $id) SET rating = $rating RETURN NONE")
-        .bind(("id", id))
-        .bind(("rating", rating))
-        .await?
-        .check()?;
+    sqlx::query(
+        "UPDATE user_articles
+         SET rating = ?
+         WHERE id = ?",
+    )
+    .bind(rating.to_string())
+    .bind(id.to_string())
+    .execute(pool()?)
+    .await?;
     Ok(())
 }
 
 /// Retrieves all articles with their user-specific status and ratings.
 pub async fn get_user_articles() -> Result<Vec<Article>> {
-    let mut res = DB
-        .query("SELECT *, record::id(id) AS id FROM user_articles ORDER BY published DESC")
-        .await?;
-    let articles: Vec<Article> = res.take(0)?;
-    Ok(articles)
+    let rows = sqlx::query(
+        "SELECT payload, status, status_changed, rating, embedding, embedding_model
+         FROM user_articles
+         ORDER BY published DESC",
+    )
+    .fetch_all(pool()?)
+    .await?;
+    rows.iter().map(article_from_row).collect()
 }
 
 /// Sets a rating for a generic item (source, feed, or tag).
 pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
-    DB.query(
-        "UPSERT type::record('item_ratings', $key)
-         CONTENT { rating: $rating } RETURN NONE",
+    sqlx::query(
+        "INSERT INTO item_ratings (id, rating) VALUES (?, ?)
+         ON CONFLICT(id) DO UPDATE SET rating = excluded.rating",
     )
-    .bind(("key", key.to_string()))
-    .bind(("rating", rating))
-    .await?
-    .check()?;
+    .bind(key)
+    .bind(rating.to_string())
+    .execute(pool()?)
+    .await?;
     Ok(())
 }
 
 pub async fn get_label_hashes() -> Result<HashMap<String, String>> {
-    let mut rows = DB.query("SELECT id, hash FROM label_embeddings").await?;
-
-    let rows: Vec<LabelHashRow> = rows.take(0)?;
+    let rows = sqlx::query("SELECT id, hash FROM label_embeddings")
+        .fetch_all(pool()?)
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|row| (record_key_to_string(row.id), row.hash))
+        .map(|row| (row.get("id"), row.get("hash")))
         .collect())
 }
 
-pub async fn upsert_label_embeddings(records: &[LabelEmbeddingRecord]) -> Result<()> {
-    if records.is_empty() {
-        return Ok(());
+pub async fn sync_label_embeddings(
+    records: &[LabelEmbeddingRecord],
+    keep_keys: &HashSet<String>,
+) -> Result<()> {
+    let mut tx = pool()?.begin().await?;
+    for record in records {
+        sqlx::query(
+            "INSERT INTO label_embeddings
+                (id, label_group, label_value, hash, text, embedding)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                label_group = excluded.label_group,
+                label_value = excluded.label_value,
+                hash = excluded.hash,
+                text = excluded.text,
+                embedding = excluded.embedding",
+        )
+        .bind(&record.id)
+        .bind(&record.label_group)
+        .bind(&record.label_value)
+        .bind(&record.hash)
+        .bind(&record.text)
+        .bind(serde_json::to_string(&record.embedding)?)
+        .execute(&mut *tx)
+        .await?;
     }
 
-    DB.query(
-        "FOR $record IN $records {
-             UPSERT $record.id CONTENT $record RETURN NONE;
-         };",
-    )
-    .bind(("records", records.to_vec()))
-    .await?
-    .check()?;
+    if keep_keys.is_empty() {
+        sqlx::query("DELETE FROM label_embeddings")
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        let mut query: QueryBuilder<Sqlite> =
+            QueryBuilder::new("DELETE FROM label_embeddings WHERE id NOT IN (");
+        let mut values = query.separated(", ");
+        for key in keep_keys {
+            values.push_bind(key);
+        }
+        values.push_unseparated(")");
+        query.build().execute(&mut *tx).await?;
+    }
 
-    Ok(())
-}
-
-pub async fn delete_label_embeddings_except(keys: &HashSet<String>) -> Result<()> {
-    let ids: Vec<_> = keys
-        .iter()
-        .map(|key| RecordId::new("label_embeddings", key.as_str()))
-        .collect();
-
-    DB.query("DELETE label_embeddings WHERE id NOT IN $ids RETURN NONE")
-        .bind(("ids", ids))
-        .await?
-        .check()?;
+    tx.commit().await?;
 
     Ok(())
 }
 
 pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
-    let mut res = DB
-        .query(
-            "SELECT label_group, label_value, vector::similarity::cosine(embedding, $embedding) AS similarity
-             FROM label_embeddings",
-        )
-        .bind(("embedding", embedding.to_vec()))
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embedding_vectors")
+        .fetch_one(pool()?)
         .await?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
 
-    Ok(res.take(0)?)
+    let rows = sqlx::query(
+        "SELECT labels.label_group, labels.label_value, vectors.distance
+         FROM label_embedding_vectors AS vectors
+         JOIN label_embeddings AS labels ON labels.rowid = vectors.label_rowid
+         WHERE vectors.embedding MATCH ? AND k = ?
+         ORDER BY vectors.distance",
+    )
+    .bind(serde_json::to_string(embedding)?)
+    .bind(count)
+    .fetch_all(pool()?)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| LabelScore {
+            label_group: row.get("label_group"),
+            label_value: row.get("label_value"),
+            similarity: 1.0 - row.get::<f32, _>("distance"),
+        })
+        .collect())
 }
 
 /// Returns the preference score for a given embedding, based on the users ratings.
 pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
-    let mut res = DB
-        .query(format!(
-            "
-        SELECT rating, vector::distance::knn() AS dist
-        FROM user_articles
-        WHERE rating != NONE AND embedding <|{PREFERENCE_NEIGHBOURS},{KNN_EF}|> $embedding
-        ORDER BY dist
-    "
-        ))
-        .bind(("embedding", embedding.to_vec()))
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_article_embeddings")
+        .fetch_one(pool()?)
         .await?;
+    if count == 0 {
+        return Ok(0.5);
+    }
 
-    let rows: Vec<PreferenceRow> = res.take(0)?;
+    let rows = sqlx::query(
+        "SELECT articles.rating, vectors.distance
+         FROM user_article_embeddings AS vectors
+         JOIN user_articles AS articles ON articles.rowid = vectors.article_rowid
+         WHERE vectors.embedding MATCH ? AND k = ? AND articles.rating IS NOT NULL
+         ORDER BY vectors.distance",
+    )
+    .bind(serde_json::to_string(embedding)?)
+    .bind(count)
+    .fetch_all(pool()?)
+    .await?;
+
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            Ok((
+                row.get::<String, _>("rating").parse()?,
+                1.0 - row.get::<f32, _>("distance"),
+            ))
+        })
+        .take(PREFERENCE_NEIGHBOURS)
+        .collect::<Result<Vec<_>>>()?;
+
     if rows.is_empty() {
         return Ok(0.5);
     }
 
     let (sum, weight) = rows.into_iter().fold((0.0, 0.0), |(sum, weight), row| {
-        let sim = (1.0 - row.dist).clamp(-1.0, 1.0);
+        let sim = row.1.clamp(-1.0, 1.0);
         let p = (sim * 10.0).exp();
-        let val = match row.rating {
+        let val = match row.0 {
             Rating::Loved => 1.0,
             Rating::Liked => 0.75,
             Rating::Neutral => 0.5,
@@ -335,117 +427,164 @@ pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
 
 /// Retrieves all pending sources.
 pub async fn get_pending_sources() -> Result<Vec<PendingSource>> {
-    let sources: Vec<PendingSource> = DB.select("pending_sources").await?;
-    Ok(sources)
+    let rows = sqlx::query("SELECT payload, embedding, embedding_model FROM pending_sources")
+        .fetch_all(pool()?)
+        .await?;
+    rows.iter().map(pending_source_from_row).collect()
 }
 
 /// Retrieves the count of articles per category that have a 'New' status.
 pub async fn get_category_article_counts() -> Result<HashMap<Category, i64>> {
-    let mut res = DB
-        .query("SELECT category, count() FROM user_articles WHERE status = 'New' GROUP BY category")
-        .await?;
-    let rows: Vec<GroupedCount> = res.take(0)?;
+    let rows = sqlx::query(
+        "SELECT category, COUNT(*) AS count
+         FROM user_articles
+         WHERE status = ?
+         GROUP BY category",
+    )
+    .bind(ArticleStatus::New.to_string())
+    .fetch_all(pool()?)
+    .await?;
 
-    Ok(rows.into_iter().map(|r| (r.category, r.count)).collect())
+    rows.into_iter()
+        .map(|row| {
+            let category = row.get::<String, _>("category");
+            Ok((
+                category
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Unknown category value: {category}"))?,
+                row.get::<i64, _>("count"),
+            ))
+        })
+        .collect()
 }
 
 /// Inserts a promoted article and removes its sources from pending.
 pub async fn insert_promoted_article(article: Article, source_urls: Vec<String>) -> Result<()> {
-    DB.query(
-        "
-        BEGIN TRANSACTION;
-        UPSERT type::record('user_articles', $id) CONTENT $article RETURN NONE;
-        DELETE pending_sources WHERE url IN $urls RETURN NONE;
-        COMMIT TRANSACTION;
-    ",
+    let mut tx = pool()?.begin().await?;
+    sqlx::query(
+        "INSERT INTO user_articles
+            (id, payload, published, category, status, status_changed, rating, embedding, embedding_text, embedding_model)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+            payload = excluded.payload,
+            published = excluded.published,
+            category = excluded.category,
+            status = excluded.status,
+            status_changed = excluded.status_changed,
+            rating = excluded.rating,
+            embedding = excluded.embedding,
+            embedding_text = excluded.embedding_text,
+            embedding_model = excluded.embedding_model",
     )
-    .bind(("id", article.id))
-    .bind(("article", article))
-    .bind(("urls", source_urls))
-    .await?
-    .check()?;
+    .bind(article.id.to_string())
+    .bind(serde_json::to_string(&article)?)
+    .bind(article.published.to_rfc3339())
+    .bind(article.category.to_string())
+    .bind(article.status.to_string())
+    .bind(article.status_changed.to_rfc3339())
+    .bind(article.rating.map(|r| r.to_string()))
+    .bind(serde_json::to_string(&article.embedding)?)
+    .bind(&article.embedding_text)
+    .bind(&article.embedding_model)
+    .execute(&mut *tx)
+    .await?;
+
+    if !source_urls.is_empty() {
+        let mut query = QueryBuilder::new("DELETE FROM pending_sources WHERE url IN (");
+        let mut values = query.separated(", ");
+        for url in &source_urls {
+            values.push_bind(url);
+        }
+        values.push_unseparated(")");
+        query.build().execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
 
     Ok(())
 }
 
 pub async fn get_stale_embedding_records(
-    table: &str,
+    table: EmbeddingTable,
     current_model: &str,
-) -> Result<Vec<StaleEmbeddingRecord>> {
-    if !matches!(table, "pending_sources" | "user_articles") {
-        bail!("Unsupported embedding table: {table}");
-    }
-
-    let mut res = DB
-        .query(format!(
-            "SELECT id, embedding_text FROM {table}
-             WHERE embedding = NONE OR embedding_model = NONE OR embedding_model != $model"
-        ))
-        .bind(("model", current_model))
+) -> Result<Vec<(String, String)>> {
+    let rows = sqlx::query(table.stale_sql())
+        .bind(current_model)
+        .fetch_all(pool()?)
         .await?;
 
-    Ok(res.take(0)?)
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get("id"), row.get("embedding_text")))
+        .collect())
 }
 
 pub async fn update_record_embeddings(
-    updates: &[EmbeddingUpdate],
+    table: EmbeddingTable,
+    updates: &[(String, Vec<f32>)],
     embedding_model: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
     }
 
-    DB.query(
-        "FOR $record IN $updates {
-             UPDATE $record.id MERGE {
-                 embedding: $record.embedding,
-                 embedding_model: $model
-             } RETURN NONE;
-         };",
-    )
-    .bind(("updates", updates.to_vec()))
-    .bind(("model", embedding_model.to_string()))
-    .await?
-    .check()?;
+    let mut tx = pool()?.begin().await?;
+    for (id, embedding) in updates {
+        let embedding_json = serde_json::to_string(embedding)?;
+        sqlx::query(table.update_sql())
+            .bind(&embedding_json)
+            .bind(embedding_model)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
 
     Ok(())
 }
 
 pub async fn purge_old_pending_sources() -> Result<()> {
-    DB.query("DELETE pending_sources WHERE published < time::now() - 2w RETURN NONE")
-        .await?
-        .check()?;
+    let cutoff = Utc::now() - TimeDelta::weeks(2);
+    sqlx::query("DELETE FROM pending_sources WHERE published < ?")
+        .bind(cutoff.to_rfc3339())
+        .execute(pool()?)
+        .await?;
 
     Ok(())
 }
 
 pub async fn get_similar_pending_sources(embedding: &[f32]) -> Result<Vec<(PendingSource, f32)>> {
-    let mut res = DB
-        .query(format!(
-            "SELECT *, vector::distance::knn() AS dist
-             FROM pending_sources
-             WHERE embedding <|{SIMILAR_SOURCE_NEIGHBOURS},{KNN_EF}|> $embedding
-             ORDER BY dist"
-        ))
-        .bind(("embedding", embedding.to_vec()))
-        .await?;
+    let rows = sqlx::query(
+        "SELECT sources.payload, sources.embedding, sources.embedding_model, vectors.distance
+         FROM pending_source_embeddings AS vectors
+         JOIN pending_sources AS sources ON sources.rowid = vectors.source_rowid
+         WHERE vectors.embedding MATCH ? AND k = ?
+         ORDER BY vectors.distance",
+    )
+    .bind(serde_json::to_string(embedding)?)
+    .bind(SIMILAR_SOURCE_NEIGHBOURS as i64)
+    .fetch_all(pool()?)
+    .await?;
 
-    let rows: Vec<serde_json::Value> = res.take(0)?;
-    let rows: Vec<SimilarSource> = rows
-        .into_iter()
-        .map(serde_json::from_value)
-        .collect::<std::result::Result<_, _>>()
-        .context("Failed to decode a similar pending source row")?;
-    Ok(rows.into_iter().map(|r| (r.source, 1.0 - r.dist)).collect())
+    rows.into_iter()
+        .map(|row| {
+            let source = pending_source_from_row(&row)?;
+            Ok((source, 1.0 - row.get::<f32, _>("distance")))
+        })
+        .collect()
 }
 
 /// Retrieves all generic item ratings.
 pub async fn get_all_item_ratings() -> Result<HashMap<String, Rating>> {
-    let mut res = DB.query("SELECT id, rating FROM item_ratings").await?;
-    let rows: Vec<ItemRatingRow> = res.take(0)?;
+    let rows = sqlx::query("SELECT id, rating FROM item_ratings")
+        .fetch_all(pool()?)
+        .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| (record_key_to_string(r.id), r.rating))
-        .collect())
+    rows.into_iter()
+        .map(|row| {
+            Ok((
+                row.get::<String, _>("id"),
+                row.get::<String, _>("rating").parse()?,
+            ))
+        })
+        .collect()
 }

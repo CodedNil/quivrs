@@ -8,16 +8,16 @@ build:
 
 # Open an interactive SQL shell to the local database
 db-shell:
-    surreal sql --endpoint surrealkv://quivrs.db --namespace quivrs --database quivrs
+    db="${DATABASE_URL:-sqlite://quivrs.db}"; sqlite3 "${db#sqlite://}"
 
 # Check the status of the database tables and indexes
 db-info:
-    surreal sql --endpoint surrealkv://quivrs.db --namespace quivrs --database quivrs <<< "INFO FOR DB;"
+    db="${DATABASE_URL:-sqlite://quivrs.db}"; sqlite3 "${db#sqlite://}" ".tables"
 
 # Create a new migration file (usage: just migration <name>)
 migration name:
-    touch migrations/$(date +%Y%m%d)_"{{ name }}".surql
-    echo "Created migrations/$(date +%Y%m%d)_{{ name }}.surql"
+    touch migrations/$(date +%Y%m%d)_"{{ name }}".sql
+    echo "Created migrations/$(date +%Y%m%d)_{{ name }}.sql"
 
 # Fetch a rounded Material Symbol SVG from Google's repo into assets/icons/materialsymbolsrounded/<name>.svg
 fetch-icon name:

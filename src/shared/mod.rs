@@ -6,11 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 use uuid::Uuid;
 
-#[cfg(feature = "server")]
-use surrealdb::types::SurrealValue;
-
-#[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct PendingSource {
     pub url: String,
 
@@ -31,7 +27,6 @@ pub struct PendingSource {
     pub embedding_model: String,
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(Serialize, Deserialize)]
 pub struct Article {
     pub id: Uuid,
@@ -47,8 +42,9 @@ pub struct Article {
     pub region: Region,
 
     pub status: ArticleStatus,
-    pub binned_at: Option<DateTime<Utc>>,
+    pub status_changed: DateTime<Utc>,
     pub rating: Option<Rating>,
+    pub estimated_liked: Option<f32>,
 
     pub embedding: Vec<f32>,
     pub embedding_text: String,
@@ -64,14 +60,12 @@ impl PartialEq for Article {
     }
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(Serialize, Deserialize)]
 pub struct ArticleSource {
     pub url: String,
     pub domain: String,
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(
     Serialize,
     Deserialize,
@@ -105,9 +99,8 @@ pub enum Category {
     Gaming,
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
 #[derive(
-    Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString, PartialEq, Eq,
+    Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString, PartialEq, Eq, Hash,
 )]
 pub enum Region {
     #[default]
@@ -157,8 +150,19 @@ pub enum Region {
     Oceania,
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    EnumString,
+)]
 pub enum ArticleStatus {
     Stored,
     #[default]
@@ -166,8 +170,7 @@ pub enum ArticleStatus {
     Binned,
 }
 
-#[cfg_attr(feature = "server", derive(SurrealValue))]
-#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
 pub enum Rating {
     Hated,
     Disliked,

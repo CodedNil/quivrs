@@ -13,6 +13,7 @@ pkgs.mkShell {
     mold
     lld
     jq
+    sqlite
   ];
   buildInputs = with pkgs; [
     openssl

@@ -1,6 +1,6 @@
 [package]
 name = "quivrs"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -25,9 +25,6 @@ web-sys = "=0.3.95"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dotenvy = "0.15.7"
 tracing-subscriber = "0.3.23"
-serde_json = "1.0.150"
-ron = "0.12.1"
-roxmltree = "0.21.1"
 postcard = { version = "1.1.3", default-features = false, features = ["alloc"] }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "default-tls",
@@ -37,8 +34,6 @@ reqwest = { version = "0.13.4", default-features = false, features = [
 ] }
 rayon = "1.12.0"
 url = "2.5.8"
-url-normalize = "0.1.1"
-html-escape = "0.2.13"
 tokio = { version = "1.52.3", features = ["fs", "rt-multi-thread"] }
 axum = { version = "0.8.9", default-features = false, features = [
     "tokio",
@@ -51,26 +46,43 @@ tower-http = { version = "0.6.11", features = [
     "compression-deflate",
     "compression-gzip",
 ] }
-surrealdb = { version = "3.0.5", default-features = false, features = [
-    "kv-surrealkv",
-] }
-ammonia = "4.1.2"
-dom_smoothie = "0.17.0"
-scraper = "0.27.0"
 futures = "0.3.32"
-fastembed = { version = "5.14.0", default-features = false, features = [
+fastembed = { version = "5.15.0", default-features = false, features = [
     "hf-hub-rustls-tls",
     "ort-download-binaries-rustls-tls",
 ] }
 sha2 = "0.11.0"
+
+# Website parsing
+serde_json = "1.0.150"
+ron = "0.12.1"
+roxmltree = "0.21.1"
+url-normalize = "0.1.1"
+html-escape = "0.2.13"
+ammonia = "4.1.2"
+dom_smoothie = "0.17.0"
+scraper = "0.27.0"
+
+# Database
+sqlx = { version = "0.9.0", default-features = false, features = [
+    "chrono",
+    "json",
+    "macros",
+    "migrate",
+    "runtime-tokio",
+    "sqlite",
+    "uuid",
+] }
+libsqlite3-sys = "0.37.0"
+sqlite-vec = "0.1.9"
 
 [features]
 default = []
 server = ["dioxus/server"]
 web = ["dioxus/web"]
 
-[lints.rust]
-unsafe_code = "forbid"
+# [lints.rust]
+# unsafe_code = "forbid"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
