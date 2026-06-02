@@ -19,7 +19,7 @@ static REGISTER_SQLITE_VEC: Once = Once::new();
 
 const DEFAULT_DATABASE_URL: &str = "sqlite://quivrs.db";
 const PREFERENCE_NEIGHBOURS: usize = 64;
-const SIMILAR_SOURCE_NEIGHBOURS: usize = 50;
+const SIMILAR_SOURCE_NEIGHBOURS: i64 = 30;
 
 #[derive(Clone)]
 pub struct LabelEmbeddingRecord {
@@ -561,7 +561,7 @@ pub async fn get_similar_pending_sources(embedding: &[f32]) -> Result<Vec<(Pendi
          ORDER BY vectors.distance",
     )
     .bind(serde_json::to_string(embedding)?)
-    .bind(SIMILAR_SOURCE_NEIGHBOURS as i64)
+    .bind(SIMILAR_SOURCE_NEIGHBOURS)
     .fetch_all(pool()?)
     .await?;
 

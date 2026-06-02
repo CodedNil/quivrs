@@ -18,6 +18,7 @@ use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     env,
+    f32::consts::LN_2,
 };
 use tokio::fs;
 use tracing::{error, info, warn};
@@ -25,8 +26,9 @@ use uuid::Uuid;
 
 const LIKED_SERVE_THRESHOLD: f32 = 0.9; // If the liked guess is above this, it is automatically served
 const LIKED_MIN_THRESHOLD: f32 = 0.6; // If the liked guess is above this, it is served to meet quota
-const MERGE_SIMILARITY_THRESHOLD: f32 = 0.55; // Minimum similarity before asking the LLM to consider a merge
-const MERGE_REVIEW_LIMIT: usize = 15; // How many similar pending sources to review for merging
+
+const MERGE_SIMILARITY_THRESHOLD: f32 = 0.58; // Threshold for merging similar articles
+const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for merging a recent article
 
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
@@ -182,11 +184,6 @@ pub struct ArticleEntry {
     pub thumbnail: String,
 }
 
-#[derive(Deserialize)]
-struct MergeSelection {
-    merge_indexes: Vec<usize>,
-}
-
 /// Scans all pending sources and promotes the best content into full articles.
 pub async fn promote_articles() -> Result<()> {
     let pending = database::get_pending_sources().await?;
@@ -273,37 +270,31 @@ pub async fn promote_articles() -> Result<()> {
         );
 
         promoted_urls.insert(candidate.url.clone());
+        let similar_sources = database::get_similar_pending_sources(&candidate.embedding).await?;
 
-        let mut merge_candidates = Vec::with_capacity(MERGE_REVIEW_LIMIT);
-        for (other, similarity) in
-            database::get_similar_pending_sources(&candidate.embedding).await?
-        {
-            if merge_candidates.len() >= MERGE_REVIEW_LIMIT {
-                break;
-            }
-            if similarity < MERGE_SIMILARITY_THRESHOLD {
-                break;
-            }
-            let url = other.url.clone();
-            if promoted_urls.contains(&url) {
-                continue;
-            }
-            merge_candidates.push(other);
-        }
+        let candidate_ts = candidate.published.timestamp() as f32;
+        let half_life_secs = 4.0 * 3600.0;
 
-        let selected_indexes = match select_merge_indexes(&candidate, &merge_candidates).await {
-            Ok(indexes) => indexes,
-            Err(e) => {
-                error!("Failed to select merged sources: {e}");
-                continue;
-            }
-        };
         let mut sources_to_merge = vec![candidate];
-        for (index, source) in merge_candidates.into_iter().enumerate() {
-            if selected_indexes.contains(&index) {
-                info!("  [MERGE] adding '{}'", source.title);
-                promoted_urls.insert(source.url.clone());
-                sources_to_merge.push(source);
+
+        for (other, similarity) in similar_sources {
+            let diff_secs = (candidate_ts - other.published.timestamp() as f32).abs();
+            let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / half_life_secs).exp();
+
+            let score = similarity + time_bonus;
+            if score >= MERGE_SIMILARITY_THRESHOLD {
+                if promoted_urls.insert(other.url.clone()) {
+                    info!(
+                        "  [MERGE] adding '{}' (sim: {:.2}, bonus: {:.2})",
+                        other.title, similarity, time_bonus
+                    );
+                    sources_to_merge.push(other);
+                }
+            } else if score >= MERGE_SIMILARITY_THRESHOLD - 0.1 {
+                info!(
+                    "  [MISSED] near miss '{}' (sim: {:.2}, bonus: {:.2})",
+                    other.title, similarity, time_bonus
+                );
             }
         }
 
@@ -355,66 +346,6 @@ pub async fn promote_articles() -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Uses an LLM to decide which semantically similar sources belong in a combined article.
-async fn select_merge_indexes(
-    primary: &PendingSource,
-    candidates: &[PendingSource],
-) -> Result<HashSet<usize>> {
-    if candidates.is_empty() {
-        return Ok(HashSet::new());
-    }
-
-    let describe = |source: &PendingSource| {
-        format!(
-            "Title: {} | URL: {} | Published: {} | Summary: {}",
-            source.title.replace('\n', " "),
-            source.url,
-            source.published,
-            source.summary.replace('\n', " ")
-        )
-    };
-    let articles_content = candidates
-        .iter()
-        .enumerate()
-        .map(|(index, source)| format!("[{index}] {}", describe(source)))
-        .join("\n");
-    let primary_article = describe(primary);
-
-    let context = format!(
-        r#"You are deciding which news articles are related closely enough to combine into a single reader-facing article.
-
-Select candidate articles that cover the same story, closely related events, or useful related developments that belong in one combined article with the primary article. Do not select candidates based only on a very broad shared topic.
-
-Return only a JSON object with this exact structure:
-{{"merge_indexes": [0, 3, 4, 5]}}
-
-The values in "merge_indexes" must be indexes from the candidate articles below. The primary article is always included.
-
-Primary article:
-{primary_article}
-
-Candidate articles:
-{articles_content}"#
-    );
-
-    let selection = run::<MergeSelection>(&context)
-        .await
-        .map_err(|e| anyhow!("Merge selection failed: {e}"))?;
-
-    Ok(selection
-        .merge_indexes
-        .into_iter()
-        .filter(|index| {
-            if *index < candidates.len() {
-                true
-            } else {
-                warn!("LLM selected unavailable merge index {index}");
-                false
-            }
-        })
-        .collect())
 }
 
 /// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
