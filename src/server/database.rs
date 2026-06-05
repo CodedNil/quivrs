@@ -1,4 +1,7 @@
-use crate::shared::{Article, ArticleStatus, Category, PendingSource, Rating};
+use crate::{
+    server::embeddings::embedding_model_id,
+    shared::{Article, ArticleStatus, Category, PendingSource, Rating},
+};
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::{
@@ -503,12 +506,9 @@ pub async fn insert_promoted_article(article: Article, source_urls: Vec<String>)
     Ok(())
 }
 
-pub async fn get_stale_embedding_records(
-    table: EmbeddingTable,
-    current_model: &str,
-) -> Result<Vec<(String, String)>> {
+pub async fn get_stale_embedding_records(table: EmbeddingTable) -> Result<Vec<(String, String)>> {
     let rows = sqlx::query(table.stale_sql())
-        .bind(current_model)
+        .bind(embedding_model_id())
         .fetch_all(pool()?)
         .await?;
 
@@ -521,7 +521,6 @@ pub async fn get_stale_embedding_records(
 pub async fn update_record_embeddings(
     table: EmbeddingTable,
     updates: &[(String, Vec<f32>)],
-    embedding_model: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
@@ -532,7 +531,7 @@ pub async fn update_record_embeddings(
         let embedding_json = serde_json::to_string(embedding)?;
         sqlx::query(table.update_sql())
             .bind(&embedding_json)
-            .bind(embedding_model)
+            .bind(embedding_model_id())
             .bind(id)
             .execute(&mut *tx)
             .await?;

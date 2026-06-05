@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS pending_sources_published_idx
 -- Triggers below keep this table in sync with `pending_sources.embedding`.
 CREATE VIRTUAL TABLE IF NOT EXISTS pending_source_embeddings USING vec0(
     source_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[768] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine
 );
 
 CREATE TRIGGER IF NOT EXISTS sync_pending_source_embedding_after_insert
@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS user_articles_status_category_idx
 -- Triggers below keep this table in sync with `user_articles.embedding`.
 CREATE VIRTUAL TABLE IF NOT EXISTS user_article_embeddings USING vec0(
     article_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[768] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine
 );
 
 CREATE TRIGGER IF NOT EXISTS sync_user_article_embedding_after_insert
@@ -119,7 +119,7 @@ CREATE INDEX IF NOT EXISTS label_embeddings_group_idx
 -- Triggers below keep this table in sync with `label_embeddings.embedding`.
 CREATE VIRTUAL TABLE IF NOT EXISTS label_embedding_vectors USING vec0(
     label_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[768] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine
 );
 
 CREATE TRIGGER IF NOT EXISTS sync_label_embedding_vector_after_insert

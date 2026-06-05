@@ -2,8 +2,7 @@ use crate::{
     server::{
         database,
         embeddings::{
-            EMBEDDING_MODEL_NAME, EMBEDDING_TITLE_REPEAT, article_text, classify,
-            generate_embeddings,
+            EMBEDDING_TITLE_REPEAT, article_text, classify, embedding_model_id, generate_embeddings,
         },
         llm_functions::run,
         parsers::{feeds::scan_feed, fetch_page_content},
@@ -28,7 +27,7 @@ const LIKED_SERVE_THRESHOLD: f32 = 0.9; // If the liked guess is above this, it 
 const LIKED_MIN_THRESHOLD: f32 = 0.6; // If the liked guess is above this, it is served to meet quota
 
 const MERGE_SIMILARITY_THRESHOLD: f32 = 0.58; // Threshold for merging similar articles
-const TIME_BONUS_MAX: f32 = 0.1; // How much to boost the score for merging a recent article
+const TIME_BONUS_MAX: f32 = 0.03; // How much to boost the score for merging a recent article
 
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
@@ -151,7 +150,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
 
         source.embedding = embedding;
         source.embedding_text = embedding_text;
-        source.embedding_model = EMBEDDING_MODEL_NAME.to_string();
+        source.embedding_model = embedding_model_id();
         source.category = category;
         source.region = region;
         source.sentiment = sentiment;

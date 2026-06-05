@@ -23,17 +23,23 @@ use std::{
 use strum::IntoEnumIterator;
 use tracing::info;
 
-const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300M;
-pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300m";
+const MODEL: EmbeddingModel = EmbeddingModel::EmbeddingGemma300MQ4;
+pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300mq4";
+pub const EMBEDDING_DIMENSIONS: usize = 512;
 
 pub const EMBEDDING_TITLE_REPEAT: usize = 5;
 const REGION_FALLBACK_MARGIN: f32 = 0.04;
+
+pub fn embedding_model_id() -> String {
+    format!("{EMBEDDING_MODEL_NAME}:{EMBEDDING_DIMENSIONS}")
+}
 
 pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     hasher.update(b"\0");
     hasher.update(EMBEDDING_MODEL_NAME.as_bytes());
+    hasher.update(EMBEDDING_DIMENSIONS.to_le_bytes());
     hasher.finalize().iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
@@ -133,6 +139,8 @@ pub async fn generate_embeddings(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     .context("Embedding worker task failed")??;
 
     embeddings.par_iter_mut().for_each(|embedding| {
+        embedding.truncate(EMBEDDING_DIMENSIONS);
+
         let norm: f32 = embedding.iter().map(|&x| x * x).sum::<f32>().sqrt();
         if norm > f32::EPSILON {
             let inv_norm = 1.0 / norm;
@@ -184,13 +192,11 @@ async fn maintenance_label_embeddings() -> Result<()> {
 }
 
 async fn maintenance_article_embeddings() -> Result<()> {
-    let current_model = EMBEDDING_MODEL_NAME;
-
     for table in [
         database::EmbeddingTable::PendingSources,
         database::EmbeddingTable::UserArticles,
     ] {
-        let stale = database::get_stale_embedding_records(table, current_model).await?;
+        let stale = database::get_stale_embedding_records(table).await?;
         if stale.is_empty() {
             continue;
         }
@@ -208,7 +214,7 @@ async fn maintenance_article_embeddings() -> Result<()> {
                 .zip(new_embeddings)
                 .map(|((id, _), embedding)| (id.clone(), embedding))
                 .collect();
-            database::update_record_embeddings(table, &updates, current_model).await?;
+            database::update_record_embeddings(table, &updates).await?;
         }
     }
 

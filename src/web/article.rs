@@ -181,30 +181,36 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
 
                 div {
                     display: "flex",
-                    gap: "2.5rem",
+                    gap: "clamp(0.75rem, 3vw, 2.5rem)",
                     align_items: "flex-start",
                     justify_content: "center",
-                    flex_wrap: "wrap",
+                    flex_wrap: "nowrap",
+                    width: "100%",
+                    max_width: "66.5rem",
+                    margin: "0 auto",
                     style { "{include_str!(\"article.css\")}" }
 
                     div {
                         class: "article-content",
+                        flex: "1 1 auto",
                         gap: "1.5rem",
+                        max_width: "44rem",
+                        min_width: "0",
                         color: "var(--text)",
                         line_height: "1.8",
                         font_size: "1rem",
-                        margin_left: "auto",
-                        margin_right: "auto",
-                        width: "44rem",
                         dangerous_inner_html: "{article.content}",
                     }
 
                     div {
                         class: "article-sidebar",
-                        width: "20rem",
+                        flex: "0 1 min(32%, 20rem)",
+                        min_width: "0",
                         height: "fit-content",
                         background: "var(--mantle-transparent)",
+                        border: "1px solid var(--surface0)",
                         border_radius: "16px",
+                        overflow_x: "hidden",
                         padding: "1.25rem",
                         font_size: "0.875rem",
                         position: "sticky",

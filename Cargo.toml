@@ -10,7 +10,7 @@ tracing = "0.1.44"
 anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
 uuid = { version = "1", features = ["v4", "serde", "js"] }
-chrono = { version = "0.4.44", default-features = false, features = [
+chrono = { version = "0.4.45", default-features = false, features = [
     "clock",
     "serde",
     "wasmbind",
@@ -47,7 +47,7 @@ tower-http = { version = "0.6.11", features = [
     "compression-gzip",
 ] }
 futures = "0.3.32"
-fastembed = { version = "5.15.0", default-features = false, features = [
+fastembed = { version = "5.16.0", default-features = false, features = [
     "hf-hub-rustls-tls",
     "ort-download-binaries-rustls-tls",
 ] }

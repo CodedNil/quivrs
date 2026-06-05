@@ -223,9 +223,6 @@
 }
 
 .article-sidebar {
-    border: 1px solid var(--surface0);
-    overflow-x: hidden;
-
     transition:
         transform 0.2s,
         border-color 0.2s;
