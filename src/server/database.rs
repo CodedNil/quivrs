@@ -133,8 +133,8 @@ pub async fn init() -> Result<()> {
         .connect_with(options)
         .await?;
 
+    sqlx::migrate!().run(&db).await?;
     DB.set(db).ok().context("Database already initialised")?;
-    sqlx::migrate!().run(pool()?).await?;
 
     Ok(())
 }

@@ -19,7 +19,7 @@ use std::{
     env,
     f32::consts::LN_2,
 };
-use tokio::fs;
+use tokio::{fs, time::Instant};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -236,6 +236,7 @@ pub async fn promote_articles() -> Result<()> {
         "Running promote_articles with {} pending sources",
         scored_pending.len()
     );
+    let start = Instant::now();
 
     let cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
@@ -343,6 +344,8 @@ pub async fn promote_articles() -> Result<()> {
             ),
         }
     }
+
+    info!("Promoting articles finished in {:?}", start.elapsed());
 
     Ok(())
 }

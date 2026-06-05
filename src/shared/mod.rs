@@ -137,7 +137,7 @@ pub enum Region {
     SubSaharanAfrica,
 
     // Asia
-    India,
+    IndianSubcontinent,
     WestAsia,
     China,
     Japan,

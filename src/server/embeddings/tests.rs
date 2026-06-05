@@ -1,14 +1,15 @@
 use crate::{
     server::{
-        database::LabelScore,
+        database::{self, LabelScore},
         embeddings::{
             EMBEDDING_TITLE_REPEAT, article_text, best_label, binary_label_score,
-            generate_embeddings, label_definitions,
+            generate_embeddings, maintenance_label_embeddings,
         },
     },
     shared::{Category, PendingSource, Region},
 };
 use anyhow::{Context, Result};
+use std::sync::OnceLock;
 
 // Label-writing guide for embeddinggemma-300m:
 //
@@ -51,7 +52,7 @@ use anyhow::{Context, Result};
 //    - Why: Category classification picks the closest single label in vector space. Redundant synonyms ensure a tight
 //      mathematical distance for edge cases.
 
-const PLUS_MINUS_MARGIN: f32 = 0.2;
+const PLUS_MINUS_MARGIN: f32 = 0.15;
 
 struct TestCase {
     title: &'static str,
@@ -468,14 +469,14 @@ const TEST_CASES: &[TestCase] = &[
         summary: "The innovative 3D UV resin printer gets a massive price cut ahead of its official retail debut, including bundling £500 worth of free printing accessories.",
         category: Category::Technology,
         regions: &[Region::UnitedKingdom],
-        sentiment: 0.65,
-        importance: 0.20,
+        sentiment: 0.7,
+        importance: 0.2,
     },
     TestCase {
         title: "Save a whopping £350 on the eufyMake E1 UV Printer with early access deals before May 31st.",
         summary: "Save a whopping £350 on the eufyMake E1 UV Printer + £500 in free gifts during the early access sale ending May 31st",
         category: Category::Technology,
-        regions: &[Region::UnitedStates, Region::Global],
+        regions: &[Region::UnitedKingdom, Region::Global],
         sentiment: 0.6,
         importance: 0.1,
     },
@@ -531,7 +532,7 @@ const TEST_CASES: &[TestCase] = &[
         title: "Isle of Man TT competitor killed in qualifying crash.",
         summary: "Daniel Ingham, 33, died in the crash during qualifying for the Isle of Man TT on Wednesday.",
         category: Category::Transport,
-        regions: &[Region::UnitedKingdom],
+        regions: &[Region::UnitedKingdom, Region::England],
         sentiment: 0.1,
         importance: 0.3,
     },
@@ -558,6 +559,150 @@ const TEST_CASES: &[TestCase] = &[
         regions: &[Region::MiddleEastNorthAfrica],
         sentiment: 0.0,
         importance: 0.8,
+    },
+    TestCase {
+        title: "3 best new to Netflix shows you should binge-watch this weekend",
+        summary: "Add these new releases to your Netflix watchlist for a weekend streaming marathon.",
+        category: Category::Culture,
+        regions: &[Region::Global],
+        sentiment: 0.6,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "Don't wait until Prime Day! These Amazon devices are already on sale",
+        summary: "Limited time deals across tech, security and entertainment.",
+        category: Category::Technology,
+        regions: &[Region::Global, Region::UnitedStates],
+        sentiment: 0.6,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "Epic sneaker sale knocks up to 50% off Saucony, Brooks, and Asics ahead of Prime Day",
+        summary: "Upgrade your mileage with these sneaker deals.",
+        category: Category::Lifestyle,
+        regions: &[Region::Global, Region::UnitedStates],
+        sentiment: 0.6,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "How to watch Canada vs Republic of Ireland on RTE Player",
+        summary: "Instructions for streaming the match for free online.",
+        category: Category::Sports,
+        regions: &[Region::Ireland, Region::Canada],
+        sentiment: 0.5,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "Everest guide survived six-day ordeal by eating chocolate and chewing ice",
+        summary: "Dawa Sherpa was spotted alive by a cleaning crew as he slid slowly down the world's tallest mountain and spoke from hospital.",
+        category: Category::Lifestyle,
+        regions: &[Region::IndianSubcontinent],
+        sentiment: 0.2,
+        importance: 0.3,
+    },
+    TestCase {
+        title: "Mum survived a cancer misdiagnosis but dad then took his own life",
+        summary: "Mary Crowley was wrongly diagnosed with terminal cancer and husband David could not cope with their ordeal.",
+        category: Category::Health,
+        regions: &[Region::UnitedKingdom, Region::Global],
+        sentiment: 0.0,
+        importance: 0.4,
+    },
+    TestCase {
+        title: "Teen rapists spared jail partly because of intellectual limitations, judge's remarks show",
+        summary: "The boys' sentencing caused an outcry when they were given youth rehabilitation orders.",
+        category: Category::Law,
+        regions: &[Region::UnitedKingdom],
+        sentiment: 0.0,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "Former student in court over University of Surrey crossbow attack",
+        summary: "A university campus safety officer was seriously injured in the attack in Guildford.",
+        category: Category::Law,
+        regions: &[Region::England],
+        sentiment: 0.0,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "Putin says there is no point meeting Zelensky over ending Ukraine war",
+        summary: "The Russian president's refusal comes after his Ukrainian counterpart called for face-to-face talks.",
+        category: Category::Politics,
+        regions: &[Region::EasternEurope],
+        sentiment: 0.1,
+        importance: 0.6,
+    },
+    TestCase {
+        title: "US stocks slump as fears over Big Tech shake Wall Street",
+        summary: "The Nasdaq saw its biggest daily fall since early 2025.",
+        category: Category::Business,
+        regions: &[Region::UnitedStates],
+        sentiment: 0.1,
+        importance: 0.6,
+    },
+    TestCase {
+        title: "Lloyds, Halifax and Bank of Scotland app users report outage",
+        summary: "The bank said some customers were having issues with app and online banking access.",
+        category: Category::Software,
+        regions: &[Region::UnitedKingdom],
+        sentiment: 0.1,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "New York lawmakers pass one-year ban on new data centers",
+        summary: "The state legislature passed a ban on new large data centers to assess environmental impact.",
+        category: Category::Politics,
+        regions: &[Region::UnitedStates],
+        sentiment: 0.3,
+        importance: 0.6,
+    },
+    TestCase {
+        title: "Jared Kushner-backed luxury resort plan sparks protest in Albania",
+        summary: "Demonstrators say the project would harm a protected environment.",
+        category: Category::Nature,
+        regions: &[Region::Balkans],
+        sentiment: 0.2,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "Monaco Grand Prix: Lewis Hamilton heads Charles Leclerc as Ferrari dominate practice",
+        summary: "Hamilton set the pace as Ferrari dominated Friday practice at the Monaco Grand Prix.",
+        category: Category::Sports,
+        regions: &[Region::WesternEurope],
+        sentiment: 0.6,
+        importance: 0.3,
+    },
+    TestCase {
+        title: "We’re hosting a Coding Agent Benchmarks event with lightning talks and a panel",
+        summary: "The event will gather AI researchers, builders, and engineers in San Francisco.",
+        category: Category::AI,
+        regions: &[Region::UnitedStates],
+        sentiment: 0.5,
+        importance: 0.1,
+    },
+    TestCase {
+        title: "Paralympian John McFall could be first astronaut with disability in orbit",
+        summary: "John McFall has moved closer to becoming the first disabled astronaut in orbit.",
+        category: Category::Science,
+        regions: &[Region::Global, Region::UnitedKingdom],
+        sentiment: 0.7,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "One in four births in England are now emergency caesareans, analysis shows",
+        summary: "The shift marks a significant rise over five years, but experts say there is no single clear explanation.",
+        category: Category::Health,
+        regions: &[Region::UnitedKingdom, Region::England],
+        sentiment: 0.2,
+        importance: 0.7,
+    },
+    TestCase {
+        title: "Nests and habitats destroyed as Farlington flood defences fail",
+        summary: "An internationally important nature reserve in Hampshire is under threat from failing flood defences.",
+        category: Category::Nature,
+        regions: &[Region::England, Region::UnitedKingdom],
+        sentiment: 0.0,
+        importance: 0.7,
     },
 ];
 
@@ -625,16 +770,12 @@ fn importance_scores() -> Result<()> {
     assert_binary_scores("importance", "important", |case| case.importance)
 }
 
-fn label_scores(group: &str) -> Result<Vec<Vec<LabelScore>>> {
-    let definitions = label_definitions()
-        .into_iter()
-        .filter(|d| d.label_group == group)
-        .collect::<Vec<_>>();
+static LABEL_EMBEDDINGS_READY: OnceLock<Result<(), String>> = OnceLock::new();
 
-    let texts = definitions
+fn label_scores(group: &str) -> Result<Vec<Vec<LabelScore>>> {
+    let texts = TEST_CASES
         .iter()
-        .map(|d| d.text.to_string())
-        .chain(TEST_CASES.iter().map(|case| {
+        .map(|case| {
             article_text(
                 &PendingSource {
                     title: case.title.to_string(),
@@ -643,7 +784,7 @@ fn label_scores(group: &str) -> Result<Vec<Vec<LabelScore>>> {
                 },
                 EMBEDDING_TITLE_REPEAT,
             )
-        }))
+        })
         .collect::<Vec<_>>();
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -651,27 +792,36 @@ fn label_scores(group: &str) -> Result<Vec<Vec<LabelScore>>> {
         .build()
         .context("Failed to create Tokio runtime")?;
 
-    let embeddings = rt.block_on(generate_embeddings(&texts))?;
-    let (label_embeddings, article_embeddings) = embeddings.split_at(definitions.len());
+    LABEL_EMBEDDINGS_READY
+        .get_or_init(|| {
+            rt.block_on(async {
+                if let Err(err) = database::init().await {
+                    let message = err.to_string();
+                    if !message.contains("Database already initialised") {
+                        return Err(message);
+                    }
+                }
 
-    Ok(article_embeddings
-        .iter()
-        .map(|article_embedding| {
-            definitions
-                .iter()
-                .zip(label_embeddings)
-                .map(|(definition, label_embedding)| LabelScore {
-                    label_group: definition.label_group.to_string(),
-                    label_value: definition.label_value.clone(),
-                    similarity: article_embedding
-                        .iter()
-                        .zip(label_embedding)
-                        .map(|(l, r)| l * r)
-                        .sum(),
-                })
-                .collect()
+                maintenance_label_embeddings()
+                    .await
+                    .map_err(|err| err.to_string())
+            })
         })
-        .collect())
+        .clone()
+        .map_err(anyhow::Error::msg)?;
+
+    let embeddings = rt.block_on(generate_embeddings(&texts))?;
+
+    embeddings
+        .iter()
+        .map(|embedding| {
+            Ok(rt
+                .block_on(database::get_label_scores(embedding))?
+                .into_iter()
+                .filter(|score| score.label_group == group)
+                .collect())
+        })
+        .collect()
 }
 
 fn assert_binary_scores(

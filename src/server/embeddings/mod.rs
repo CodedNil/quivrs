@@ -28,7 +28,7 @@ pub const EMBEDDING_MODEL_NAME: &str = "google/embeddinggemma-300mq4";
 pub const EMBEDDING_DIMENSIONS: usize = 512;
 
 pub const EMBEDDING_TITLE_REPEAT: usize = 5;
-const REGION_FALLBACK_MARGIN: f32 = 0.04;
+const REGION_FALLBACK_MARGIN: f32 = 0.03;
 
 pub fn embedding_model_id() -> String {
     format!("{EMBEDDING_MODEL_NAME}:{EMBEDDING_DIMENSIONS}")
