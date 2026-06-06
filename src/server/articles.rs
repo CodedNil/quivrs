@@ -32,6 +32,13 @@ const TIME_BONUS_MAX: f32 = 0.03; // How much to boost the score for merging a r
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
 
+struct ScoredPendingSource {
+    source: PendingSource,
+    estimated_liked: f32,
+    bonus: f32,
+    category_target: i64,
+}
+
 /// Minimum number of new articles to maintain in each category
 pub const fn category_new_articles(rating: Rating) -> i64 {
     match rating {
@@ -197,32 +204,32 @@ pub async fn promote_articles() -> Result<()> {
     let start = std::time::Instant::now();
     for p in pending {
         let estimated_liked = database::get_preference_score(&p.embedding).await?;
-        let mut estimated_liked_bonus = 0.0;
+        let mut bonus = 0.0;
 
         // Boost for sentiment and importance
-        estimated_liked_bonus += p.sentiment * SENTIMENT_BONUS;
-        estimated_liked_bonus += p.importance * IMPORTANCE_BONUS;
+        bonus += p.sentiment * SENTIMENT_BONUS;
+        bonus += p.importance * IMPORTANCE_BONUS;
 
         // Boost for category, region, and domain ratings.
-        let category_articles_number = item_ratings
+        let category_target = item_ratings
             .get(&format!("category:{}", p.category))
             .map_or(category_new_articles(Rating::Neutral), |rating| {
-                estimated_liked_bonus += category_bonus(*rating);
+                bonus += category_bonus(*rating);
                 category_new_articles(*rating)
             });
         if let Some(rating) = item_ratings.get(&format!("region:{}", p.region)) {
-            estimated_liked_bonus += region_bonus(*rating);
+            bonus += region_bonus(*rating);
         }
         if let Some(rating) = item_ratings.get(&format!("domain:{}", p.domain)) {
-            estimated_liked_bonus += domain_bonus(*rating);
+            bonus += domain_bonus(*rating);
         }
 
-        scored_pending.push((
-            p,
+        scored_pending.push(ScoredPendingSource {
+            source: p,
             estimated_liked,
-            estimated_liked_bonus,
-            category_articles_number,
-        ));
+            bonus,
+            category_target,
+        });
     }
     info!(
         "Scored {} pending sources in {:?}",
@@ -230,7 +237,7 @@ pub async fn promote_articles() -> Result<()> {
         start.elapsed()
     );
 
-    scored_pending.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored_pending.sort_by(|a, b| b.estimated_liked.total_cmp(&a.estimated_liked));
 
     info!(
         "Running promote_articles with {} pending sources",
@@ -238,21 +245,25 @@ pub async fn promote_articles() -> Result<()> {
     );
     let start = Instant::now();
 
-    let cat_counts = database::get_category_article_counts().await?;
+    let mut cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
 
-    for (candidate, estimated_liked, estimated_liked_bonus, category_articles_number) in
-        scored_pending
-    {
+    for scored in scored_pending {
+        let ScoredPendingSource {
+            source: candidate,
+            estimated_liked,
+            bonus,
+            category_target,
+        } = scored;
         if promoted_urls.contains(&candidate.url) {
             continue;
         }
 
         let count = cat_counts.get(&candidate.category).copied().unwrap_or(0);
-        let score = estimated_liked + estimated_liked_bonus;
+        let score = estimated_liked + bonus;
 
         let should_keep = score >= LIKED_SERVE_THRESHOLD
-            || (score >= LIKED_MIN_THRESHOLD && count < category_articles_number);
+            || (score >= LIKED_MIN_THRESHOLD && count < category_target);
         if !should_keep {
             continue;
         }
@@ -262,7 +273,7 @@ pub async fn promote_articles() -> Result<()> {
             candidate.url,
             candidate.title,
             estimated_liked,
-            estimated_liked_bonus,
+            bonus,
             candidate.category,
             candidate.region,
             candidate.sentiment,
@@ -302,6 +313,7 @@ pub async fn promote_articles() -> Result<()> {
             Ok(entry) => {
                 let mut sources = sources_to_merge.into_iter();
                 let candidate = sources.next().expect("candidate source is present");
+                let category = candidate.category;
                 let mut urls = vec![candidate.url.clone()];
                 let mut article_sources = vec![ArticleSource {
                     url: candidate.url,
@@ -324,7 +336,7 @@ pub async fn promote_articles() -> Result<()> {
                     sidebar: entry.sidebar,
                     thumbnail: entry.thumbnail,
                     published: candidate.published,
-                    category: candidate.category,
+                    category,
                     region: candidate.region,
                     status: ArticleStatus::New,
                     status_changed: Utc::now(),
@@ -337,6 +349,7 @@ pub async fn promote_articles() -> Result<()> {
                     importance: candidate.importance,
                 };
                 database::insert_promoted_article(article, urls).await?;
+                *cat_counts.entry(category).or_default() += 1;
             }
             Err(e) => error!(
                 "Failed to generate content for '{}': {}",
@@ -385,7 +398,7 @@ async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleE
 ### OUTPUT FORMAT
 You MUST return a JSON object with this exact structure:
 {{
-  "title": "Articles title, kept concise and descriptive, max 8 words",
+  "title": "Articles title, kept concise and descriptive, ideal 8 words, max 12 words, catchy and engaging but not clickbait.",
   "description": "Short informative summary, a few sentences max and no newlines",
   "thumbnail": "URL for the thumbnail image, landscapes/architectural/unpopulated/scenic/low complexity image preferred",
   "content": "HTML string for the main article body",

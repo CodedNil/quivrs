@@ -347,10 +347,10 @@ pub async fn sync_label_embeddings(
 }
 
 pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embedding_vectors")
+    let label_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embedding_vectors")
         .fetch_one(pool()?)
         .await?;
-    if count == 0 {
+    if label_count == 0 {
         return Ok(Vec::new());
     }
 
@@ -362,7 +362,7 @@ pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
          ORDER BY vectors.distance",
     )
     .bind(serde_json::to_string(embedding)?)
-    .bind(count)
+    .bind(label_count)
     .fetch_all(pool()?)
     .await?;
 
@@ -528,9 +528,8 @@ pub async fn update_record_embeddings(
 
     let mut tx = pool()?.begin().await?;
     for (id, embedding) in updates {
-        let embedding_json = serde_json::to_string(embedding)?;
         sqlx::query(table.update_sql())
-            .bind(&embedding_json)
+            .bind(serde_json::to_string(embedding)?)
             .bind(embedding_model_id())
             .bind(id)
             .execute(&mut *tx)
