@@ -52,6 +52,7 @@ fastembed = { version = "5.16.0", default-features = false, features = [
     "ort-download-binaries-rustls-tls",
 ] }
 sha2 = "0.11.0"
+duckduckgo = "0.3.3"
 
 # Website parsing
 serde_json = "1.0.150"

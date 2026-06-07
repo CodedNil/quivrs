@@ -1,7 +1,7 @@
 use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
 use crate::shared::PendingSource;
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use dom_smoothie::Readability;
 use scraper::{Html, Selector};
 use serde_json::Value;
@@ -33,29 +33,71 @@ static SEL_JSON: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(r#"script[type="application/json"]"#).unwrap());
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
+static SEL_TIME_DATETIME: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("time[datetime]").unwrap());
+static SEL_VISIBLE_DATE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".date, .post-date, .entry-date, .published-at").unwrap());
 
-const WEBSITE_BLACKLIST: &[&str] = &[
-    "bbc.com/news/videos",
-    "bbc.co.uk/news/videos",
-    "bbc.co.uk/iplayer",
-    "bbc.co.uk/sounds",
+const WEBSITE_BLACKLIST_DOMAINS: &[&str] = &[
     "reddit.com",
     "lobste.rs",
     "github.com",
     "codeberg.org",
     "ycombinator.com",
+    "msn.com",
+    "wn.com",
+];
+
+const WEBSITE_BLACKLIST_CONTAINS: &[&str] = &[
+    "bbc.com/news/videos",
+    "bbc.co.uk/news/videos",
+    "bbc.co.uk/iplayer",
+    "bbc.co.uk/sounds",
+    "linkedin.com/pulse",
     ".pdf",
 ];
 
 fn parse_any_date(s: &str) -> Option<DateTime<Utc>> {
+    let s = s.trim();
     DateTime::parse_from_rfc3339(s)
         .or_else(|_| DateTime::parse_from_rfc3339(&format!("{s}:00"))) // Try adding seconds if missing
-        .ok()
+        .or_else(|_| DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%z"))
         .map(|d| d.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            NaiveDate::parse_from_str(s, "%d %b %Y")
+                .or_else(|_| NaiveDate::parse_from_str(s, "%d %B %Y"))
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
+                .ok()
+                .and_then(|date| date.and_hms_opt(0, 0, 0))
+                .map(|date| date.and_utc())
+        })
 }
 
-pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
-    if WEBSITE_BLACKLIST.iter().any(|s| url.contains(s)) {
+fn is_blacklisted_url(url: &str) -> bool {
+    let lower_url = url.to_ascii_lowercase();
+    if WEBSITE_BLACKLIST_CONTAINS
+        .iter()
+        .any(|pattern| lower_url.contains(pattern))
+    {
+        return true;
+    }
+
+    Url::parse(url).is_ok_and(|parsed| {
+        parsed.domain().is_some_and(|domain| {
+            let domain = domain.trim_start_matches("www.");
+            WEBSITE_BLACKLIST_DOMAINS
+                .iter()
+                .any(|blocked| domain == *blocked || domain.ends_with(&format!(".{blocked}")))
+        })
+    })
+}
+
+pub async fn fetch_source_content(
+    url: &str,
+    published_hint: Option<DateTime<Utc>>,
+) -> Result<Option<PendingSource>> {
+    if is_blacklisted_url(url) {
         return Ok(None);
     }
 
@@ -74,7 +116,6 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
     let title = get(&["sl_headline", "og_title", "basic_title"]);
     let summary = get(&["sl_description", "og_description", "basic_description"]);
 
-    let mut readability_date = None;
     let content = Some(get(&["sl_body"])).filter(|s| !s.is_empty()).unwrap_or_else(|| {
         let doc = Html::parse_document(&html);
         let article_sel = Selector::parse("article").unwrap();
@@ -123,11 +164,6 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
                         images.push((resolve_url(base_url.as_ref(), src), alt));
                     }
                 }
-                readability_date = a
-                    .published_time
-                    .as_ref()
-                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                    .map(|d| d.with_timezone(&Utc));
                 a.text_content.to_string()
             } else {
                 String::new()
@@ -137,32 +173,7 @@ pub async fn fetch_source_content(url: &str) -> Result<Option<PendingSource>> {
         }
     });
 
-    let date = metadata
-        .get("sl_date")
-        .or_else(|| metadata.get("og_date"))
-        .and_then(|s| parse_any_date(s))
-        .or_else(|| {
-            let doc = Html::parse_document(&html);
-            let sel = Selector::parse("span.published-at").unwrap();
-            doc.select(&sel).next().and_then(|el| {
-                let text = el.text().collect::<String>();
-                let text = text.trim();
-                DateTime::parse_from_str(&format!("{text} 00:00:00 +0000"), "%d %B %Y %H:%M:%S %z")
-                    .ok()
-                    .map(|d| d.with_timezone(&Utc))
-            })
-        })
-        .or_else(|| {
-            if readability_date.is_some() {
-                readability_date
-            } else {
-                Readability::new(html.as_str(), Some(url), None)
-                    .ok()
-                    .and_then(|mut r| r.parse().ok())
-                    .and_then(|a| a.published_time)
-                    .and_then(|s| parse_any_date(&s))
-            }
-        });
+    let date = published_hint.or_else(|| extract_published_date(&metadata, &html));
 
     let tags = metadata
         .get("sl_keywords")
@@ -246,6 +257,31 @@ fn resolve_url(base: Option<&Url>, img_url: &str) -> String {
         .map_or_else(|| img_url.to_string(), |u| u.to_string())
 }
 
+fn parse_visible_date(html: &str) -> Option<DateTime<Utc>> {
+    let doc = Html::parse_document(html);
+
+    doc.select(&SEL_TIME_DATETIME)
+        .filter_map(|el| el.value().attr("datetime"))
+        .find_map(parse_any_date)
+        .or_else(|| {
+            doc.select(&SEL_VISIBLE_DATE)
+                .map(|el| el.text().collect::<String>())
+                .map(|text| text.trim().to_string())
+                .find_map(|text| parse_any_date(&text))
+        })
+}
+
+fn extract_published_date(
+    metadata: &HashMap<&'static str, String>,
+    html: &str,
+) -> Option<DateTime<Utc>> {
+    metadata
+        .get("sl_date")
+        .or_else(|| metadata.get("og_date"))
+        .and_then(|s| parse_any_date(s))
+        .or_else(|| parse_visible_date(html))
+}
+
 fn collect_page_metadata(
     html: &str,
     base: Option<&Url>,
@@ -284,16 +320,17 @@ fn collect_page_metadata(
         let name = el
             .value()
             .attr("name")
-            .or_else(|| el.value().attr("property"));
+            .or_else(|| el.value().attr("property"))
+            .map(str::to_ascii_lowercase);
         let content = el.value().attr("content");
-        match (name, content) {
-            (Some("og:title"), Some(v)) => {
+        match (name.as_deref(), content) {
+            (Some("og:title" | "twitter:title"), Some(v)) => {
                 let d = decode(v);
                 if d.len() > MIN_TITLE_LEN {
                     m.entry("og_title").or_insert(d);
                 }
             }
-            (Some("og:description"), Some(v)) => {
+            (Some("og:description" | "twitter:description"), Some(v)) => {
                 let d = decode(v);
                 if d.len() > MIN_SUMMARY_LEN {
                     m.entry("og_description").or_insert(d);
@@ -311,7 +348,7 @@ fn collect_page_metadata(
             (Some("og:image:alt"), Some(v)) => {
                 m.entry("og_image_alt").or_insert_with(|| decode(v));
             }
-            (Some("og:article:published_time"), Some(v)) => {
+            (Some("og:article:published_time" | "article:published_time"), Some(v)) => {
                 m.entry("og_date").or_insert_with(|| v.to_string());
             }
             (Some("parsely-tags"), Some(v)) => {

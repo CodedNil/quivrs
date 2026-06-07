@@ -1,9 +1,11 @@
-use crate::server::HTTP_CLIENT;
+use crate::server::{
+    HTTP_CLIENT,
+    parsers::{is_base_url, normalize_article_url, usable_article_url},
+};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tracing::warn;
-use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
 
 /// Download and parse the feed and return a list of URLs.
 pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
@@ -221,48 +223,4 @@ fn child_text<'a>(node: roxmltree::Node<'a, 'a>, name: &str, ns: Option<&str>) -
         })
         .and_then(|n| n.text())
         .map(|s| s.trim().to_string())
-}
-
-/// Only strip known tracking parameters
-fn normalize_article_url(url: &str) -> String {
-    const TRACKING_PARAMS: &[&str] = &[
-        "ref",
-        "source",
-        "fbclid",
-        "gclid",
-        "msclkid",
-        "yclid",
-        "igshid",
-        "app-referrer",
-    ];
-    url_normalize::normalize_url(
-        url,
-        &NormalizeOptions {
-            force_https: true,
-            strip_hash: true,
-            remove_query_parameters: RemoveQueryParameters::List(vec![QueryFilter::Predicate(
-                Box::new(|key: &str| {
-                    let lower = key.to_ascii_lowercase();
-                    TRACKING_PARAMS.contains(&key)
-                        || lower.starts_with("utm_")
-                        || lower.starts_with("at_")
-                        || lower.starts_with("mc_")
-                }),
-            )]),
-            ..Default::default()
-        },
-    )
-    .unwrap_or_else(|_| url.to_string())
-}
-
-fn is_base_url(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|parsed| {
-        let path = parsed.path();
-        path == "/" || path.is_empty()
-    })
-}
-
-fn usable_article_url(url: &str) -> Option<String> {
-    let normalized = normalize_article_url(url);
-    (!is_base_url(&normalized)).then_some(normalized)
 }

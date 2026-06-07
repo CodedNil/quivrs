@@ -5,7 +5,11 @@ use crate::{
             EMBEDDING_TITLE_REPEAT, article_text, classify, embedding_model_id, generate_embeddings,
         },
         llm_functions::run,
-        parsers::{feeds::scan_feed, fetch_page_content},
+        parsers::{
+            feeds::scan_feed,
+            fetch_page_content, fetch_page_content_with_hint,
+            web_search::{SearchResult, search_article_urls},
+        },
     },
     shared::{Article, ArticleSource, ArticleStatus, PendingSource, Rating},
 };
@@ -309,6 +313,21 @@ pub async fn promote_articles() -> Result<()> {
             }
         }
 
+        match fetch_web_search_merge_sources(&sources_to_merge).await {
+            Ok(search_sources) => {
+                for source in search_sources {
+                    if promoted_urls.insert(source.url.clone()) {
+                        info!("  [WEB MERGE] adding '{}'", source.title);
+                        sources_to_merge.push(source);
+                    }
+                }
+            }
+            Err(err) => warn!(
+                "Web search merge enrichment failed for '{}': {err:#}",
+                sources_to_merge[0].title
+            ),
+        }
+
         match generate_promoted_content(&sources_to_merge).await {
             Ok(entry) => {
                 let mut sources = sources_to_merge.into_iter();
@@ -361,6 +380,101 @@ pub async fn promote_articles() -> Result<()> {
     info!("Promoting articles finished in {:?}", start.elapsed());
 
     Ok(())
+}
+
+async fn fetch_web_search_merge_sources(
+    initial_sources: &[PendingSource],
+) -> Result<Vec<PendingSource>> {
+    let mut searched_urls: HashMap<String, Option<chrono::DateTime<Utc>>> = HashMap::new();
+    for result in join_all(
+        initial_sources
+            .iter()
+            .map(|source| search_article_urls(&source.title)),
+    )
+    .await
+    {
+        match result {
+            Ok(urls) => {
+                for SearchResult { url, published } in urls {
+                    searched_urls
+                        .entry(url)
+                        .and_modify(|existing| {
+                            if existing.is_none() {
+                                *existing = published;
+                            }
+                        })
+                        .or_insert(published);
+                }
+            }
+            Err(err) => warn!("Web search failed: {err:#}"),
+        }
+    }
+
+    let new_urls = database::filter_new_urls(&searched_urls.keys().cloned().collect()).await?;
+    info!(
+        "Fetching {} web search results for merge enrichment",
+        new_urls.len()
+    );
+
+    let mut fetched_sources = Vec::new();
+    let mut processed_urls = Vec::new();
+    for (url, result) in new_urls.iter().zip(
+        join_all(new_urls.iter().map(|url| async {
+            fetch_page_content_with_hint(url, searched_urls.get(url).copied().flatten()).await
+        }))
+        .await,
+    ) {
+        match result {
+            Ok(Some(source)) => fetched_sources.push(source),
+            Ok(None) => processed_urls.push(url.clone()),
+            Err(err) => warn!("Failed to fetch web search result {url}: {err:#}"),
+        }
+    }
+
+    let texts = fetched_sources
+        .iter()
+        .map(|source| article_text(source, EMBEDDING_TITLE_REPEAT))
+        .collect::<Vec<_>>();
+    let embeddings = generate_embeddings(&texts)
+        .await
+        .inspect_err(|err| error!("Web search embedding generation failed: {err}"))?;
+
+    let mut merged_sources = Vec::new();
+    let half_life_secs = 4.0 * 3600.0;
+    for ((mut source, embedding_text), embedding) in
+        fetched_sources.into_iter().zip(texts).zip(embeddings)
+    {
+        let best_score = initial_sources
+            .iter()
+            .map(|initial| {
+                let diff_secs =
+                    (initial.published.timestamp() - source.published.timestamp()).abs() as f32;
+                let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / half_life_secs).exp();
+                cosine_similarity(&initial.embedding, &embedding) + time_bonus
+            })
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        processed_urls.push(source.url.clone());
+        if best_score >= MERGE_SIMILARITY_THRESHOLD {
+            source.embedding = embedding;
+            source.embedding_text = embedding_text;
+            source.embedding_model = embedding_model_id();
+            merged_sources.push(source);
+        } else if best_score >= MERGE_SIMILARITY_THRESHOLD - 0.1 {
+            info!(
+                "  [WEB MISSED] near miss '{}' (sim: {:.2})",
+                source.title, best_score
+            );
+        }
+    }
+
+    database::mark_urls_dismissed(&processed_urls).await?;
+
+    Ok(merged_sources)
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
 /// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
@@ -427,7 +541,8 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
   - Increase depth and detail as the article progresses.
   - **Timeline (Optional)**: Include a "Timeline" section if the subject has a clear chronological history.
   - **Perspectives (Optional)**: Include a "Perspectives" section at the end using <div class="flexbox-rows"> with <div class="box"> elements to show different viewpoints (e.g., "Critics", "Supporters", "Experts").
-- **Tone**: Professional, objective, and deeply informative.
+  - **Tone**: Professional, objective, and deeply informative.
+  - **Information**: Include ONLY what is in the source articles, with only minor wording changes and no editorial interpretation. Feel free to move sentences around for better flow when you are combining articles. Only include the same information once, even if it was repeated across multiple sources. You condense into a well crafted and professional overview.
 
 - **Sidebar: Key Details**:
   - **Maps/Infographics**: If a map or small infographic is available, place it here.

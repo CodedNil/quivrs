@@ -1,26 +1,35 @@
 pub mod feeds;
 pub mod social;
+pub mod web_search;
 pub mod websites;
 
 use crate::server::HTTP_CLIENT;
 use crate::shared::PendingSource;
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sha2::{Digest, Sha256};
 use social::fetch_social_content;
 use std::fmt::Write;
 use std::path::PathBuf;
 use tokio::fs;
+use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
 use websites::fetch_source_content;
 
 const MAX_ARTICLE_AGE_DAYS: i64 = 4;
 
 pub async fn fetch_page_content(url: &str) -> Result<Option<PendingSource>> {
+    fetch_page_content_with_hint(url, None).await
+}
+
+pub async fn fetch_page_content_with_hint(
+    url: &str,
+    published_hint: Option<DateTime<Utc>>,
+) -> Result<Option<PendingSource>> {
     let result = if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app")
     {
         fetch_social_content(url).await
     } else {
-        fetch_source_content(url).await
+        fetch_source_content(url, published_hint).await
     };
     // Drop result if older than a week
     if let Ok(Some(result)) = &result
@@ -64,4 +73,50 @@ async fn get_cached_or_fetch_ext(url: &str, ext: &str) -> Result<String> {
 
 fn is_article_too_old(published: chrono::DateTime<Utc>) -> bool {
     published < Utc::now() - Duration::days(MAX_ARTICLE_AGE_DAYS)
+}
+
+/// Only strips known tracking parameters while keeping meaningful query params.
+pub fn normalize_article_url(url: &str) -> String {
+    const TRACKING_PARAMS: &[&str] = &[
+        "ref",
+        "source",
+        "fbclid",
+        "gclid",
+        "msclkid",
+        "yclid",
+        "igshid",
+        "app-referrer",
+        "ito",
+    ];
+
+    url_normalize::normalize_url(
+        url,
+        &NormalizeOptions {
+            force_https: true,
+            strip_hash: true,
+            remove_query_parameters: RemoveQueryParameters::List(vec![QueryFilter::Predicate(
+                Box::new(|key: &str| {
+                    let lower = key.to_ascii_lowercase();
+                    TRACKING_PARAMS.contains(&key)
+                        || lower.starts_with("utm_")
+                        || lower.starts_with("at_")
+                        || lower.starts_with("mc_")
+                }),
+            )]),
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|_| url.to_string())
+}
+
+pub fn is_base_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|parsed| {
+        let path = parsed.path();
+        path == "/" || path.is_empty()
+    })
+}
+
+pub fn usable_article_url(url: &str) -> Option<String> {
+    let normalized = normalize_article_url(url);
+    (!is_base_url(&normalized)).then_some(normalized)
 }
