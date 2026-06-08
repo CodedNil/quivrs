@@ -82,6 +82,7 @@ pub const fn labels(category: Category) -> &'static [&'static str] {
             "Sport and athletic competition: football, rugby, cricket, tennis, golf, athletics, cycling, boxing, racing, motorsport, organised sport, players, managers, coaches, race drivers, transfers, contracts, selection, injuries, training, club affairs, leagues, and careers.",
             "Matches and tournaments: fixtures, results, scores, goals, championships, cups, tours, qualification, rankings, records, title races, Olympics, Paralympics, World Cups, Grand Slams, Six Nations, IPL, Premier League, Formula One, F1, Grand Prix, practice sessions, racing practice, driver standings, and elite events.",
             "Sports business and culture: team finances, discrimination, participation, performance, sporting legacy, fan discussion, match controversy, rows, handshake disputes, player comments, tournament chatter, sports streaming guides, match viewing guides, and live sports access.",
+            "Sports fan life and tournament advice: football supporters, fan routines, matchday habits, sober match viewing, alcohol-free tournament tips, supporter experience, watching major tournaments, football culture, fan guidance.",
         ],
         // Video games, game studios, esports, releases, and gameplay.
         Category::Gaming => &[

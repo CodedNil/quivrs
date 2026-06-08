@@ -37,6 +37,7 @@ pub struct LabelEmbeddingRecord {
 pub struct LabelScore {
     pub label_group: String,
     pub label_value: String,
+    pub text: String,
     pub similarity: f32,
 }
 
@@ -353,7 +354,7 @@ pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
     }
 
     let rows = sqlx::query(
-        "SELECT label_group, label_value, distance
+        "SELECT label_group, label_value, text, distance
          FROM label_embeddings
          WHERE embedding MATCH ? AND k = ?
          ORDER BY distance",
@@ -368,6 +369,7 @@ pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
         .map(|row| LabelScore {
             label_group: row.get("label_group"),
             label_value: row.get("label_value"),
+            text: row.get("text"),
             similarity: 1.0 - row.get::<f32, _>("distance"),
         })
         .collect())

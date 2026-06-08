@@ -10,9 +10,6 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
-show a cool cloud grouping map for category and region, showing how close it was to different groupings
-
-
 have self improvement cycle for embedding classification, on generating the article the ai can flag incorrect classifications and we can create tests for those automatically when its running in dev mode
 
 

@@ -52,7 +52,7 @@ use std::sync::OnceLock;
 //    - Why: Category classification picks the closest single label in vector space. Redundant synonyms ensure a tight
 //      mathematical distance for edge cases.
 
-const PLUS_MINUS_MARGIN: f32 = 0.15;
+const PLUS_MINUS_MARGIN: f32 = 0.1;
 
 struct TestCase {
     title: &'static str,
@@ -412,7 +412,7 @@ const TEST_CASES: &[TestCase] = &[
         title: "Currys takes up to 48% off fans, air conditioners, BBQs and ice cream makers",
         summary: "Keep cool with up to 48% off essential summer appliances.",
         category: Category::Lifestyle,
-        regions: &[Region::Global],
+        regions: &[Region::UnitedKingdom, Region::Global],
         sentiment: 0.7,
         importance: 0.1,
     },
@@ -862,12 +862,14 @@ fn assert_binary_scores(
         let expected_max = expected + PLUS_MINUS_MARGIN;
 
         if !(expected_min..=expected_max).contains(&score) {
+            let score_detail = binary_score_detail(&scores, positive_value);
             failures.push(format!(
-                "{score:>5.3}  {:.2}..={:.2}  Title: {}. Summary: {}",
+                "{score:>5.3}  {:.2}..={:.2}  Title: {}. Summary: {}\n{}",
                 expected_min.clamp(0.0, 1.0),
                 expected_max.clamp(0.0, 1.0),
                 case.title,
                 case.summary,
+                score_detail,
             ));
         }
     }
@@ -876,8 +878,51 @@ fn assert_binary_scores(
         failures.is_empty(),
         "\n{} {label_group} cases outside expected range (±{PLUS_MINUS_MARGIN}):\n\n{}",
         failures.len(),
-        failures.join("\n")
+        failures.join("\n\n")
     );
 
     Ok(())
+}
+
+fn binary_score_detail(scores: &[LabelScore], positive_value: &str) -> String {
+    let mut positive = Vec::new();
+    let mut negative = Vec::new();
+
+    for score in scores {
+        if score.label_value == positive_value {
+            positive.push(score);
+        } else {
+            negative.push(score);
+        }
+    }
+
+    format!(
+        "    top positive: {}\n    top negative: {}",
+        label_list(&positive),
+        label_list(&negative),
+    )
+}
+
+fn label_list(scores: &[&LabelScore]) -> String {
+    let mut sorted = scores.to_vec();
+    sorted.sort_by(|left, right| right.similarity.total_cmp(&left.similarity));
+
+    format!(
+        "[{}]",
+        sorted
+            .iter()
+            .take(5)
+            .map(|score| format!("{:.3} {}", score.similarity, label_snippet(&score.text)))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    )
+}
+
+fn label_snippet(text: &str) -> String {
+    const MAX_CHARS: usize = 120;
+    let mut snippet = text.chars().take(MAX_CHARS).collect::<String>();
+    if text.chars().count() > MAX_CHARS {
+        snippet.push_str("...");
+    }
+    snippet
 }
