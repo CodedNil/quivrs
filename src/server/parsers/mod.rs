@@ -82,7 +82,7 @@ fn is_article_too_old(published: chrono::DateTime<Utc>) -> bool {
 }
 
 /// Only strips known tracking parameters while keeping meaningful query params.
-pub fn normalize_article_url(url: &str) -> String {
+fn normalize_article_url(url: &str) -> String {
     const TRACKING_PARAMS: &[&str] = &[
         "ref",
         "source",
@@ -115,7 +115,7 @@ pub fn normalize_article_url(url: &str) -> String {
     .unwrap_or_else(|_| url.to_string())
 }
 
-pub fn normalize_image_url(url: &str) -> String {
+fn normalize_image_url(url: &str) -> String {
     url_normalize::normalize_url(
         url.trim(),
         &NormalizeOptions {
@@ -126,14 +126,14 @@ pub fn normalize_image_url(url: &str) -> String {
     .unwrap_or_else(|_| url.to_string())
 }
 
-pub fn is_base_url(url: &str) -> bool {
+fn is_base_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|parsed| {
         let path = parsed.path();
         path == "/" || path.is_empty()
     })
 }
 
-pub fn usable_article_url(url: &str) -> Option<String> {
+fn usable_article_url(url: &str) -> Option<String> {
     let normalized = normalize_article_url(url);
     (!is_base_url(&normalized)).then_some(normalized)
 }

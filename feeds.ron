@@ -1,68 +1,74 @@
-{
+[
     // General
-    "bbc_top": "https://feeds.bbci.co.uk/news/rss.xml",
-    "tomsguide": "https://www.tomsguide.com/rss",
-    // nytimes
+    "https://feeds.bbci.co.uk/news/rss.xml",
+    "https://www.tomsguide.com/rss",
+    "https://feeds.bbci.co.uk/news/rss.xml",
+    "https://www.tomsguide.com/rss",
+    "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+    "https://www.pbs.org/newshour/feeds/rss/headlines",
+    "https://www.wired.com/feed/rss",
+    "https://www.npr.org/rss/rss.php?id=1001",
+    "https://rsshub.app/apnews/topics/ap-top-news",
+    "https://rsshub.app/reuters/world",
+    "https://www.ft.com/news-feed?format=rss",
+    "https://theconversation.com/articles.atom",
 
     // Tech
-    "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-    "verge": "https://www.theverge.com/rss/index.xml",
-    // futurism
-    // gizmodo
-    // arstechnica
+    "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "https://www.theverge.com/rss/index.xml",
+    "https://futurism.com/feed",
+    "https://gizmodo.com/rss",
+    "https://arstechnica.com/feed",
 
     // Open Source
-    // kde/9to5linux/system76/linuxmint etc
+    "https://blogs.kde.org/categories/this-week-in-plasma/index.xml",
+    "https://thisweek.gnome.org/index.xml",
+    "https://9to5linux.com/feed",
+    "https://system76.com/blog/rss.xml",
+    "https://blog.linuxmint.com/?feed=rss2",
 
     // Learning
-    "bbc_science": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-    // arxiv
-    // sciencedaily
-    // pbs and pbs science
-    // nasa
-    // https://www.youtube.com/@TomScottGo
-    // nature
+    "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    // "https://www.youtube.com/@TomScottGo",
+    "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    "https://www.sciencedaily.com/rss/all.xml",
+    "https://www.pbs.org/newshour/feeds/rss/science",
+    "https://www.nasa.gov/news-release/feed/",
+    "https://www.youtube.com/@TomScottGo",
+    "https://www.nature.com/nature.rss",
 
     // AI
-    "artificial_analysis": "https://x.com/ArtificialAnlys",
+    "https://x.com/ArtificialAnlys",
+    "https://papers.takara.ai/api/feed",
 
     // Culture
-    // cosmopolitan
-    // eonline
+    "https://www.cosmopolitan.com/rss/all.xml",
+    "https://www.etonline.com/news/rss",
+    "https://deadline.com/feed/",
+    "https://variety.com/feed/",
+    "https://www.thewrap.com/feed/",
+    "https://www.tmz.com/rss.xml",
 
     // UK
-    "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
-    "skynews": "https://feeds.skynews.com/feeds/rss/home.xml",
-    "election_maps": "https://bsky.app/profile/electionmaps.uk",
-    "yougov": "https://yougov.com/en-gb/rss",
-    "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics.json",
-    "reddit_unitedkingdom": "https://www.reddit.com/r/unitedkingdom.json",
-    "reddit_uknews": "https://www.reddit.com/r/uknews.json",
-    // https://www.bankofengland.co.uk/rss/speeches
-    // independent.co.uk
-    // theguardian
-    // ukdefencejournal
+    "https://feeds.bbci.co.uk/news/uk/rss.xml",
+    "https://feeds.skynews.com/feeds/rss/home.xml",
+    "https://bsky.app/profile/electionmaps.uk",
+    "https://yougov.com/en-gb/rss",
+    "https://www.bankofengland.co.uk/rss/speeches",
+    "https://www.independent.co.uk/news/uk/rss",
+    "https://www.theguardian.com/uk/rss",
+    "https://ukdefencejournal.org.uk/feed/",
+    "https://inews.co.uk/feed",
+    "https://politico.eu/section/united-kingdom/feed/",
 
     // USA
-    // thehill
-    // cnn
+    "https://thehill.com/feed/",
+    "https://rss.politico.com/politics-news.xml",
+    "https://www.salon.com/feed",
 
     // EU
-    // france24
-    // euronews
-    // https://commission.europa.eu/node/29665/rss_en
-
-    // wired
-    // npr
-    // inews
-    // politico
-    // reuters
-    // salon
-    // ft
-    // military.com
-    // theconversation
-    // deadline
-    // variety
-    // thewrap
-    // tmz
-}
+    "https://france24.com/en/rss",
+    "https://www.euronews.com/rss?level=theme&name=news",
+    "https://commission.europa.eu/node/29665/rss_en",
+    "https://www.politico.eu/feed/",
+]

@@ -1,44 +1,40 @@
-use crate::server::{
-    HTTP_CLIENT,
-    parsers::{is_base_url, normalize_article_url, usable_article_url},
-};
+use crate::server::{HTTP_CLIENT, parsers::usable_article_url};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{error, warn};
+
+const DOMAIN_BLACKLIST: &[&str] = &["reddit.com"];
 
 /// Download and parse the feed and return a list of URLs.
 pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
+    if DOMAIN_BLACKLIST
+        .iter()
+        .any(|domain| url_rss.contains(domain))
+    {
+        error!("Blacklisted domain: {}", url_rss);
+        return Ok(Vec::new());
+    }
+
     let is_twitter = url_rss.contains("twitter.com") || url_rss.contains("x.com");
     let is_bluesky = url_rss.contains("bsky.app/profile/");
     if (is_twitter || is_bluesky) && !url_rss.contains("/status/") && !url_rss.contains("/post/") {
         return super::social::scan_social_profile(url_rss).await;
     }
 
-    let urls = if url_rss.contains("reddit.com/r/") {
-        let json_url = url_rss
-            .trim_end_matches('/')
-            .trim_end_matches(".rss")
-            .trim_end_matches(".json")
-            .to_string()
-            + ".json";
-        let bytes = HTTP_CLIENT.get(&json_url).send().await?.bytes().await?;
-        parse_reddit_json(&bytes)?
+    let bytes = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
+    let first_non_ws = bytes
+        .iter()
+        .position(|&b| !b.is_ascii_whitespace())
+        .unwrap_or(0);
+    let urls = if bytes.get(first_non_ws) == Some(&b'{') {
+        parse_json_feed(&bytes)?
     } else {
-        let bytes = HTTP_CLIENT.get(url_rss).send().await?.bytes().await?;
-        let first_non_ws = bytes
-            .iter()
-            .position(|&b| !b.is_ascii_whitespace())
-            .unwrap_or(0);
-        if bytes.get(first_non_ws) == Some(&b'{') {
-            parse_json_feed(&bytes)?
-        } else {
-            match parse_xml_feed(&bytes) {
-                Ok(urls) => urls,
-                Err(e) => {
-                    warn!("Failed to parse XML feed {url_rss}: {e}");
-                    vec![]
-                }
+        match parse_xml_feed(&bytes) {
+            Ok(urls) => urls,
+            Err(e) => {
+                warn!("Failed to parse XML feed {url_rss}: {e}");
+                vec![]
             }
         }
     };
@@ -114,55 +110,6 @@ fn parse_atom(root: roxmltree::Node) -> Vec<String> {
             usable_article_url(thread_url)
         })
         .collect()
-}
-
-// Reddit JSON API (reddit.com/r/sub.json)
-#[derive(Deserialize)]
-struct RedditListing {
-    data: RedditListingData,
-}
-
-#[derive(Deserialize)]
-struct RedditListingData {
-    children: Vec<RedditChild>,
-}
-
-#[derive(Deserialize)]
-struct RedditChild {
-    data: RedditPost,
-}
-
-#[derive(Deserialize)]
-struct RedditPost {
-    url: String,
-    score: i32,
-    upvote_ratio: f32,
-    created_utc: Option<f64>,
-}
-
-fn parse_reddit_json(bytes: &[u8]) -> Result<Vec<String>> {
-    let listing: RedditListing = serde_json::from_slice(bytes).map_err(|e| {
-        let preview = std::str::from_utf8(&bytes[..bytes.len().min(200)])
-            .unwrap_or("<invalid utf-8>")
-            .trim();
-        anyhow!("Reddit JSON parse error: {e} — response: {preview}")
-    })?;
-    Ok(listing
-        .data
-        .children
-        .into_iter()
-        .map(|c| c.data)
-        .filter(|p| {
-            !p.created_utc
-                .and_then(|timestamp| DateTime::from_timestamp(timestamp as i64, 0))
-                .is_some_and(super::is_article_too_old)
-        })
-        .filter(|p| p.score > 10 && p.upvote_ratio > 0.8)
-        .map(|p| p.url)
-        .filter(|url| !url.contains("reddit.com") && !url.contains("redd.it"))
-        .map(|url| normalize_article_url(&url))
-        .filter(|url| !is_base_url(url))
-        .collect())
 }
 
 // JSON Feed (jsonfeed.org)
