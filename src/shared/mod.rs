@@ -15,7 +15,7 @@ pub struct PendingSource {
     pub summary: String,
     pub content: String,
     pub tags: Vec<String>,
-    pub images: Vec<(String, String)>, // (url, caption)
+    pub images: Vec<CaptionedImage>,
     pub published: DateTime<Utc>,
     pub category: Category,
     pub region: Region,
@@ -25,6 +25,12 @@ pub struct PendingSource {
     pub embedding: Vec<f32>,
     pub embedding_text: String,
     pub embedding_model: String,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct CaptionedImage {
+    pub url: String,
+    pub caption: String,
 }
 
 #[derive(Serialize, Deserialize)]

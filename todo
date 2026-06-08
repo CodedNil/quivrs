@@ -23,11 +23,3 @@ what people are saying part of the web search, for twitter and reddit, not to be
 widgets for things like current polling trackers
 maybe we do consistent widgets that are in the side display of articles
 like if the article talks about a major politician we could add widget for that persons approval rating, or widget for current polling, which are consistent across articles and are updated with new data from feed inputs
-
-
-images:
-have a library of generic images that it lets the ai use, the ai can generate new ones if needed but asked to keep them reusable across multiple articles, not too specific
-https://openrouter.ai/recraft/recraft-v4.1
-the db should be created if scrubbed by reading through the images dir and we can use jina embeddings to match to the articles
-download images from articles and convert to webp when we pull them with the generator to host locally, replace the links in the article content with local paths
-bbc downloads low res images

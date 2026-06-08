@@ -1,12 +1,16 @@
 use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
-use crate::shared::PendingSource;
+use crate::shared::{CaptionedImage, PendingSource};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
 use dom_smoothie::Readability;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
-use std::{collections::HashMap, path::Path, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::LazyLock,
+};
 use tokio::fs;
 use tracing::info;
 use url::Url;
@@ -163,7 +167,25 @@ pub async fn fetch_source_content(
         }
     });
 
-    let date = published_hint.or_else(|| extract_published_date(&metadata, &html));
+    let date = published_hint
+        .or_else(|| {
+            metadata
+                .get("sl_date")
+                .or_else(|| metadata.get("og_date"))
+                .and_then(|s| parse_any_date(s))
+        })
+        .or_else(|| {
+            let doc = Html::parse_document(&html);
+            doc.select(&SEL_TIME_DATETIME)
+                .filter_map(|el| el.value().attr("datetime"))
+                .find_map(parse_any_date)
+                .or_else(|| {
+                    doc.select(&SEL_VISIBLE_DATE)
+                        .map(|el| el.text().collect::<String>())
+                        .map(|text| text.trim().to_string())
+                        .find_map(|text| parse_any_date(&text))
+                })
+        });
 
     let tags = metadata
         .get("sl_keywords")
@@ -203,20 +225,23 @@ pub async fn fetch_source_content(
         return Ok(None);
     };
 
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    let mut deduped_images: Vec<(String, String)> = Vec::new();
-    for (url, caption) in images.into_iter().filter(|(u, _)| usable_image_url(u)) {
-        let key = image_dedupe_key(&url);
-        if let Some(existing) = seen.get(&key).copied() {
-            if image_url_score(&url) > image_url_score(&deduped_images[existing].0) {
-                deduped_images[existing] = (url, caption);
-            }
-        } else {
-            seen.insert(key, deduped_images.len());
-            deduped_images.push((url, caption));
+    images.sort_by(|a, b| image_url_score(&b.url).total_cmp(&image_url_score(&a.url)));
+    let mut seen_urls = HashSet::new();
+    let mut seen_captions = HashSet::new();
+    let mut deduped_images = Vec::new();
+    for image in images
+        .into_iter()
+        .filter(|image| usable_image_url(&image.url) && !image.caption.trim().is_empty())
+    {
+        let url = image_dedupe_key(&image.url);
+        let caption = caption_dedupe_key(&image.caption);
+        if seen_urls.contains(&url) || seen_captions.contains(&caption) {
+            continue;
         }
+        seen_urls.insert(url);
+        seen_captions.insert(caption);
+        deduped_images.push(image);
     }
-    deduped_images.sort_by(|a, b| image_url_score(&b.0).total_cmp(&image_url_score(&a.0)));
 
     let domain = url
         .trim_start_matches("https://")
@@ -258,7 +283,7 @@ fn usable_image_url(url: &str) -> bool {
         && !url.starts_with("data:")
 }
 
-fn best_images_in(root: &ElementRef<'_>, base: Option<&Url>) -> Vec<(String, String)> {
+fn best_images_in(root: &ElementRef<'_>, base: Option<&Url>) -> Vec<CaptionedImage> {
     let pictures = root
         .select(&SEL_PICTURE)
         .filter_map(|picture| {
@@ -278,7 +303,7 @@ fn best_images_in(root: &ElementRef<'_>, base: Option<&Url>) -> Vec<(String, Str
             candidates
                 .into_iter()
                 .max_by(|a, b| image_url_score(a).total_cmp(&image_url_score(b)))
-                .map(|url| (url, caption))
+                .map(|url| CaptionedImage { url, caption })
         })
         .collect::<Vec<_>>();
     if !pictures.is_empty() {
@@ -292,7 +317,10 @@ fn best_images_in(root: &ElementRef<'_>, base: Option<&Url>) -> Vec<(String, Str
             candidates
                 .into_iter()
                 .max_by(|a, b| image_url_score(a).total_cmp(&image_url_score(b)))
-                .map(|url| (url, img.value().attr("alt").unwrap_or_default().to_string()))
+                .map(|url| CaptionedImage {
+                    url,
+                    caption: img.value().attr("alt").unwrap_or_default().to_string(),
+                })
         })
         .collect()
 }
@@ -347,6 +375,7 @@ fn collect_image_candidates(el: &ElementRef<'_>, base: Option<&Url>, candidates:
 
 fn image_url_score(url: &str) -> f32 {
     let width = infer_resize_width(url)
+        .or_else(|| infer_path_width(url))
         .or_else(|| infer_largest_dimension_width(url))
         .unwrap_or_default();
     let lower_url = url.to_ascii_lowercase();
@@ -367,14 +396,61 @@ fn image_url_score(url: &str) -> f32 {
 }
 
 fn image_dedupe_key(url: &str) -> String {
-    Url::parse(url)
+    let url = Url::parse(url)
         .ok()
         .and_then(|parsed| {
             parsed
                 .query_pairs()
                 .find_map(|(key, value)| (key == "url").then(|| value.into_owned()))
         })
-        .unwrap_or_else(|| url.to_string())
+        .unwrap_or_else(|| url.to_string());
+
+    Url::parse(&url).map_or(url, |mut parsed| {
+        parsed.set_query(None);
+        parsed.set_fragment(None);
+        let domain = parsed.domain().unwrap_or_default().to_string();
+        let path = parsed.path();
+        if let Some(filename) = path.rsplit('/').next().and_then(canonical_image_filename)
+            && filename.len() >= 12
+        {
+            return format!("{domain}/{filename}").to_ascii_lowercase();
+        }
+
+        let path = path
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|segment| {
+                segment.parse::<u32>().is_err()
+                    && !matches!(*segment, "format" | "resize" | "width" | "height")
+            })
+            .filter_map(canonical_image_filename)
+            .collect::<Vec<_>>()
+            .join("/");
+        format!("{domain}/{path}").to_ascii_lowercase()
+    })
+}
+
+fn caption_dedupe_key(caption: &str) -> String {
+    caption
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn canonical_image_filename(filename: &str) -> Option<String> {
+    let mut filename = filename;
+    while let Some((stem, extension)) = filename.rsplit_once('.') {
+        if matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "avif" | "gif" | "jpeg" | "jpg" | "png" | "webp"
+        ) {
+            filename = stem;
+        } else {
+            break;
+        }
+    }
+    (!filename.is_empty()).then(|| filename.to_string())
 }
 
 fn infer_resize_width(url: &str) -> Option<f32> {
@@ -384,6 +460,13 @@ fn infer_resize_width(url: &str) -> Option<f32> {
         .as_str()
         .parse::<f32>()
         .ok()
+}
+
+fn infer_path_width(url: &str) -> Option<f32> {
+    Url::parse(url)
+        .ok()?
+        .path_segments()?
+        .find_map(|segment| segment.parse::<f32>().ok().filter(|width| *width >= 100.0))
 }
 
 fn infer_largest_dimension_width(url: &str) -> Option<f32> {
@@ -398,38 +481,13 @@ fn infer_largest_dimension_width(url: &str) -> Option<f32> {
         .map(|width| width as f32)
 }
 
-fn parse_visible_date(html: &str) -> Option<DateTime<Utc>> {
-    let doc = Html::parse_document(html);
-
-    doc.select(&SEL_TIME_DATETIME)
-        .filter_map(|el| el.value().attr("datetime"))
-        .find_map(parse_any_date)
-        .or_else(|| {
-            doc.select(&SEL_VISIBLE_DATE)
-                .map(|el| el.text().collect::<String>())
-                .map(|text| text.trim().to_string())
-                .find_map(|text| parse_any_date(&text))
-        })
-}
-
-fn extract_published_date(
-    metadata: &HashMap<&'static str, String>,
-    html: &str,
-) -> Option<DateTime<Utc>> {
-    metadata
-        .get("sl_date")
-        .or_else(|| metadata.get("og_date"))
-        .and_then(|s| parse_any_date(s))
-        .or_else(|| parse_visible_date(html))
-}
-
 fn collect_page_metadata(
     html: &str,
     base: Option<&Url>,
-) -> (HashMap<&'static str, String>, Vec<(String, String)>) {
+) -> (HashMap<&'static str, String>, Vec<CaptionedImage>) {
     let doc = Html::parse_document(html);
     let mut m: HashMap<&'static str, String> = HashMap::new();
-    let mut images: Vec<(String, String)> = vec![];
+    let mut images: Vec<CaptionedImage> = vec![];
 
     for el in doc.select(&SEL_JSONLD) {
         let text = el.text().collect::<String>();
@@ -440,10 +498,11 @@ fn collect_page_metadata(
             .trim();
         let decoded_text = decode(clean_text);
 
-        if let Ok(v) = serde_json::from_str::<Value>(&decoded_text) {
-            collect_jsonld(&v, &mut m, &mut images, base);
-        } else if let Ok(v) = serde_json::from_str::<Value>(clean_text) {
-            collect_jsonld(&v, &mut m, &mut images, base);
+        for text in [decoded_text.as_str(), clean_text] {
+            if let Ok(v) = serde_json::from_str::<Value>(text) {
+                collect_jsonld(&v, &mut m, &mut images, base);
+                break;
+            }
         }
     }
 
@@ -483,12 +542,6 @@ fn collect_page_metadata(
                     m.entry("basic_description").or_insert(d);
                 }
             }
-            (Some("og:image"), Some(v)) => {
-                m.entry("og_image").or_insert_with(|| resolve_url(base, v));
-            }
-            (Some("og:image:alt"), Some(v)) => {
-                m.entry("og_image_alt").or_insert_with(|| decode(v));
-            }
             (Some("og:article:published_time" | "article:published_time"), Some(v)) => {
                 m.entry("og_date").or_insert_with(|| v.to_string());
             }
@@ -497,10 +550,6 @@ fn collect_page_metadata(
             }
             _ => {}
         }
-    }
-
-    if let Some(img_url) = m.remove("og_image") {
-        images.push((img_url, m.remove("og_image_alt").unwrap_or_default()));
     }
 
     if let Some(el) = doc.select(&SEL_TITLE).next() {
@@ -522,7 +571,7 @@ fn collect_page_metadata(
 fn collect_jsonld(
     v: &Value,
     m: &mut HashMap<&'static str, String>,
-    images: &mut Vec<(String, String)>,
+    images: &mut Vec<CaptionedImage>,
     base: Option<&Url>,
 ) {
     match v {
@@ -541,7 +590,7 @@ fn collect_jsonld(
 fn collect_jsonld_object(
     obj: &Value,
     m: &mut HashMap<&'static str, String>,
-    images: &mut Vec<(String, String)>,
+    images: &mut Vec<CaptionedImage>,
     base: Option<&Url>,
 ) {
     if let Some(v) = obj
@@ -610,22 +659,21 @@ fn collect_jsonld_object(
     }
 }
 
-fn collect_images(v: &Value, out: &mut Vec<(String, String)>, base: Option<&Url>) {
+fn collect_images(v: &Value, out: &mut Vec<CaptionedImage>, base: Option<&Url>) {
     match v {
-        Value::String(url) if !url.is_empty() => out.push((resolve_url(base, url), String::new())),
         Value::Object(obj) => {
-            if let Some(url) = obj
-                .get("url")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-            {
-                out.push((
-                    resolve_url(base, url),
-                    obj.get("caption")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                ));
+            if let (Some(url), Some(caption)) = (
+                obj.get("url")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty()),
+                obj.get("caption")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty()),
+            ) {
+                out.push(CaptionedImage {
+                    url: resolve_url(base, url),
+                    caption: caption.to_string(),
+                });
             }
         }
         Value::Array(arr) => arr.iter().for_each(|item| collect_images(item, out, base)),

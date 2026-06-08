@@ -1,10 +1,35 @@
-use crate::server::parsers::usable_article_url;
+use crate::server::{HTTP_CLIENT, parsers::usable_article_url};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use duckduckgo::{browser::Browser, response::ImageResult, user_agents};
-use std::collections::HashSet;
-use tracing::{info, warn};
+use duckduckgo::{browser::Browser, user_agents};
+use std::{collections::HashSet, path::Path};
+use tracing::warn;
 use url::Url;
+
+const LOCALE: &str = "us-en";
+const ARTICLE_LIMIT: usize = 8;
+const FALLBACK_USER_AGENT: &str = "Mozilla/5.0";
+const BLOCKED_DOMAINS: &[&str] = &["duckduckgo.com", "youtube.com", "youtu.be"];
+const WATERMARK_IMAGE_DOMAINS: &[&str] = &[
+    "alamy.com",
+    "istockphoto.com",
+    "shutterstock.com",
+    "dreamstime.com",
+    "123rf.com",
+    "depositphotos.com",
+];
+const WATERMARK_IMAGE_TEXT: &[&str] = &[
+    "alamy",
+    "istock",
+    "gettyimages",
+    "shutterstock",
+    "dreamstime",
+    "123rf",
+    "depositphotos",
+    "stock photo",
+    "stock photography",
+    "royalty-free",
+];
 
 #[derive(Clone, Debug)]
 pub struct SearchResult {
@@ -21,14 +46,9 @@ pub struct SearchImageResult {
 /// Searches `DuckDuckGo` news results and returns article URLs with result dates.
 pub async fn search_article_urls(query: &str) -> Result<Vec<SearchResult>> {
     let browser = Browser::new();
+    let user_agent = user_agents::get("firefox").unwrap_or(FALLBACK_USER_AGENT);
     let results = browser
-        .news(
-            query,
-            "us-en",
-            true,
-            Some(8),
-            user_agents::get("firefox").unwrap_or("Mozilla/5.0"),
-        )
+        .news(query, LOCALE, true, Some(ARTICLE_LIMIT), user_agent)
         .await?;
 
     let mut seen = HashSet::new();
@@ -37,28 +57,26 @@ pub async fn search_article_urls(query: &str) -> Result<Vec<SearchResult>> {
     for result in results {
         let Some(url) = usable_article_url(&result.url).filter(|url| {
             Url::parse(url).is_ok_and(|parsed| {
-                !parsed.domain().is_some_and(|domain| {
-                    domain.ends_with("duckduckgo.com")
-                        || domain.ends_with("youtube.com")
-                        || domain.ends_with("youtu.be")
-                }) && !std::path::Path::new(parsed.path())
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+                matches!(parsed.scheme(), "http" | "https")
+                    && !parsed.domain().is_some_and(is_blocked_domain)
+                    && !Path::new(parsed.path())
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
             })
         }) else {
             continue;
         };
 
-        if seen.insert(url.clone()) {
-            urls.push(SearchResult {
-                published: {
-                    DateTime::parse_from_rfc3339(&result.date)
-                        .map(|date| date.with_timezone(&Utc))
-                        .ok()
-                },
-                url,
-            });
+        if !seen.insert(url.clone()) {
+            continue;
         }
+
+        urls.push(SearchResult {
+            published: DateTime::parse_from_rfc3339(&result.date)
+                .map(|date| date.with_timezone(&Utc))
+                .ok(),
+            url,
+        });
     }
 
     if urls.is_empty() {
@@ -70,31 +88,83 @@ pub async fn search_article_urls(query: &str) -> Result<Vec<SearchResult>> {
 
 /// Searches `DuckDuckGo` image results and returns direct image URLs with captions.
 pub async fn search_image_urls(query: &str, limit: usize) -> Result<Vec<SearchImageResult>> {
-    info!("Searching images for query: {query}");
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
     let browser = Browser::new();
+    let user_agent = user_agents::get("firefox").unwrap_or(FALLBACK_USER_AGENT);
     let results = browser
-        .images(
-            query,
-            "us-en",
-            true,
-            Some(limit),
-            user_agents::get("firefox").unwrap_or("Mozilla/5.0"),
-        )
+        .images(query, LOCALE, true, Some((limit * 10).max(25)), user_agent)
         .await?;
 
     let mut seen = HashSet::new();
     let mut images = Vec::new();
 
     for result in results {
-        let Some(url) = image_url(&result) else {
+        let result_text = [
+            result.title.as_str(),
+            result.source.as_str(),
+            result.url.as_str(),
+        ]
+        .join(" ")
+        .to_ascii_lowercase();
+        if WATERMARK_IMAGE_TEXT
+            .iter()
+            .any(|pattern| result_text.contains(pattern))
+        {
+            continue;
+        }
+        let candidate_text = [result.image.as_str(), result.thumbnail.as_str()]
+            .join(" ")
+            .to_ascii_lowercase();
+        if WATERMARK_IMAGE_TEXT
+            .iter()
+            .any(|pattern| candidate_text.contains(pattern))
+        {
+            continue;
+        }
+
+        let Some(url) = [&result.image, &result.thumbnail]
+            .into_iter()
+            .find(|url| {
+                !url.trim().is_empty()
+                    && Url::parse(url).is_ok_and(|parsed| {
+                        matches!(parsed.scheme(), "http" | "https")
+                            && !parsed.domain().is_some_and(is_blocked_image_domain)
+                    })
+            })
+            .cloned()
+        else {
             continue;
         };
+
+        let Ok(response) = HTTP_CLIENT.head(&url).send().await else {
+            continue;
+        };
+        if !response.status().is_success() {
+            continue;
+        }
+        if response
+            .headers()
+            .get("Cross-Origin-Resource-Policy")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|policy| {
+                policy.eq_ignore_ascii_case("same-origin")
+                    || policy.eq_ignore_ascii_case("same-site")
+            })
+        {
+            continue;
+        }
 
         if seen.insert(image_dedupe_key(&url)) {
             images.push(SearchImageResult {
                 url,
-                caption: image_caption(&result, query),
+                caption: result.title.trim().to_string(),
             });
+            if images.len() >= limit {
+                break;
+            }
         }
     }
 
@@ -105,32 +175,23 @@ pub async fn search_image_urls(query: &str, limit: usize) -> Result<Vec<SearchIm
     Ok(images)
 }
 
-fn image_url(result: &ImageResult) -> Option<String> {
-    [&result.image, &result.thumbnail]
-        .into_iter()
-        .find(|url| {
-            !url.trim().is_empty()
-                && Url::parse(url).is_ok_and(|parsed| {
-                    matches!(parsed.scheme(), "http" | "https")
-                        && !parsed.domain().is_some_and(|domain| {
-                            domain.ends_with("duckduckgo.com")
-                                || domain.ends_with("youtube.com")
-                                || domain.ends_with("youtu.be")
-                        })
-                })
-        })
-        .cloned()
+fn is_blocked_domain(domain: &str) -> bool {
+    domain_matches(domain, BLOCKED_DOMAINS)
 }
 
-fn image_caption(result: &ImageResult, query: &str) -> String {
-    let title = result.title.trim();
-    let source = result.source.trim();
-    match (title.is_empty(), source.is_empty()) {
-        (false, false) => format!("{title} ({source})"),
-        (false, true) => title.to_string(),
-        (true, false) => format!("{query} image from {source}"),
-        (true, true) => format!("{query} image result"),
-    }
+fn is_blocked_image_domain(domain: &str) -> bool {
+    is_blocked_domain(domain)
+        || domain_matches(domain, WATERMARK_IMAGE_DOMAINS)
+        || domain.split('.').any(|label| label == "gettyimages")
+}
+
+fn domain_matches(domain: &str, blocked_domains: &[&str]) -> bool {
+    blocked_domains.iter().any(|blocked| {
+        domain == *blocked
+            || domain
+                .strip_suffix(blocked)
+                .is_some_and(|prefix| prefix.ends_with('.'))
+    })
 }
 
 pub fn image_dedupe_key(url: &str) -> String {

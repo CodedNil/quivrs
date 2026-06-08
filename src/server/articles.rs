@@ -11,7 +11,7 @@ use crate::{
             web_search::{SearchResult, image_dedupe_key, search_article_urls, search_image_urls},
         },
     },
-    shared::{Article, ArticleSource, ArticleStatus, PendingSource, Rating},
+    shared::{Article, ArticleSource, ArticleStatus, CaptionedImage, PendingSource, Rating},
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -34,6 +34,7 @@ const LIKED_MIN_THRESHOLD: f32 = 0.6; // If the liked guess is above this, it is
 
 const MERGE_SIMILARITY_THRESHOLD: f32 = 0.58; // Threshold for merging similar articles
 const TIME_BONUS_MAX: f32 = 0.03; // How much to boost the score for merging a recent article
+const MERGE_HALF_LIFE_SECS: f32 = 4.0 * 3600.0;
 
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
@@ -46,12 +47,6 @@ struct ScoredPendingSource {
     estimated_liked: f32,
     bonus: f32,
     category_target: i64,
-}
-
-#[derive(Clone)]
-struct ArticleImage {
-    url: String,
-    caption: String,
 }
 
 /// Minimum number of new articles to maintain in each category
@@ -124,12 +119,7 @@ pub async fn refresh_all_feeds() -> Result<()> {
     }
 
     info!("Fetching content for {} new articles...", new_urls.len());
-    let results = join_all(
-        new_urls
-            .iter()
-            .map(|url| async { fetch_page_content(url).await }),
-    )
-    .await;
+    let results = join_all(new_urls.iter().map(|url| fetch_page_content(url))).await;
 
     let mut new_entries: Vec<PendingSource> = vec![];
     let mut dismissed_urls: Vec<String> = vec![];
@@ -179,15 +169,12 @@ pub async fn refresh_all_feeds() -> Result<()> {
         source.importance = importance;
 
         info!(
-            "[NEW] {}",
-            format!(
-                "'{}' {}, {}, sentiment: {:.2} importance: {:.2}",
-                article_text(&source, 1),
-                category,
-                region,
-                sentiment,
-                importance
-            )
+            "[NEW] '{}' {}, {}, sentiment: {:.2} importance: {:.2}",
+            article_text(&source, 1),
+            category,
+            region,
+            sentiment,
+            importance
         );
         classified_sources.push(source);
     }
@@ -227,12 +214,12 @@ pub async fn promote_articles() -> Result<()> {
         bonus += p.importance * IMPORTANCE_BONUS;
 
         // Boost for category, region, and domain ratings.
-        let category_target = item_ratings
+        let category_rating = item_ratings
             .get(&format!("category:{}", p.category))
-            .map_or(category_new_articles(Rating::Neutral), |rating| {
-                bonus += category_bonus(*rating);
-                category_new_articles(*rating)
-            });
+            .copied()
+            .unwrap_or(Rating::Neutral);
+        bonus += category_bonus(category_rating);
+        let category_target = category_new_articles(category_rating);
         if let Some(rating) = item_ratings.get(&format!("region:{}", p.region)) {
             bonus += region_bonus(*rating);
         }
@@ -300,23 +287,23 @@ pub async fn promote_articles() -> Result<()> {
         let similar_sources = database::get_similar_pending_sources(&candidate.embedding).await?;
 
         let candidate_ts = candidate.published.timestamp() as f32;
-        let half_life_secs = 4.0 * 3600.0;
 
         let mut sources_to_merge = vec![candidate];
 
         for (other, similarity) in similar_sources {
             let diff_secs = (candidate_ts - other.published.timestamp() as f32).abs();
-            let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / half_life_secs).exp();
+            let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / MERGE_HALF_LIFE_SECS).exp();
 
             let score = similarity + time_bonus;
             if score >= MERGE_SIMILARITY_THRESHOLD {
-                if promoted_urls.insert(other.url.clone()) {
-                    info!(
-                        "  [MERGE] adding '{}' (sim: {:.2}, bonus: {:.2})",
-                        other.title, similarity, time_bonus
-                    );
-                    sources_to_merge.push(other);
+                if !promoted_urls.insert(other.url.clone()) {
+                    continue;
                 }
+                info!(
+                    "  [MERGE] adding '{}' (sim: {:.2}, bonus: {:.2})",
+                    other.title, similarity, time_bonus
+                );
+                sources_to_merge.push(other);
             } else if score >= MERGE_SIMILARITY_THRESHOLD - 0.1 {
                 info!(
                     "  [MISSED] near miss '{}' (sim: {:.2}, bonus: {:.2})",
@@ -342,22 +329,23 @@ pub async fn promote_articles() -> Result<()> {
 
         match generate_promoted_content(&sources_to_merge).await {
             Ok(entry) => {
-                let mut sources = sources_to_merge.into_iter();
-                let candidate = sources.next().expect("candidate source is present");
+                let (urls, article_sources): (Vec<_>, Vec<_>) = sources_to_merge
+                    .iter()
+                    .map(|source| {
+                        (
+                            source.url.clone(),
+                            ArticleSource {
+                                url: source.url.clone(),
+                                domain: source.domain.clone(),
+                            },
+                        )
+                    })
+                    .unzip();
+                let candidate = sources_to_merge
+                    .into_iter()
+                    .next()
+                    .expect("candidate source is present");
                 let category = candidate.category;
-                let mut urls = vec![candidate.url.clone()];
-                let mut article_sources = vec![ArticleSource {
-                    url: candidate.url,
-                    domain: candidate.domain,
-                }];
-                for source in sources {
-                    urls.push(source.url.clone());
-                    article_sources.push(ArticleSource {
-                        url: source.url,
-                        domain: source.domain,
-                    });
-                }
-
                 let article = Article {
                     id: Uuid::new_v4(),
                     sources: article_sources,
@@ -424,16 +412,12 @@ async fn fetch_web_search_merge_sources(
     }
 
     let new_urls = database::filter_new_urls(&searched_urls.keys().cloned().collect()).await?;
-    info!(
-        "Fetching {} web search results for merge enrichment",
-        new_urls.len()
-    );
 
     let mut fetched_sources = Vec::new();
     let mut processed_urls = Vec::new();
     for (url, result) in new_urls.iter().zip(
-        join_all(new_urls.iter().map(|url| async {
-            fetch_page_content_with_hint(url, searched_urls.get(url).copied().flatten()).await
+        join_all(new_urls.iter().map(|url| {
+            fetch_page_content_with_hint(url, searched_urls.get(url).copied().flatten())
         }))
         .await,
     ) {
@@ -453,7 +437,6 @@ async fn fetch_web_search_merge_sources(
         .inspect_err(|err| error!("Web search embedding generation failed: {err}"))?;
 
     let mut merged_sources = Vec::new();
-    let half_life_secs = 4.0 * 3600.0;
     for ((mut source, embedding_text), embedding) in
         fetched_sources.into_iter().zip(texts).zip(embeddings)
     {
@@ -462,8 +445,14 @@ async fn fetch_web_search_merge_sources(
             .map(|initial| {
                 let diff_secs =
                     (initial.published.timestamp() - source.published.timestamp()).abs() as f32;
-                let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / half_life_secs).exp();
-                cosine_similarity(&initial.embedding, &embedding) + time_bonus
+                let time_bonus = TIME_BONUS_MAX * (-LN_2 * diff_secs / MERGE_HALF_LIFE_SECS).exp();
+                initial
+                    .embedding
+                    .iter()
+                    .zip(&embedding)
+                    .map(|(x, y)| x * y)
+                    .sum::<f32>()
+                    + time_bonus
             })
             .fold(f32::NEG_INFINITY, f32::max);
 
@@ -486,21 +475,14 @@ async fn fetch_web_search_merge_sources(
     Ok(merged_sources)
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
 /// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
 async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleEntry> {
     let mut seen_images = HashSet::new();
     let available_images = sources
         .iter()
         .flat_map(|source| &source.images)
-        .filter(|(url, _)| seen_images.insert(url.clone()))
-        .map(|(url, caption)| ArticleImage {
-            url: url.clone(),
-            caption: caption.clone(),
-        })
+        .filter(|image| seen_images.insert(image.url.clone()))
+        .cloned()
         .collect::<Vec<_>>();
     let images = available_images
         .iter()
@@ -514,7 +496,29 @@ async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleE
             }
         })
         .join("\n");
-    let suggested_images = search_headline_images(sources).await;
+    let mut seen = HashSet::new();
+    let mut suggested_images = Vec::new();
+    let results = join_all(
+        sources
+            .iter()
+            .map(|source| search_image_urls(&source.title, 5)),
+    )
+    .await;
+    for result in results {
+        match result {
+            Ok(results) => {
+                for image in results {
+                    if seen.insert(image_dedupe_key(&image.url)) {
+                        suggested_images.push(CaptionedImage {
+                            url: image.url,
+                            caption: image.caption,
+                        });
+                    }
+                }
+            }
+            Err(err) => warn!("Image search failed: {err:#}"),
+        }
+    }
     let suggested_image_list = suggested_images
         .iter()
         .enumerate()
@@ -533,7 +537,6 @@ async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleE
                 source.content.replace('\n', " ")
             )
         })
-        .collect::<Vec<_>>()
         .join("\n");
 
     let context = format!(
@@ -543,7 +546,7 @@ async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleE
 You MUST return a JSON object with this exact structure:
 {{
   "title": "Articles title, kept concise and descriptive, ideal 8 words, max 12 words, catchy and engaging but not clickbait.",
-  "description": "Short informative summary, a few sentences max and no newlines",
+  "description": "Short informative summary, a 24 words max and no newlines",
   "thumbnail": "Image reference such as #0, $0, or search(short visual search term).",
   "background": "Image reference such as #0, $0, or search(short visual search term). Background image for the page, used with heavy blur behind the content. Prefer landscapes, architecture, unpopulated scenes, or low-complexity images when available.",
   "content": "HTML string for the main article body",
@@ -558,13 +561,13 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 3. **Layout Grids**:
    - Vertical Stack: <div class="flexbox-columns">...</div>
    - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
-4. **Visuals**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search.
+4. **Visuals**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
 5. **Data Table**: <table class="info-table"><tr><th>Key</th><td>Value</td></tr></table>
 6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">YYYY</span><span class="event">Event</span></div></div>
 7. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
 
 ### EDITORIAL REQUIREMENTS
-- **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context.
+- **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context. Captions are optional; only provide one when it adds useful context.
 - **Search Images**: Use search(...) when no listed image fits and a generic or contextual visual would improve the article, for example <img>search(rolling green hills)</img>. The system will pick the first image from a web image search for that term. Use concise visual search terms, not full sentences.
 - **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose.
 
@@ -638,52 +641,20 @@ Sources with information:
     // Clean the content using ammonia to prevent XSS attacks
     let mut sanitizer = ammonia::Builder::default();
     sanitizer.add_generic_attributes(&["class"]);
-    let content_sanitized = sanitizer.clean(&content_with_images).to_string();
-    let sidebar_sanitized = sanitizer.clean(&sidebar_with_images).to_string();
-
     Ok(ArticleEntry {
-        content: content_sanitized,
-        sidebar: sidebar_sanitized,
+        content: sanitizer.clean(&content_with_images).to_string(),
+        sidebar: sanitizer.clean(&sidebar_with_images).to_string(),
         thumbnail,
         background,
         ..entry
     })
 }
 
-async fn search_headline_images(sources: &[PendingSource]) -> Vec<ArticleImage> {
-    let mut seen = HashSet::new();
-    let mut images = Vec::new();
-
-    for result in join_all(
-        sources
-            .iter()
-            .map(|source| search_image_urls(&source.title, 5)),
-    )
-    .await
-    {
-        match result {
-            Ok(results) => {
-                for image in results {
-                    if seen.insert(image_dedupe_key(&image.url)) {
-                        images.push(ArticleImage {
-                            url: image.url,
-                            caption: image.caption,
-                        });
-                    }
-                }
-            }
-            Err(err) => warn!("Image search failed: {err:#}"),
-        }
-    }
-
-    images
-}
-
 async fn resolve_image_html(
     html: &str,
-    available: &[ArticleImage],
-    suggested: &[ArticleImage],
-    search_images: &mut HashMap<String, Option<ArticleImage>>,
+    available: &[CaptionedImage],
+    suggested: &[CaptionedImage],
+    search_images: &mut HashMap<String, Option<CaptionedImage>>,
 ) -> String {
     let mut resolved = String::with_capacity(html.len());
     let mut last = 0;
@@ -692,10 +663,11 @@ async fn resolve_image_html(
         let matched = captures.get(0).expect("regex match exists");
         resolved.push_str(&html[last..matched.start()]);
         let token = captures.get(1).map_or("", |m| m.as_str()).trim();
+        let (token, display_caption) = image_token_parts(token);
         if let Some(image) = image_for_token(token, available, suggested) {
-            resolved.push_str(&image_figure(&image.url, &image.caption));
+            resolved.push_str(&image_figure(&image.url, &image.caption, display_caption));
         } else if let Some(image) = image_from_search_token(token, search_images).await {
-            resolved.push_str(&image_figure(&image.url, &image.caption));
+            resolved.push_str(&image_figure(&image.url, &image.caption, None));
         }
         last = matched.end();
     }
@@ -706,11 +678,11 @@ async fn resolve_image_html(
 
 async fn resolve_thumbnail(
     token: &str,
-    available: &[ArticleImage],
-    suggested: &[ArticleImage],
-    search_images: &mut HashMap<String, Option<ArticleImage>>,
+    available: &[CaptionedImage],
+    suggested: &[CaptionedImage],
+    search_images: &mut HashMap<String, Option<CaptionedImage>>,
 ) -> Option<String> {
-    let token = token.trim();
+    let (token, _) = image_token_parts(token.trim());
     if let Some(image) = image_for_token(token, available, suggested)
         .or_else(|| image_for_token(token.trim_matches(['[', ']']), available, suggested))
     {
@@ -724,16 +696,23 @@ async fn resolve_thumbnail(
         .map(|image| image.url)
 }
 
+fn image_token_parts(token: &str) -> (&str, Option<&str>) {
+    token
+        .split_once('|')
+        .map_or((token, None), |(token, caption)| {
+            (
+                token.trim(),
+                Some(caption.trim()).filter(|caption| !caption.is_empty()),
+            )
+        })
+}
+
 fn image_for_token<'a>(
     token: &str,
-    available: &'a [ArticleImage],
-    suggested: &'a [ArticleImage],
-) -> Option<&'a ArticleImage> {
-    if token.len() < 2 {
-        return None;
-    }
-
-    let (prefix, index) = token.split_at(1);
+    available: &'a [CaptionedImage],
+    suggested: &'a [CaptionedImage],
+) -> Option<&'a CaptionedImage> {
+    let (prefix, index) = token.split_at_checked(1)?;
     let index = index.parse::<usize>().ok()?;
     match prefix {
         "#" => available.get(index),
@@ -744,15 +723,23 @@ fn image_for_token<'a>(
 
 async fn image_from_search_token(
     token: &str,
-    search_images: &mut HashMap<String, Option<ArticleImage>>,
-) -> Option<ArticleImage> {
-    let prompt = search_image_prompt(token)?;
+    search_images: &mut HashMap<String, Option<CaptionedImage>>,
+) -> Option<CaptionedImage> {
+    let prompt = token
+        .trim_matches(['[', ']'])
+        .strip_prefix("search(")?
+        .strip_suffix(')')?
+        .trim();
+    if prompt.is_empty() {
+        return None;
+    }
     if let Some(image) = search_images.get(prompt) {
         return image.clone();
     }
 
+    info!("Searching images for query: {}", prompt);
     let image = match search_image_urls(prompt, 1).await {
-        Ok(mut images) => images.pop().map(|image| ArticleImage {
+        Ok(mut images) => images.pop().map(|image| CaptionedImage {
             url: image.url,
             caption: image.caption,
         }),
@@ -765,18 +752,12 @@ async fn image_from_search_token(
     image
 }
 
-fn search_image_prompt(token: &str) -> Option<&str> {
-    token
-        .trim_matches(['[', ']'])
-        .strip_prefix("search(")
-        .and_then(|prompt| prompt.strip_suffix(')'))
-        .map(str::trim)
-        .filter(|prompt| !prompt.is_empty())
-}
-
-fn image_figure(url: &str, caption: &str) -> String {
+fn image_figure(url: &str, alt: &str, caption: Option<&str>) -> String {
     let url = html_escape::encode_double_quoted_attribute(url);
-    let alt = html_escape::encode_double_quoted_attribute(caption);
-    let caption = html_escape::encode_text(caption);
-    format!(r#"<figure><img src="{url}" alt="{alt}" /><figcaption>{caption}</figcaption></figure>"#)
+    let alt = html_escape::encode_double_quoted_attribute(alt);
+    let caption = caption
+        .map(html_escape::encode_text)
+        .map(|caption| format!("<figcaption>{caption}</figcaption>"))
+        .unwrap_or_default();
+    format!(r#"<figure><img src="{url}" alt="{alt}" />{caption}</figure>"#)
 }
