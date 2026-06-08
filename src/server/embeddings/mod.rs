@@ -254,6 +254,14 @@ where
     best.label_value.parse().map_err(Into::into)
 }
 
+/// Remap similarity to push towards the poles.
+const SIMILARITY_LOW: f32 = 0.2;
+const SIMILARITY_HIGH: f32 = 0.7;
+
+fn remap_similarity(similarity: f32) -> f32 {
+    (similarity - SIMILARITY_LOW) / (SIMILARITY_HIGH - SIMILARITY_LOW)
+}
+
 fn binary_label_score(
     rows: &[database::LabelScore],
     label_group: &str,
@@ -262,7 +270,7 @@ fn binary_label_score(
     let mut positive = 0.0;
     let mut total = 0.0;
     for row in rows.iter().filter(|row| row.label_group == label_group) {
-        let weight = (row.similarity * 10.0).exp();
+        let weight = (remap_similarity(row.similarity) * 10.0).exp();
         if row.label_value == positive_value {
             positive += weight;
         }

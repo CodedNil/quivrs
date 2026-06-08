@@ -494,7 +494,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "The future of Surface looks like a much smaller lineup of devices.",
         category: Category::Technology,
         regions: &[Region::Global],
-        sentiment: 0.5,
+        sentiment: 0.8,
         importance: 0.3,
     },
     TestCase {
@@ -502,8 +502,8 @@ const TEST_CASES: &[TestCase] = &[
         summary: "A report of a extended ceasefire, subject to Donald Trump's approval, has led to global oil prices to fall on Thursday.",
         category: Category::Business,
         regions: &[Region::Global, Region::MiddleEastNorthAfrica],
-        sentiment: 0.4,
-        importance: 0.5,
+        sentiment: 0.7,
+        importance: 0.9,
     },
     TestCase {
         title: "New dark skies policy could 'help Highland night-time economy'.",
@@ -598,7 +598,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "Dawa Sherpa was spotted alive by a cleaning crew as he slid slowly down the world's tallest mountain and spoke from hospital.",
         category: Category::Lifestyle,
         regions: &[Region::IndianSubcontinent],
-        sentiment: 0.2,
+        sentiment: 0.5,
         importance: 0.3,
     },
     TestCase {
@@ -622,7 +622,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "A university campus safety officer was seriously injured in the attack in Guildford.",
         category: Category::Law,
         regions: &[Region::England],
-        sentiment: 0.0,
+        sentiment: 0.1,
         importance: 0.5,
     },
     TestCase {
@@ -631,15 +631,15 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Politics,
         regions: &[Region::EasternEurope],
         sentiment: 0.1,
-        importance: 0.6,
+        importance: 0.7,
     },
     TestCase {
         title: "US stocks slump as fears over Big Tech shake Wall Street",
         summary: "The Nasdaq saw its biggest daily fall since early 2025.",
         category: Category::Business,
         regions: &[Region::UnitedStates],
-        sentiment: 0.1,
-        importance: 0.6,
+        sentiment: 0.0,
+        importance: 0.8,
     },
     TestCase {
         title: "Lloyds, Halifax and Bank of Scotland app users report outage",
@@ -647,15 +647,15 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Software,
         regions: &[Region::UnitedKingdom],
         sentiment: 0.1,
-        importance: 0.5,
+        importance: 0.4,
     },
     TestCase {
         title: "New York lawmakers pass one-year ban on new data centers",
         summary: "The state legislature passed a ban on new large data centers to assess environmental impact.",
         category: Category::Politics,
         regions: &[Region::UnitedStates],
-        sentiment: 0.3,
-        importance: 0.6,
+        sentiment: 0.5,
+        importance: 0.8,
     },
     TestCase {
         title: "Jared Kushner-backed luxury resort plan sparks protest in Albania",
@@ -663,22 +663,22 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Nature,
         regions: &[Region::Balkans],
         sentiment: 0.2,
-        importance: 0.5,
+        importance: 0.3,
     },
     TestCase {
         title: "Monaco Grand Prix: Lewis Hamilton heads Charles Leclerc as Ferrari dominate practice",
         summary: "Hamilton set the pace as Ferrari dominated Friday practice at the Monaco Grand Prix.",
         category: Category::Sports,
         regions: &[Region::WesternEurope],
-        sentiment: 0.6,
-        importance: 0.3,
+        sentiment: 0.8,
+        importance: 0.2,
     },
     TestCase {
         title: "We’re hosting a Coding Agent Benchmarks event with lightning talks and a panel",
         summary: "The event will gather AI researchers, builders, and engineers in San Francisco.",
         category: Category::AI,
         regions: &[Region::UnitedStates],
-        sentiment: 0.5,
+        sentiment: 0.7,
         importance: 0.1,
     },
     TestCase {
@@ -686,7 +686,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "John McFall has moved closer to becoming the first disabled astronaut in orbit.",
         category: Category::Science,
         regions: &[Region::Global, Region::UnitedKingdom],
-        sentiment: 0.7,
+        sentiment: 0.8,
         importance: 0.5,
     },
     TestCase {
@@ -937,7 +937,7 @@ fn label_list(scores: &[&LabelScore]) -> String {
 }
 
 fn label_snippet(text: &str) -> String {
-    const MAX_CHARS: usize = 120;
+    const MAX_CHARS: usize = 60;
     let mut snippet = text.chars().take(MAX_CHARS).collect::<String>();
     if text.chars().count() > MAX_CHARS {
         snippet.push_str("...");
