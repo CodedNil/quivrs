@@ -21,35 +21,33 @@ CREATE INDEX IF NOT EXISTS pending_sources_published_idx
 -- sqlite-vec KNN index for pending source similarity search.
 -- Triggers below keep this table in sync with `pending_sources.embedding`.
 CREATE VIRTUAL TABLE IF NOT EXISTS pending_source_embeddings USING vec0(
-    source_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[512] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine,
+    url TEXT PRIMARY KEY
 );
 
 CREATE TRIGGER IF NOT EXISTS sync_pending_source_embedding_after_insert
 AFTER INSERT ON pending_sources
 BEGIN
-    INSERT INTO pending_source_embeddings (source_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
+    INSERT INTO pending_source_embeddings (embedding, url)
+    VALUES (new.embedding, new.url);
 END;
 
 CREATE TRIGGER IF NOT EXISTS sync_pending_source_embedding_after_embedding_update
 AFTER UPDATE OF embedding ON pending_sources
 BEGIN
-    DELETE FROM pending_source_embeddings WHERE source_rowid = old.rowid;
-    INSERT INTO pending_source_embeddings (source_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
+    DELETE FROM pending_source_embeddings WHERE url = old.url;
+    INSERT INTO pending_source_embeddings (embedding, url)
+    VALUES (new.embedding, new.url);
 END;
 
 CREATE TRIGGER IF NOT EXISTS sync_pending_source_embedding_after_delete
 AFTER DELETE ON pending_sources
 BEGIN
-    DELETE FROM pending_source_embeddings WHERE source_rowid = old.rowid;
+    DELETE FROM pending_source_embeddings WHERE url = old.url;
 END;
 
--- Promoted articles shown to the user.
--- `payload` stores the full Rust `Article` JSON; typed columns are duplicated
--- only where SQLite needs to filter, sort, or vector-search efficiently.
-CREATE TABLE IF NOT EXISTS user_articles (
+-- Full articles shown to the user.
+CREATE TABLE IF NOT EXISTS articles (
     id TEXT PRIMARY KEY,
     payload TEXT NOT NULL,
     published TEXT NOT NULL,
@@ -62,38 +60,36 @@ CREATE TABLE IF NOT EXISTS user_articles (
     embedding_model TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS user_articles_published_idx
-    ON user_articles (published);
+CREATE INDEX IF NOT EXISTS articles_published_idx
+    ON articles (published);
 
-CREATE INDEX IF NOT EXISTS user_articles_status_category_idx
-    ON user_articles (status, category);
+CREATE INDEX IF NOT EXISTS articles_status_category_idx
+    ON articles (status, category);
 
--- sqlite-vec KNN index for article preference scoring.
--- Triggers below keep this table in sync with `user_articles.embedding`.
 CREATE VIRTUAL TABLE IF NOT EXISTS user_article_embeddings USING vec0(
-    article_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[512] distance_metric=cosine
+    embedding FLOAT[512] distance_metric=cosine,
+    id TEXT PRIMARY KEY
 );
 
 CREATE TRIGGER IF NOT EXISTS sync_user_article_embedding_after_insert
-AFTER INSERT ON user_articles
+AFTER INSERT ON articles
 BEGIN
-    INSERT INTO user_article_embeddings (article_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
+    INSERT INTO user_article_embeddings (embedding, id)
+    VALUES (new.embedding, new.id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS sync_user_article_embedding_after_embedding_update
-AFTER UPDATE OF embedding ON user_articles
+AFTER UPDATE OF embedding ON articles
 BEGIN
-    DELETE FROM user_article_embeddings WHERE article_rowid = old.rowid;
-    INSERT INTO user_article_embeddings (article_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
+    DELETE FROM user_article_embeddings WHERE id = old.id;
+    INSERT INTO user_article_embeddings (embedding, id)
+    VALUES (new.embedding, new.id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS sync_user_article_embedding_after_delete
-AFTER DELETE ON user_articles
+AFTER DELETE ON articles
 BEGIN
-    DELETE FROM user_article_embeddings WHERE article_rowid = old.rowid;
+    DELETE FROM user_article_embeddings WHERE id = old.id;
 END;
 
 -- User preferences for non-article entities, e.g. domains/categories/regions.
@@ -102,43 +98,11 @@ CREATE TABLE IF NOT EXISTS item_ratings (
     rating TEXT NOT NULL
 );
 
--- Static label embeddings used to classify incoming content.
-CREATE TABLE IF NOT EXISTS label_embeddings (
+CREATE VIRTUAL TABLE IF NOT EXISTS label_embeddings USING vec0(
+    embedding FLOAT[512] distance_metric=cosine,
     id TEXT PRIMARY KEY,
-    label_group TEXT NOT NULL,
-    label_value TEXT NOT NULL,
-    hash TEXT NOT NULL,
-    text TEXT NOT NULL,
-    embedding TEXT NOT NULL
+    label_group TEXT,
+    label_value TEXT,
+    hash TEXT,
+    text TEXT
 );
-
-CREATE INDEX IF NOT EXISTS label_embeddings_group_idx
-    ON label_embeddings (label_group);
-
--- sqlite-vec KNN index for category/region/sentiment/importance labels.
--- Triggers below keep this table in sync with `label_embeddings.embedding`.
-CREATE VIRTUAL TABLE IF NOT EXISTS label_embedding_vectors USING vec0(
-    label_rowid INTEGER PRIMARY KEY,
-    embedding FLOAT[512] distance_metric=cosine
-);
-
-CREATE TRIGGER IF NOT EXISTS sync_label_embedding_vector_after_insert
-AFTER INSERT ON label_embeddings
-BEGIN
-    INSERT INTO label_embedding_vectors (label_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
-END;
-
-CREATE TRIGGER IF NOT EXISTS sync_label_embedding_vector_after_embedding_update
-AFTER UPDATE OF embedding ON label_embeddings
-BEGIN
-    DELETE FROM label_embedding_vectors WHERE label_rowid = old.rowid;
-    INSERT INTO label_embedding_vectors (label_rowid, embedding)
-    VALUES (new.rowid, new.embedding);
-END;
-
-CREATE TRIGGER IF NOT EXISTS sync_label_embedding_vector_after_delete
-AFTER DELETE ON label_embeddings
-BEGIN
-    DELETE FROM label_embedding_vectors WHERE label_rowid = old.rowid;
-END;

@@ -3,12 +3,10 @@ use crate::shared::PendingSource;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
 use dom_smoothie::Readability;
-use scraper::{Html, Selector};
+use regex::Regex;
+use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::LazyLock,
-};
+use std::{collections::HashMap, path::Path, sync::LazyLock};
 use tokio::fs;
 use tracing::info;
 use url::Url;
@@ -37,6 +35,12 @@ static SEL_TIME_DATETIME: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("time[datetime]").unwrap());
 static SEL_VISIBLE_DATE: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(".date, .post-date, .entry-date, .published-at").unwrap());
+static SEL_IMG: LazyLock<Selector> = LazyLock::new(|| Selector::parse("img").unwrap());
+static SEL_PICTURE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("picture").unwrap());
+static SEL_SOURCE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("source").unwrap());
+static RE_RESIZE_WIDTH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/resize/(\d+)x").unwrap());
+static RE_IMAGE_DIMENSIONS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\d{3,})x(\d{3,})").unwrap());
 
 const WEBSITE_BLACKLIST_DOMAINS: &[&str] = &[
     "reddit.com",
@@ -139,16 +143,7 @@ pub async fn fetch_source_content(
                         }
                     }
                 } else if img_sel.matches(&block) {
-                    for img in block.select(&Selector::parse("img").unwrap()) {
-                        if let Some(src) = img
-                            .value()
-                            .attr("src")
-                            .filter(|s| !s.contains("placeholder"))
-                        {
-                            let alt = img.value().attr("alt").unwrap_or_default().to_string();
-                            images.push((resolve_url(base_url.as_ref(), src), alt));
-                        }
-                    }
+                    images.extend(best_images_in(&block, base_url.as_ref()));
                 }
             }
         }
@@ -158,12 +153,7 @@ pub async fn fetch_source_content(
         } else if let Ok(mut r) = Readability::new(html.as_str(), Some(url), None) {
             if let Ok(a) = r.parse() {
                 let doc = Html::parse_fragment(&a.content);
-                for img in doc.select(&Selector::parse("img").unwrap()) {
-                    if let Some(src) = img.value().attr("src") {
-                        let alt = img.value().attr("alt").unwrap_or_default().to_string();
-                        images.push((resolve_url(base_url.as_ref(), src), alt));
-                    }
-                }
+                images.extend(best_images_in(&doc.root_element(), base_url.as_ref()));
                 a.text_content.to_string()
             } else {
                 String::new()
@@ -213,16 +203,20 @@ pub async fn fetch_source_content(
         return Ok(None);
     };
 
-    let mut seen = HashSet::new();
-    let images = images
-        .into_iter()
-        .filter(|(u, _)| {
-            !u.is_empty()
-                && !u.contains("placeholder")
-                && !u.contains("gravatar.com")
-                && seen.insert(u.clone())
-        })
-        .collect();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut deduped_images: Vec<(String, String)> = Vec::new();
+    for (url, caption) in images.into_iter().filter(|(u, _)| usable_image_url(u)) {
+        let key = image_dedupe_key(&url);
+        if let Some(existing) = seen.get(&key).copied() {
+            if image_url_score(&url) > image_url_score(&deduped_images[existing].0) {
+                deduped_images[existing] = (url, caption);
+            }
+        } else {
+            seen.insert(key, deduped_images.len());
+            deduped_images.push((url, caption));
+        }
+    }
+    deduped_images.sort_by(|a, b| image_url_score(&b.0).total_cmp(&image_url_score(&a.0)));
 
     let domain = url
         .trim_start_matches("https://")
@@ -241,7 +235,7 @@ pub async fn fetch_source_content(
         summary,
         content,
         tags,
-        images,
+        images: deduped_images,
         published: date,
 
         ..Default::default()
@@ -255,6 +249,153 @@ fn decode(s: &str) -> String {
 fn resolve_url(base: Option<&Url>, img_url: &str) -> String {
     base.and_then(|b| b.join(img_url).ok())
         .map_or_else(|| img_url.to_string(), |u| u.to_string())
+}
+
+fn usable_image_url(url: &str) -> bool {
+    !url.is_empty()
+        && !url.contains("placeholder")
+        && !url.contains("gravatar.com")
+        && !url.starts_with("data:")
+}
+
+fn best_images_in(root: &ElementRef<'_>, base: Option<&Url>) -> Vec<(String, String)> {
+    let pictures = root
+        .select(&SEL_PICTURE)
+        .filter_map(|picture| {
+            let mut candidates = Vec::new();
+            let mut caption = String::new();
+
+            for source in picture.select(&SEL_SOURCE) {
+                collect_image_candidates(&source, base, &mut candidates);
+            }
+            for img in picture.select(&SEL_IMG) {
+                if caption.is_empty() {
+                    caption = img.value().attr("alt").unwrap_or_default().to_string();
+                }
+                collect_image_candidates(&img, base, &mut candidates);
+            }
+
+            candidates
+                .into_iter()
+                .max_by(|a, b| image_url_score(a).total_cmp(&image_url_score(b)))
+                .map(|url| (url, caption))
+        })
+        .collect::<Vec<_>>();
+    if !pictures.is_empty() {
+        return pictures;
+    }
+
+    root.select(&SEL_IMG)
+        .filter_map(|img| {
+            let mut candidates = Vec::new();
+            collect_image_candidates(&img, base, &mut candidates);
+            candidates
+                .into_iter()
+                .max_by(|a, b| image_url_score(a).total_cmp(&image_url_score(b)))
+                .map(|url| (url, img.value().attr("alt").unwrap_or_default().to_string()))
+        })
+        .collect()
+}
+
+fn collect_image_candidates(el: &ElementRef<'_>, base: Option<&Url>, candidates: &mut Vec<String>) {
+    let fallback_width = el.value().attr("width").and_then(|w| w.parse::<f32>().ok());
+
+    if let Some(srcset) = el.value().attr("srcset") {
+        if let Some((url, _)) = srcset
+            .split(',')
+            .filter_map(|candidate| {
+                let mut parts = candidate.split_whitespace();
+                let src = parts.next()?;
+                let descriptor = parts.next();
+                let url = resolve_url(base, src);
+                if !usable_image_url(&url) {
+                    return None;
+                }
+                let width = descriptor
+                    .and_then(|d| {
+                        d.strip_suffix('w')
+                            .and_then(|width| width.parse::<f32>().ok())
+                            .or_else(|| {
+                                d.strip_suffix('x')
+                                    .and_then(|scale| scale.parse::<f32>().ok())
+                                    .map(|scale| {
+                                        scale
+                                            * fallback_width
+                                                .or_else(|| infer_resize_width(&url))
+                                                .unwrap_or(1000.0)
+                                    })
+                            })
+                    })
+                    .or_else(|| infer_resize_width(&url))
+                    .unwrap_or_default();
+                Some((url, width))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+        {
+            candidates.push(url);
+        }
+        return;
+    }
+
+    if let Some(src) = el.value().attr("src") {
+        let url = resolve_url(base, src);
+        if usable_image_url(&url) {
+            candidates.push(url);
+        }
+    }
+}
+
+fn image_url_score(url: &str) -> f32 {
+    let width = infer_resize_width(url)
+        .or_else(|| infer_largest_dimension_width(url))
+        .unwrap_or_default();
+    let lower_url = url.to_ascii_lowercase();
+    let is_webp_extension = Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            Path::new(parsed.path())
+                .extension()
+                .map(|extension| extension.eq_ignore_ascii_case("webp"))
+        })
+        .unwrap_or(false);
+    let format_bonus = if lower_url.contains("/format/webp") || is_webp_extension {
+        0.0
+    } else {
+        0.1
+    };
+    width + format_bonus
+}
+
+fn image_dedupe_key(url: &str) -> String {
+    Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .query_pairs()
+                .find_map(|(key, value)| (key == "url").then(|| value.into_owned()))
+        })
+        .unwrap_or_else(|| url.to_string())
+}
+
+fn infer_resize_width(url: &str) -> Option<f32> {
+    RE_RESIZE_WIDTH
+        .captures(url)?
+        .get(1)?
+        .as_str()
+        .parse::<f32>()
+        .ok()
+}
+
+fn infer_largest_dimension_width(url: &str) -> Option<f32> {
+    RE_IMAGE_DIMENSIONS
+        .captures_iter(url)
+        .filter_map(|captures| {
+            let width = captures.get(1)?.as_str().parse::<u32>().ok()?;
+            let height = captures.get(2)?.as_str().parse::<u32>().ok()?;
+            (width >= 100 && height >= 100).then_some(width)
+        })
+        .max()
+        .map(|width| width as f32)
 }
 
 fn parse_visible_date(html: &str) -> Option<DateTime<Utc>> {
@@ -358,9 +499,7 @@ fn collect_page_metadata(
         }
     }
 
-    if images.is_empty()
-        && let Some(img_url) = m.remove("og_image")
-    {
+    if let Some(img_url) = m.remove("og_image") {
         images.push((img_url, m.remove("og_image_alt").unwrap_or_default()));
     }
 

@@ -1,5 +1,6 @@
 /target
 /.direnv
 /.fastembed_cache
+/images
 quivrs.db*
 .env

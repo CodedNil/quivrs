@@ -43,14 +43,14 @@ pub struct LabelScore {
 #[derive(Clone, Copy)]
 pub enum EmbeddingTable {
     PendingSources,
-    UserArticles,
+    Articles,
 }
 
 impl EmbeddingTable {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PendingSources => "pending_sources",
-            Self::UserArticles => "user_articles",
+            Self::Articles => "articles",
         }
     }
 
@@ -61,9 +61,9 @@ impl EmbeddingTable {
                  FROM pending_sources
                  WHERE embedding = '[]' OR embedding_model = '' OR embedding_model != ?"
             }
-            Self::UserArticles => {
+            Self::Articles => {
                 "SELECT id, embedding_text
-                 FROM user_articles
+                 FROM articles
                  WHERE embedding = '[]' OR embedding_model = '' OR embedding_model != ?"
             }
         }
@@ -76,8 +76,8 @@ impl EmbeddingTable {
                  SET embedding = ?, embedding_model = ?
                  WHERE url = ?"
             }
-            Self::UserArticles => {
-                "UPDATE user_articles
+            Self::Articles => {
+                "UPDATE articles
                  SET embedding = ?, embedding_model = ?
                  WHERE id = ?"
             }
@@ -238,7 +238,7 @@ pub async fn insert_sources(sources: Vec<PendingSource>) -> Result<()> {
 /// Updates the user status (new, read, binned) for an article.
 pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
     sqlx::query(
-        "UPDATE user_articles
+        "UPDATE articles
          SET status = ?, status_changed = ?
          WHERE id = ?",
     )
@@ -253,7 +253,7 @@ pub async fn set_article_status(id: Uuid, status: ArticleStatus) -> Result<()> {
 /// Sets a user rating for an article.
 pub async fn set_rating(id: Uuid, rating: Rating) -> Result<()> {
     sqlx::query(
-        "UPDATE user_articles
+        "UPDATE articles
          SET rating = ?
          WHERE id = ?",
     )
@@ -265,10 +265,10 @@ pub async fn set_rating(id: Uuid, rating: Rating) -> Result<()> {
 }
 
 /// Retrieves all articles with their user-specific status and ratings.
-pub async fn get_user_articles() -> Result<Vec<Article>> {
+pub async fn get_articles() -> Result<Vec<Article>> {
     let rows = sqlx::query(
         "SELECT payload, status, status_changed, rating, embedding, embedding_model
-         FROM user_articles
+         FROM articles
          ORDER BY published DESC",
     )
     .fetch_all(pool()?)
@@ -305,23 +305,21 @@ pub async fn sync_label_embeddings(
 ) -> Result<()> {
     let mut tx = pool()?.begin().await?;
     for record in records {
+        sqlx::query("DELETE FROM label_embeddings WHERE id = ?")
+            .bind(&record.id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT INTO label_embeddings
-                (id, label_group, label_value, hash, text, embedding)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-                label_group = excluded.label_group,
-                label_value = excluded.label_value,
-                hash = excluded.hash,
-                text = excluded.text,
-                embedding = excluded.embedding",
+                (embedding, id, label_group, label_value, hash, text)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
+        .bind(serde_json::to_string(&record.embedding)?)
         .bind(&record.id)
         .bind(&record.label_group)
         .bind(&record.label_value)
         .bind(&record.hash)
         .bind(&record.text)
-        .bind(serde_json::to_string(&record.embedding)?)
         .execute(&mut *tx)
         .await?;
     }
@@ -347,7 +345,7 @@ pub async fn sync_label_embeddings(
 }
 
 pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
-    let label_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embedding_vectors")
+    let label_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embeddings")
         .fetch_one(pool()?)
         .await?;
     if label_count == 0 {
@@ -355,11 +353,10 @@ pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
     }
 
     let rows = sqlx::query(
-        "SELECT labels.label_group, labels.label_value, vectors.distance
-         FROM label_embedding_vectors AS vectors
-         JOIN label_embeddings AS labels ON labels.rowid = vectors.label_rowid
-         WHERE vectors.embedding MATCH ? AND k = ?
-         ORDER BY vectors.distance",
+        "SELECT label_group, label_value, distance
+         FROM label_embeddings
+         WHERE embedding MATCH ? AND k = ?
+         ORDER BY distance",
     )
     .bind(serde_json::to_string(embedding)?)
     .bind(label_count)
@@ -388,7 +385,7 @@ pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
     let rows = sqlx::query(
         "SELECT articles.rating, vectors.distance
          FROM user_article_embeddings AS vectors
-         JOIN user_articles AS articles ON articles.rowid = vectors.article_rowid
+         JOIN articles AS articles ON articles.id = vectors.id
          WHERE vectors.embedding MATCH ? AND k = ? AND articles.rating IS NOT NULL
          ORDER BY vectors.distance",
     )
@@ -440,7 +437,7 @@ pub async fn get_pending_sources() -> Result<Vec<PendingSource>> {
 pub async fn get_category_article_counts() -> Result<HashMap<Category, i64>> {
     let rows = sqlx::query(
         "SELECT category, COUNT(*) AS count
-         FROM user_articles
+         FROM articles
          WHERE status = ?
          GROUP BY category",
     )
@@ -465,7 +462,7 @@ pub async fn get_category_article_counts() -> Result<HashMap<Category, i64>> {
 pub async fn insert_promoted_article(article: Article, source_urls: Vec<String>) -> Result<()> {
     let mut tx = pool()?.begin().await?;
     sqlx::query(
-        "INSERT INTO user_articles
+        "INSERT INTO articles
             (id, payload, published, category, status, status_changed, rating, embedding, embedding_text, embedding_model)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
@@ -554,7 +551,7 @@ pub async fn get_similar_pending_sources(embedding: &[f32]) -> Result<Vec<(Pendi
     let rows = sqlx::query(
         "SELECT sources.payload, sources.embedding, sources.embedding_model, vectors.distance
          FROM pending_source_embeddings AS vectors
-         JOIN pending_sources AS sources ON sources.rowid = vectors.source_rowid
+         JOIN pending_sources AS sources ON sources.url = vectors.url
          WHERE vectors.embedding MATCH ? AND k = ?
          ORDER BY vectors.distance",
     )

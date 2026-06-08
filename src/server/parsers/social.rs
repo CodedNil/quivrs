@@ -2,9 +2,19 @@ use crate::server::{HTTP_CLIENT, parsers::get_cached_or_fetch_ext};
 use crate::shared::PendingSource;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde_json::Value;
+use std::sync::LazyLock;
 
 const FXTWITTER_API: &str = "https://api.fxtwitter.com/2";
+static TWITTER_PROFILE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)https?://(?:www\.)?(?:twitter|x)\.com/([^/?#]+)").unwrap());
+static TWEET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)/(?:status|statuses)/([^/?#]+)").unwrap());
+static BSKY_PROFILE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)bsky\.app/profile/([^/?#]+)").unwrap());
+static BSKY_POST_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)bsky\.app/profile/([^/?#]+)/post/([^/?#]+)").unwrap());
 
 fn build_summary(text: &str) -> String {
     const MAX_LEN: usize = 200;
@@ -77,11 +87,10 @@ pub async fn scan_social_profile(url: &str) -> Result<Vec<String>> {
 
 /// Read recent twitter posts from a profile
 async fn scan_twitter_profile(url: &str) -> Result<Vec<String>> {
-    let username = url
-        .trim_end_matches('/')
-        .split('/')
-        .next_back()
-        .and_then(|s| s.split('?').next())
+    let username = TWITTER_PROFILE_RE
+        .captures(url)
+        .and_then(|captures| captures.get(1))
+        .map(|m| m.as_str())
         .context("Invalid Twitter profile URL")?;
 
     let api_url = format!("{FXTWITTER_API}/profile/{username}/statuses");
@@ -117,10 +126,10 @@ async fn scan_twitter_profile(url: &str) -> Result<Vec<String>> {
 
 /// Parse an individual twitter post
 async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
-    let tweet_id = url
-        .split('/')
-        .next_back()
-        .and_then(|s| s.split('?').next())
+    let tweet_id = TWEET_RE
+        .captures(url)
+        .and_then(|captures| captures.get(1))
+        .map(|m| m.as_str())
         .context("Invalid tweet URL")?;
 
     let api_url = format!("{FXTWITTER_API}/thread/{tweet_id}");
@@ -194,11 +203,11 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
 
 /// Read recent bluesky posts from a profile
 async fn scan_bluesky_profile(url: &str) -> Result<Vec<String>> {
-    let handle = url
-        .split("/profile/")
-        .nth(1)
-        .context("Invalid Bluesky profile URL")?
-        .trim_end_matches('/');
+    let handle = BSKY_PROFILE_RE
+        .captures(url)
+        .and_then(|captures| captures.get(1))
+        .map(|m| m.as_str())
+        .context("Invalid Bluesky profile URL")?;
 
     let api_url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor={handle}&filter=posts_no_replies&limit=30"
@@ -235,14 +244,11 @@ async fn scan_bluesky_profile(url: &str) -> Result<Vec<String>> {
 
 /// Parse an individual bluesky post
 async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
-    let after_profile = url
-        .split("/profile/")
-        .nth(1)
-        .context("Invalid Bluesky URL")?;
-    let Some((handle, rest)) = after_profile.split_once("/post/") else {
+    let Some(captures) = BSKY_POST_RE.captures(url) else {
         return Ok(None);
     };
-    let rkey = rest.split('?').next().context("Invalid rkey")?;
+    let handle = captures.get(1).map_or("", |m| m.as_str());
+    let rkey = captures.get(2).map_or("", |m| m.as_str());
 
     let api_url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=at://{handle}/app.bsky.feed.post/{rkey}"

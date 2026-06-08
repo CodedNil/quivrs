@@ -8,7 +8,7 @@ use crate::{
         parsers::{
             feeds::scan_feed,
             fetch_page_content, fetch_page_content_with_hint,
-            web_search::{SearchResult, search_article_urls},
+            web_search::{SearchResult, image_dedupe_key, search_article_urls, search_image_urls},
         },
     },
     shared::{Article, ArticleSource, ArticleStatus, PendingSource, Rating},
@@ -17,11 +17,13 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use futures::future::join_all;
 use itertools::Itertools;
+use regex::Regex;
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     env,
     f32::consts::LN_2,
+    sync::LazyLock,
 };
 use tokio::{fs, time::Instant};
 use tracing::{error, info, warn};
@@ -36,11 +38,20 @@ const TIME_BONUS_MAX: f32 = 0.03; // How much to boost the score for merging a r
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
 
+static IMG_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<img>(.*?)(?:</img>|<\\img>)").unwrap());
+
 struct ScoredPendingSource {
     source: PendingSource,
     estimated_liked: f32,
     bonus: f32,
     category_target: i64,
+}
+
+#[derive(Clone)]
+struct ArticleImage {
+    url: String,
+    caption: String,
 }
 
 /// Minimum number of new articles to maintain in each category
@@ -192,6 +203,7 @@ pub struct ArticleEntry {
     pub content: String,
     pub sidebar: String,
     pub thumbnail: String,
+    pub background: String,
 }
 
 /// Scans all pending sources and promotes the best content into full articles.
@@ -354,6 +366,7 @@ pub async fn promote_articles() -> Result<()> {
                     content: entry.content,
                     sidebar: entry.sidebar,
                     thumbnail: entry.thumbnail,
+                    background: entry.background,
                     published: candidate.published,
                     category,
                     region: candidate.region,
@@ -479,17 +492,34 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 
 /// Synthesizes multiple article sources into a single, high-quality long-form article using an LLM.
 async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleEntry> {
-    let images = sources
+    let mut seen_images = HashSet::new();
+    let available_images = sources
         .iter()
         .flat_map(|source| &source.images)
-        .map(|(src, caption)| {
+        .filter(|(url, _)| seen_images.insert(url.clone()))
+        .map(|(url, caption)| ArticleImage {
+            url: url.clone(),
+            caption: caption.clone(),
+        })
+        .collect::<Vec<_>>();
+    let images = available_images
+        .iter()
+        .enumerate()
+        .map(|(index, image)| {
+            let caption = image.caption.trim();
             if caption.is_empty() {
-                format!("[{src}]")
+                format!("[{index}][{}]", image.url)
             } else {
-                format!("[{src}, {caption}]")
+                format!("[{index}]({caption})")
             }
         })
-        .join(" ");
+        .join("\n");
+    let suggested_images = search_headline_images(sources).await;
+    let suggested_image_list = suggested_images
+        .iter()
+        .enumerate()
+        .map(|(index, image)| format!("[${index}]({})", image.caption.trim()))
+        .join("\n");
 
     let articles_content = sources
         .iter()
@@ -507,14 +537,15 @@ async fn generate_promoted_content(sources: &[PendingSource]) -> Result<ArticleE
         .join("\n");
 
     let context = format!(
-        r#"You are a professional digital editor journalist. Synthesize the provided sources into a high-quality, long-form digital article.
+        r#"You are a professional digital journalist. Synthesize the provided sources into a high-quality, long-form digital article.
 
 ### OUTPUT FORMAT
 You MUST return a JSON object with this exact structure:
 {{
   "title": "Articles title, kept concise and descriptive, ideal 8 words, max 12 words, catchy and engaging but not clickbait.",
   "description": "Short informative summary, a few sentences max and no newlines",
-  "thumbnail": "URL for the thumbnail image, landscapes/architectural/unpopulated/scenic/low complexity image preferred",
+  "thumbnail": "Image reference such as #0, $0, or search(short visual search term).",
+  "background": "Image reference such as #0, $0, or search(short visual search term). Background image for the page, used with heavy blur behind the content. Prefer landscapes, architecture, unpopulated scenes, or low-complexity images when available.",
   "content": "HTML string for the main article body",
   "sidebar": "HTML string for the sidebar, key facts, summaries, or metadata, written in HTML"
 }}
@@ -527,13 +558,14 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 3. **Layout Grids**:
    - Vertical Stack: <div class="flexbox-columns">...</div>
    - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
-4. **Visuals**: <figure><img src="..." alt="..." /><figcaption>Caption</figcaption></figure>
+4. **Visuals**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search.
 5. **Data Table**: <table class="info-table"><tr><th>Key</th><td>Value</td></tr></table>
 6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">YYYY</span><span class="event">Event</span></div></div>
 7. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
 
 ### EDITORIAL REQUIREMENTS
-- **Image Usage**: Use most images provided, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding.
+- **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context.
+- **Search Images**: Use search(...) when no listed image fits and a generic or contextual visual would improve the article, for example <img>search(rolling green hills)</img>. The system will pick the first image from a web image search for that term. Use concise visual search terms, not full sentences.
 - **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose.
 
 - **Content: Main Body**:
@@ -556,6 +588,9 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 Available Images:
 {images}
 
+Suggested Images From Search:
+{suggested_image_list}
+
 Sources with information:
 {articles_content}"#
     );
@@ -564,15 +599,184 @@ Sources with information:
         .await
         .map_err(|e| anyhow!("Article generation failed: {e}"))?;
 
+    let mut search_images = HashMap::new();
+    let content_with_images = resolve_image_html(
+        &entry.content,
+        &available_images,
+        &suggested_images,
+        &mut search_images,
+    )
+    .await;
+    let sidebar_with_images = resolve_image_html(
+        &entry.sidebar,
+        &available_images,
+        &suggested_images,
+        &mut search_images,
+    )
+    .await;
+    let thumbnail = resolve_thumbnail(
+        &entry.thumbnail,
+        &available_images,
+        &suggested_images,
+        &mut search_images,
+    )
+    .await
+    .or_else(|| available_images.first().map(|image| image.url.clone()))
+    .or_else(|| suggested_images.first().map(|image| image.url.clone()))
+    .unwrap_or(entry.thumbnail);
+    let background = resolve_thumbnail(
+        &entry.background,
+        &available_images,
+        &suggested_images,
+        &mut search_images,
+    )
+    .await
+    .or_else(|| available_images.first().map(|image| image.url.clone()))
+    .or_else(|| suggested_images.first().map(|image| image.url.clone()))
+    .unwrap_or(entry.background);
+
     // Clean the content using ammonia to prevent XSS attacks
     let mut sanitizer = ammonia::Builder::default();
     sanitizer.add_generic_attributes(&["class"]);
-    let content_sanitized = sanitizer.clean(&entry.content).to_string();
-    let sidebar_sanitized = sanitizer.clean(&entry.sidebar).to_string();
+    let content_sanitized = sanitizer.clean(&content_with_images).to_string();
+    let sidebar_sanitized = sanitizer.clean(&sidebar_with_images).to_string();
 
     Ok(ArticleEntry {
         content: content_sanitized,
         sidebar: sidebar_sanitized,
+        thumbnail,
+        background,
         ..entry
     })
+}
+
+async fn search_headline_images(sources: &[PendingSource]) -> Vec<ArticleImage> {
+    let mut seen = HashSet::new();
+    let mut images = Vec::new();
+
+    for result in join_all(
+        sources
+            .iter()
+            .map(|source| search_image_urls(&source.title, 5)),
+    )
+    .await
+    {
+        match result {
+            Ok(results) => {
+                for image in results {
+                    if seen.insert(image_dedupe_key(&image.url)) {
+                        images.push(ArticleImage {
+                            url: image.url,
+                            caption: image.caption,
+                        });
+                    }
+                }
+            }
+            Err(err) => warn!("Image search failed: {err:#}"),
+        }
+    }
+
+    images
+}
+
+async fn resolve_image_html(
+    html: &str,
+    available: &[ArticleImage],
+    suggested: &[ArticleImage],
+    search_images: &mut HashMap<String, Option<ArticleImage>>,
+) -> String {
+    let mut resolved = String::with_capacity(html.len());
+    let mut last = 0;
+
+    for captures in IMG_TOKEN_RE.captures_iter(html) {
+        let matched = captures.get(0).expect("regex match exists");
+        resolved.push_str(&html[last..matched.start()]);
+        let token = captures.get(1).map_or("", |m| m.as_str()).trim();
+        if let Some(image) = image_for_token(token, available, suggested) {
+            resolved.push_str(&image_figure(&image.url, &image.caption));
+        } else if let Some(image) = image_from_search_token(token, search_images).await {
+            resolved.push_str(&image_figure(&image.url, &image.caption));
+        }
+        last = matched.end();
+    }
+
+    resolved.push_str(&html[last..]);
+    resolved
+}
+
+async fn resolve_thumbnail(
+    token: &str,
+    available: &[ArticleImage],
+    suggested: &[ArticleImage],
+    search_images: &mut HashMap<String, Option<ArticleImage>>,
+) -> Option<String> {
+    let token = token.trim();
+    if let Some(image) = image_for_token(token, available, suggested)
+        .or_else(|| image_for_token(token.trim_matches(['[', ']']), available, suggested))
+    {
+        return Some(image.url.clone());
+    }
+    if token.starts_with("http") {
+        return Some(token.to_string());
+    }
+    image_from_search_token(token, search_images)
+        .await
+        .map(|image| image.url)
+}
+
+fn image_for_token<'a>(
+    token: &str,
+    available: &'a [ArticleImage],
+    suggested: &'a [ArticleImage],
+) -> Option<&'a ArticleImage> {
+    if token.len() < 2 {
+        return None;
+    }
+
+    let (prefix, index) = token.split_at(1);
+    let index = index.parse::<usize>().ok()?;
+    match prefix {
+        "#" => available.get(index),
+        "$" => suggested.get(index),
+        _ => None,
+    }
+}
+
+async fn image_from_search_token(
+    token: &str,
+    search_images: &mut HashMap<String, Option<ArticleImage>>,
+) -> Option<ArticleImage> {
+    let prompt = search_image_prompt(token)?;
+    if let Some(image) = search_images.get(prompt) {
+        return image.clone();
+    }
+
+    let image = match search_image_urls(prompt, 1).await {
+        Ok(mut images) => images.pop().map(|image| ArticleImage {
+            url: image.url,
+            caption: image.caption,
+        }),
+        Err(err) => {
+            warn!("Image search failed for '{prompt}': {err:#}");
+            None
+        }
+    };
+    search_images.insert(prompt.to_string(), image.clone());
+    image
+}
+
+fn search_image_prompt(token: &str) -> Option<&str> {
+    token
+        .trim_matches(['[', ']'])
+        .strip_prefix("search(")
+        .and_then(|prompt| prompt.strip_suffix(')'))
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+}
+
+fn image_figure(url: &str, caption: &str) -> String {
+    let url = html_escape::encode_double_quoted_attribute(url);
+    let alt = html_escape::encode_double_quoted_attribute(caption);
+    let caption = html_escape::encode_text(caption);
+    format!(r#"<figure><img src="{url}" alt="{alt}" /><figcaption>{caption}</figcaption></figure>"#)
 }

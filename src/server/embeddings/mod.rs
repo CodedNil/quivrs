@@ -38,8 +38,7 @@ pub fn label_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     hasher.update(b"\0");
-    hasher.update(EMBEDDING_MODEL_NAME.as_bytes());
-    hasher.update(EMBEDDING_DIMENSIONS.to_le_bytes());
+    hasher.update(embedding_model_id().as_bytes());
     hasher.finalize().iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
@@ -194,7 +193,7 @@ async fn maintenance_label_embeddings() -> Result<()> {
 async fn maintenance_article_embeddings() -> Result<()> {
     for table in [
         database::EmbeddingTable::PendingSources,
-        database::EmbeddingTable::UserArticles,
+        database::EmbeddingTable::Articles,
     ] {
         let stale = database::get_stale_embedding_records(table).await?;
         if stale.is_empty() {

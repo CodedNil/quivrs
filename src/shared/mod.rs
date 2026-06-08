@@ -37,6 +37,7 @@ pub struct Article {
     pub content: String,
     pub sidebar: String,
     pub thumbnail: String,
+    pub background: String,
     pub published: DateTime<Utc>,
     pub category: Category,
     pub region: Region,

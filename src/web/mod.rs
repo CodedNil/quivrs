@@ -4,7 +4,7 @@ mod sidebar;
 
 use crate::shared::{
     Article, ArticleStatus, Category, Rating,
-    server_functions::{get_all_item_ratings, get_user_articles, set_article_status, set_rating},
+    server_functions::{get_all_item_ratings, get_articles, set_article_status, set_rating},
 };
 use article::ArticleDetail;
 use components::CenteredMessage;
@@ -134,7 +134,7 @@ pub fn app() -> Element {
     let mut item_ratings = use_context_provider(|| Signal::new(HashMap::<String, Rating>::new()));
 
     use_resource(move || async move {
-        if let Ok(data) = get_user_articles().await {
+        if let Ok(data) = get_articles().await {
             articles.set(data);
         }
         articles_loaded.set(true);
