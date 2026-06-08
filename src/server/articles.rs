@@ -11,7 +11,10 @@ use crate::{
             web_search::{SearchResult, image_dedupe_key, search_article_urls, search_image_urls},
         },
     },
-    shared::{Article, ArticleSource, ArticleStatus, CaptionedImage, PendingSource, Rating},
+    shared::{
+        Article, ArticleSource, ArticleStatus, CaptionedImage, PendingSource, Rating,
+        theme::THEME_CSS_VARS,
+    },
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -23,6 +26,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     f32::consts::LN_2,
+    fmt::Write,
     sync::LazyLock,
 };
 use tokio::{fs, time::Instant};
@@ -41,6 +45,25 @@ const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an importa
 
 static IMG_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<img>(.*?)(?:</img>|<\\img>)").unwrap());
+static INTERACTIVE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<interactive(?:\s[^>]*)?>(.*?)</interactive>").unwrap());
+
+const ARTICLE_IFRAME_RESET_CSS: &str = r"
+*, *::before, *::after { box-sizing: border-box; }
+html {
+    min-height: 100%;
+    background: transparent;
+}
+body {
+    min-height: 100%;
+    margin: 0;
+    padding: 1rem;
+    overflow: auto;
+    background: transparent;
+    color: var(--text);
+    font-family: Inter, system-ui, sans-serif;
+}
+";
 
 struct ScoredPendingSource {
     source: PendingSource,
@@ -561,23 +584,24 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 3. **Layout Grids**:
    - Vertical Stack: <div class="flexbox-columns">...</div>
    - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
-4. **Visuals**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
+4. **Images**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
 5. **Data Table**: <table class="info-table"><tr><th>Key</th><td>Value</td></tr></table>
-6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">YYYY</span><span class="event">Event</span></div></div>
+6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">29th May 2005 OR May 2005 OR 2005</span><span class="event">Event</span></div></div>
 7. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
+8. **Custom / Interactive**: To bring a special visual flair, you are HIGHLY encouraged to use custom elements, html with inlined css, data visualizations, long-form storytelling visuals, CSS animated elements, etc. If you need JavaScript for interactivity or dynamic data visualizations, wrap the complete HTML/CSS/JS payload in a custom <interactive>...</interactive> element. Anything inside <interactive> will render in a sandboxed iframe where JavaScript can run; ordinary article HTML outside <interactive> is sanitized and cannot run JavaScript.
 
 ### EDITORIAL REQUIREMENTS
 - **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context. Captions are optional; only provide one when it adds useful context.
 - **Search Images**: Use search(...) when no listed image fits and a generic or contextual visual would improve the article, for example <img>search(rolling green hills)</img>. The system will pick the first image from a web image search for that term. Use concise visual search terms, not full sentences.
-- **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose.
+- **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose. Include ONLY what is in the source articles, with only minor wording changes and no editorial interpretation. Feel free to move sentences around for better flow when you are combining articles. Only include the same information once, even if it was repeated across multiple sources. You condense into a well crafted and professional overview.
 
 - **Content: Main Body**:
   - Start with a 2-3 paragraph overview.
-  - Increase depth and detail as the article progresses.
+  - Increase depth and detail as the article progresses (stop if you run out of source material).
+  - **Custom Visuals**: If it's a particularly interesting article you'd like to make a feature of, use custom and/or interactive elements, one or more.
   - **Timeline (Optional)**: Include a "Timeline" section if the subject has a clear chronological history.
   - **Perspectives (Optional)**: Include a "Perspectives" section at the end using <div class="flexbox-rows"> with <div class="box"> elements to show different viewpoints (e.g., "Critics", "Supporters", "Experts").
   - **Tone**: Professional, objective, and deeply informative.
-  - **Information**: Include ONLY what is in the source articles, with only minor wording changes and no editorial interpretation. Feel free to move sentences around for better flow when you are combining articles. Only include the same information once, even if it was repeated across multiple sources. You condense into a well crafted and professional overview.
 
 - **Sidebar: Key Details**:
   - **Maps/Infographics**: If a map or small infographic is available, place it here.
@@ -638,16 +662,58 @@ Sources with information:
     .or_else(|| suggested_images.first().map(|image| image.url.clone()))
     .unwrap_or(entry.background);
 
-    // Clean the content using ammonia to prevent XSS attacks
-    let mut sanitizer = ammonia::Builder::default();
-    sanitizer.add_generic_attributes(&["class"]);
     Ok(ArticleEntry {
-        content: sanitizer.clean(&content_with_images).to_string(),
-        sidebar: sanitizer.clean(&sidebar_with_images).to_string(),
+        content: clean_article_html(&content_with_images),
+        sidebar: clean_article_html(&sidebar_with_images),
         thumbnail,
         background,
         ..entry
     })
+}
+
+fn clean_article_html(html: &str) -> String {
+    let mut sanitizer = ammonia::Builder::default();
+    sanitizer.add_generic_attributes(&["class"]);
+
+    let mut cleaned = String::with_capacity(html.len());
+    let mut last = 0;
+    for captures in INTERACTIVE_RE.captures_iter(html) {
+        warn!("Found interactive match: {:?}", captures.get(0));
+        let matched = captures.get(0).expect("regex match exists");
+        cleaned.push_str(&sanitizer.clean(&html[last..matched.start()]).to_string());
+        let interactive_html = captures.get(1).map_or("", |m| m.as_str());
+        let document = format!(
+            r#"<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data: blob:; media-src https: data: blob:; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';">
+<style>
+:root {{
+{theme_css}
+}}
+{reset_css}
+{article_css}
+</style>
+</head>
+<body class="article-content">
+{interactive_html}
+</body>
+</html>"#,
+            theme_css = THEME_CSS_VARS,
+            reset_css = ARTICLE_IFRAME_RESET_CSS,
+            article_css = include_str!("../web/article.css"),
+        );
+        let srcdoc = html_escape::encode_double_quoted_attribute(&document);
+        let _ = write!(
+            cleaned,
+            r#"<iframe class="interactive-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" srcdoc="{srcdoc}"></iframe>"#
+        );
+        last = matched.end();
+    }
+    cleaned.push_str(&sanitizer.clean(&html[last..]).to_string());
+    cleaned
 }
 
 async fn resolve_image_html(

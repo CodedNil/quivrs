@@ -39,7 +39,7 @@ pub async fn fetch_page_content_with_hint(
     }
     // Drop result if content is less than 300 characters
     if let Ok(Some(result)) = &result
-        && result.content.len() < 300
+        && result.content.len() < 400
     {
         return Ok(None);
     }

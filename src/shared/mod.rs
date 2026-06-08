@@ -1,5 +1,6 @@
 #[allow(clippy::unused_async)]
 pub mod server_functions;
+pub mod theme;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
