@@ -9,6 +9,7 @@ use crate::{
     shared::{Category, PendingSource, Region},
 };
 use anyhow::{Context, Result};
+use itertools::Itertools;
 use std::sync::OnceLock;
 
 // Label-writing guide for embeddinggemma-300m:
@@ -52,7 +53,7 @@ use std::sync::OnceLock;
 //    - Why: Category classification picks the closest single label in vector space. Redundant synonyms ensure a tight
 //      mathematical distance for edge cases.
 
-const PLUS_MINUS_MARGIN: f32 = 0.1;
+const SCORE_EXPECTED_MAX_DISTANCE: f32 = 0.05;
 
 struct TestCase {
     title: &'static str,
@@ -853,32 +854,49 @@ fn assert_binary_scores(
     positive_value: &str,
     expected_score: impl Fn(&TestCase) -> f32,
 ) -> Result<()> {
-    let mut failures = Vec::new();
+    let mut total_distance = 0.0;
+    let mut score_distances = Vec::new();
 
     for (case, scores) in TEST_CASES.iter().zip(label_scores(label_group)?) {
         let score = binary_label_score(&scores, label_group, positive_value)?;
         let expected = expected_score(case);
-        let expected_min = expected - PLUS_MINUS_MARGIN;
-        let expected_max = expected + PLUS_MINUS_MARGIN;
-
-        if !(expected_min..=expected_max).contains(&score) {
-            let score_detail = binary_score_detail(&scores, positive_value);
-            failures.push(format!(
-                "{score:>5.3}  {:.2}..={:.2}  Title: {}. Summary: {}\n{}",
-                expected_min.clamp(0.0, 1.0),
-                expected_max.clamp(0.0, 1.0),
-                case.title,
-                case.summary,
-                score_detail,
-            ));
-        }
+        let distance = (score - expected).abs();
+        total_distance += distance;
+        let score_detail = binary_score_detail(&scores, positive_value);
+        score_distances.push((
+            distance,
+            score,
+            expected,
+            case.title,
+            case.summary,
+            score_detail,
+        ));
     }
 
+    // Sort score_distances by distance
+    score_distances.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+    total_distance /= score_distances.len() as f32;
+
+    println!("{label_group} total target distance: {total_distance:.3}");
+
     assert!(
-        failures.is_empty(),
-        "\n{} {label_group} cases outside expected range (±{PLUS_MINUS_MARGIN}):\n\n{}",
-        failures.len(),
-        failures.join("\n\n")
+        total_distance < SCORE_EXPECTED_MAX_DISTANCE,
+        "\nMost distant cases:\n\n{}",
+        score_distances
+            .iter()
+            .take(10)
+            .map(
+                |(distance, score, expected, title, summary, score_detail)| {
+                    let distance = format!(
+                        "{}{:.2}",
+                        if score > expected { "↑" } else { "↓" },
+                        distance
+                    );
+                    format!("{distance}  score:{score:.2} expected:{expected:.2} Title: {title}. Summary: {summary}\n{score_detail}")
+                }
+            )
+            .join("\n\n"),
     );
 
     Ok(())

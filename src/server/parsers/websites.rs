@@ -3,6 +3,7 @@ use crate::shared::{CaptionedImage, PendingSource};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
 use dom_smoothie::Readability;
+use itertools::Itertools;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
@@ -140,7 +141,7 @@ pub async fn fetch_source_content(
             {
                 if text_sel.matches(&block) {
                     for p in block.select(&Selector::parse("p, h1, h2, h3").unwrap()) {
-                        let text = p.text().collect::<Vec<_>>().join(" ");
+                        let text = p.text().join(" ");
                         if !text.trim().is_empty() {
                             block_content.push_str(&text);
                             block_content.push_str("\n\n");
@@ -426,18 +427,13 @@ fn image_dedupe_key(url: &str) -> String {
                     && !matches!(*segment, "format" | "resize" | "width" | "height")
             })
             .filter_map(canonical_image_filename)
-            .collect::<Vec<_>>()
             .join("/");
         format!("{domain}/{path}").to_ascii_lowercase()
     })
 }
 
 fn caption_dedupe_key(caption: &str) -> String {
-    caption
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
+    caption.split_whitespace().join(" ").to_ascii_lowercase()
 }
 
 fn canonical_image_filename(filename: &str) -> Option<String> {
@@ -629,7 +625,6 @@ fn collect_jsonld_object(
                 .filter_map(Value::as_str)
                 .map(|s| decode(s.trim()))
                 .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
                 .join(","),
             Value::String(s) => s.clone(),
             _ => String::new(),
