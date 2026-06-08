@@ -1,51 +1,68 @@
 {
+    // General
     "bbc_top": "https://feeds.bbci.co.uk/news/rss.xml",
-    "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-    "bbc_science": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-    "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
-    "verge": "https://www.theverge.com/rss/index.xml",
     "tomsguide": "https://www.tomsguide.com/rss",
+    // nytimes
+
+    // Tech
+    "bbc_tech": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "verge": "https://www.theverge.com/rss/index.xml",
+    // futurism
+    // gizmodo
+    // arstechnica
+
+    // Open Source
+    // kde/9to5linux/system76/linuxmint etc
+
+    // Learning
+    "bbc_science": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    // arxiv
+    // sciencedaily
+    // pbs and pbs science
+    // nasa
+    // https://www.youtube.com/@TomScottGo
+    // nature
+
+    // AI
+    "artificial_analysis": "https://x.com/ArtificialAnlys",
+
+    // Culture
+    // cosmopolitan
+    // eonline
+
+    // UK
+    "bbc_uk": "https://feeds.bbci.co.uk/news/uk/rss.xml",
     "skynews": "https://feeds.skynews.com/feeds/rss/home.xml",
     "election_maps": "https://bsky.app/profile/electionmaps.uk",
     "yougov": "https://yougov.com/en-gb/rss",
     "reddit_ukpolitics": "https://www.reddit.com/r/ukpolitics.json",
     "reddit_unitedkingdom": "https://www.reddit.com/r/unitedkingdom.json",
     "reddit_uknews": "https://www.reddit.com/r/uknews.json",
-    "artificial_analysis": "https://x.com/ArtificialAnlys",
-    // https://www.youtube.com/@TomScottGo
+    // https://www.bankofengland.co.uk/rss/speeches
+    // independent.co.uk
+    // theguardian
+    // ukdefencejournal
 
-    // futurism
-    // nature
-    // arxiv
-    // gizmodo
-    // nytimes
+    // USA
+    // thehill
+    // cnn
+
+    // EU
+    // france24
+    // euronews
+    // https://commission.europa.eu/node/29665/rss_en
+
     // wired
     // npr
     // inews
     // politico
-    // nasa
-    // independent.co.uk
-    // guardian
     // reuters
     // salon
-    // sciencedaily
-    // arstechnica
-    // ukdefencejournal
-    // thehill
-    // cnn
     // ft
-    // france24
     // military.com
     // theconversation
-    // euronews
-    // https://www.bankofengland.co.uk/rss/speeches
-    // pbs and pbs science
     // deadline
     // variety
-    // cosmopolitan
-    // eonline
     // thewrap
     // tmz
-    // https://commission.europa.eu/node/29665/rss_en
-    // kde/9to5linux/system76/linuxmint etc
 }

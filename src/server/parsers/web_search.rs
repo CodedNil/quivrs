@@ -1,4 +1,7 @@
-use crate::server::{HTTP_CLIENT, parsers::usable_article_url};
+use crate::server::{
+    HTTP_CLIENT,
+    parsers::{normalize_image_url, usable_article_url},
+};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use duckduckgo::{browser::Browser, user_agents};
@@ -127,14 +130,15 @@ pub async fn search_image_urls(query: &str, limit: usize) -> Result<Vec<SearchIm
 
         let Some(url) = [&result.image, &result.thumbnail]
             .into_iter()
-            .find(|url| {
-                !url.trim().is_empty()
-                    && Url::parse(url).is_ok_and(|parsed| {
+            .find_map(|url| {
+                let url = normalize_image_url(url);
+                (!url.is_empty()
+                    && Url::parse(&url).is_ok_and(|parsed| {
                         matches!(parsed.scheme(), "http" | "https")
                             && !parsed.domain().is_some_and(is_blocked_image_domain)
-                    })
+                    }))
+                .then_some(url)
             })
-            .cloned()
         else {
             continue;
         };

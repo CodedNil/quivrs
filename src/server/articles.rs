@@ -580,34 +580,33 @@ You MUST return a JSON object with this exact structure:
 Use these HTML patterns to structure the "content" and "sidebar" fields:
 
 1. **Standard Text**: Use <h2> through <h6> for sections. Use <p> for body text.
-2. **Feature Box**: <div class="box"><strong>Title</strong><p>Description</p></div>
+2. **Feature Box**: <div class="box"><strong>Title</strong><p>Description</p></div>, renders with a filled background behind it
 3. **Layout Grids**:
    - Vertical Stack: <div class="flexbox-columns">...</div>
-   - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
+   - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes), max 3 columns, maybe 4 if the items are small, use multiple rows if necessary.
 4. **Images**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
-5. **Data Table**: <table class="info-table"><tr><th>Key</th><td>Value</td></tr></table>
-6. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">29th May 2005 OR May 2005 OR 2005</span><span class="event">Event</span></div></div>
-7. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
-8. **Custom / Interactive**: To bring a special visual flair, you are HIGHLY encouraged to use custom elements, html with inlined css, data visualizations, long-form storytelling visuals, CSS animated elements, etc. If you need JavaScript for interactivity or dynamic data visualizations, wrap the complete HTML/CSS/JS payload in a custom <interactive>...</interactive> element. Anything inside <interactive> will render in a sandboxed iframe where JavaScript can run; ordinary article HTML outside <interactive> is sanitized and cannot run JavaScript.
+5. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">29th May 2005 OR May 2005 OR 2005</span><span class="event">Event</span></div></div>
+6. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
+7. **Custom / Interactive**: To bring a special visual flair, you are HIGHLY encouraged to use custom elements, html with inlined css, data visualizations, long-form storytelling visuals, CSS animated elements, etc. If you need JavaScript for interactivity or dynamic data visualizations, wrap the complete HTML/CSS/JS payload in a custom <interactive>...</interactive> element. Anything inside <interactive> will render in a sandboxed iframe where JavaScript can run; ordinary article HTML outside <interactive> is sanitized and cannot run JavaScript.
 
 ### EDITORIAL REQUIREMENTS
 - **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context. Captions are optional; only provide one when it adds useful context.
-- **Search Images**: Use search(...) when no listed image fits and a generic or contextual visual would improve the article, for example <img>search(rolling green hills)</img>. The system will pick the first image from a web image search for that term. Use concise visual search terms, not full sentences.
+- **Search Images**: Use search(...) when no listed image fits, and a generic or contextual visual would improve the article, for example <img>search(rolling green hills)</img>. The system will pick the first image from a web image search for that term. Use concise visual search terms, not full sentences.
 - **Redundancy**: Don't repeat content on both the main body and the sidebar. Aim for concise informative prose. Include ONLY what is in the source articles, with only minor wording changes and no editorial interpretation. Feel free to move sentences around for better flow when you are combining articles. Only include the same information once, even if it was repeated across multiple sources. You condense into a well crafted and professional overview.
 
 - **Content: Main Body**:
   - Start with a 2-3 paragraph overview.
   - Increase depth and detail as the article progresses (stop if you run out of source material).
-  - **Custom Visuals**: If it's a particularly interesting article you'd like to make a feature of, use custom and/or interactive elements, one or more.
+  - **Custom Visuals**: If it's a particularly interesting article you'd like to make a feature of, use one or more custom and/or interactive elements.
   - **Timeline (Optional)**: Include a "Timeline" section if the subject has a clear chronological history.
   - **Perspectives (Optional)**: Include a "Perspectives" section at the end using <div class="flexbox-rows"> with <div class="box"> elements to show different viewpoints (e.g., "Critics", "Supporters", "Experts").
   - **Tone**: Professional, objective, and deeply informative.
 
 - **Sidebar: Key Details**:
   - **Maps/Infographics**: If a map or small infographic is available, place it here.
-  - **Metadata Table**: Use an `info-table` for key data points. Examples:
+  - **Metadata Table**: Use a table for key data points. Examples:
     - News/Events: "Date", "Location", "Key Figures".
-    - Reviews: "Price", "Rating", "Pros", "Cons".
+    - Reviews: "Price", "Rating" or "Pros", "Cons".
     - Entities: "Founded", "Headquarters", "Key People".
   - **Quick Highlights**: A <ul> of key takeaways or highlights.
 

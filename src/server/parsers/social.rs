@@ -1,4 +1,7 @@
-use crate::server::{HTTP_CLIENT, parsers::get_cached_or_fetch_ext};
+use crate::server::{
+    HTTP_CLIENT,
+    parsers::{get_cached_or_fetch_ext, normalize_image_url},
+};
 use crate::shared::{CaptionedImage, PendingSource};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -165,7 +168,7 @@ async fn fetch_twitter_native(url: &str) -> Result<Option<PendingSource>> {
             for photo in photos {
                 if let Some(photo_url) = photo.get("url").and_then(|u| u.as_str()) {
                     images.push(CaptionedImage {
-                        url: photo_url.to_string(),
+                        url: normalize_image_url(photo_url),
                         caption: String::new(),
                     });
                 }
@@ -331,7 +334,7 @@ async fn fetch_bluesky_native(url: &str) -> Result<Option<PendingSource>> {
         for img in imgs {
             if let Some(thumb) = img.get("thumb").and_then(|t| t.as_str()) {
                 images.push(CaptionedImage {
-                    url: thumb.to_string(),
+                    url: normalize_image_url(thumb),
                     caption: String::new(),
                 });
             }

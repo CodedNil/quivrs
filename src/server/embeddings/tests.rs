@@ -704,6 +704,30 @@ const TEST_CASES: &[TestCase] = &[
         sentiment: 0.0,
         importance: 0.7,
     },
+    TestCase {
+        title: "Oil prices edge higher after strikes on Israel test ceasefire",
+        summary: "Iran said the attacks, its first since an April ceasefire, are the start of 'a full week' of strikes",
+        category: Category::Politics,
+        regions: &[Region::MiddleEastNorthAfrica, Region::Global],
+        sentiment: 0.0,
+        importance: 0.8,
+    },
+    TestCase {
+        title: "My drinking days are over. Here are my tips for an alcohol-free World Cup",
+        summary: "Sober or sober-curious? One football fan shares his tips for having a great alcohol-free World Cup.",
+        category: Category::Sports,
+        regions: &[Region::Global],
+        sentiment: 0.6,
+        importance: 0.0,
+    },
+    TestCase {
+        title: "Curlews: Endangered bird eggs hatch after being saved from wildfire",
+        summary: "The four chicks, which hatched from the eggs, are being cared for until they are old and strong enough to be released.",
+        category: Category::Nature,
+        regions: &[Region::Global],
+        sentiment: 0.8,
+        importance: 0.3,
+    },
 ];
 
 #[test]

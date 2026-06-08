@@ -1,4 +1,4 @@
-use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext};
+use crate::server::parsers::{get_cache_path, get_cached_or_fetch_ext, normalize_image_url};
 use crate::shared::{CaptionedImage, PendingSource};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -272,8 +272,10 @@ fn decode(s: &str) -> String {
 }
 
 fn resolve_url(base: Option<&Url>, img_url: &str) -> String {
-    base.and_then(|b| b.join(img_url).ok())
-        .map_or_else(|| img_url.to_string(), |u| u.to_string())
+    let url = base
+        .and_then(|b| b.join(img_url).ok())
+        .map_or_else(|| img_url.to_string(), |u| u.to_string());
+    normalize_image_url(&url)
 }
 
 fn usable_image_url(url: &str) -> bool {

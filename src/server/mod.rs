@@ -16,7 +16,7 @@ static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     headers.insert(
         header::ACCEPT,
         HeaderValue::from_static(
-            "text/html,application/xhtml+xml,application/json,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "text/html,application/xhtml+xml,application/json,application/rss+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         ),
     );
     headers.insert(

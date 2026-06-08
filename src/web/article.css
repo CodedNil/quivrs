@@ -67,7 +67,7 @@
         color: var(--accent);
     }
 
-    .info-table {
+    table {
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 1.25rem;
@@ -142,7 +142,7 @@
         flex-direction: row;
         gap: 1rem;
 
-        > .box {
+        > * {
             flex: 1 1 0;
             min-width: 0;
         }
