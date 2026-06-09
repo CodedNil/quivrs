@@ -52,6 +52,7 @@ static SEL_JSONLD: LazyLock<Selector> =
 static SEL_JSON: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(r#"script[type="application/json"]"#).unwrap());
 static SEL_META: LazyLock<Selector> = LazyLock::new(|| Selector::parse("meta").unwrap());
+
 const WEBSITE_BLACKLIST_DOMAINS: &[&str] = &[
     "reddit.com",
     "lobste.rs",
@@ -61,7 +62,6 @@ const WEBSITE_BLACKLIST_DOMAINS: &[&str] = &[
     "msn.com",
     "wn.com",
 ];
-
 const WEBSITE_BLACKLIST_CONTAINS: &[&str] = &[
     "bbc.com/news/videos",
     "bbc.co.uk/news/videos",
@@ -70,6 +70,7 @@ const WEBSITE_BLACKLIST_CONTAINS: &[&str] = &[
     "linkedin.com/pulse",
     ".pdf",
 ];
+const META_BLACKLIST_CONTAINS: &[(&str, &str)] = &[("dc.type", "Podcast")];
 
 fn is_blacklisted_url(url: &str) -> bool {
     let lower_url = url.to_ascii_lowercase();
@@ -100,6 +101,15 @@ pub async fn fetch_source_content(
 
     let base_url = Url::parse(url).ok();
     let page = PageData::parse(html);
+
+    if META_BLACKLIST_CONTAINS.iter().any(|(key, value)| {
+        page.meta
+            .iter()
+            .any(|tag| tag.name == *key && tag.content.contains(value))
+    }) {
+        info!("[SKIP] {url}: blacklisted meta tag");
+        return Ok(None);
+    }
 
     let Some(title) = title::parse(&page) else {
         info!("[SKIP] {url}: empty title");

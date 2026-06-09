@@ -22,7 +22,23 @@ pub fn parse(page: &PageData) -> Vec<String> {
                     .filter(|s| !s.is_empty())
                     .map(|s| vec![decode(s)])
             })
+            .or_else(|| {
+                obj.get("content_topic")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(split_csv)
+            })
     }) {
+        return tags;
+    }
+
+    if let Some(tags) = page
+        .meta
+        .iter()
+        .find(|tag| tag.name == "keywords")
+        .map(|tag| split_csv(&tag.content))
+        .filter(|tags| !tags.is_empty())
+    {
         return tags;
     }
 
@@ -62,7 +78,7 @@ pub fn parse(page: &PageData) -> Vec<String> {
 
 fn split_csv(value: &str) -> Vec<String> {
     value
-        .split(',')
+        .split([',', ';'])
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)

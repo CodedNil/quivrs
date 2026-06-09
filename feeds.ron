@@ -17,6 +17,8 @@
     "https://futurism.com/feed",
     "https://gizmodo.com/rss",
     "https://arstechnica.com/feed",
+    "https://research.google/blog/rss/",
+    "https://scitechdaily.com/feeds/computer-science/",
 
     // Open Source
     "https://blogs.kde.org/categories/this-week-in-kde-apps/index.xml",
@@ -46,11 +48,38 @@
     "https://www.pbs.org/newshour/feeds/rss/science",
     "https://www.nasa.gov/news-release/feed/",
     "https://www.nature.com/nature.rss",
+    "https://www.quantamagazine.org/computer-science/feed/",
 
     // AI
     "https://x.com/ArtificialAnlys",
-    "https://papers.takara.ai/api/feed",
+    "https://huggingface.co/blog/feed.xml",
     "https://deepmind.google/blog/rss.xml",
+    "https://blog.google/products/gemini/rss/",
+    "https://blog.samaltman.com/posts.atom",
+    "https://futurism.com/categories/ai-artificial-intelligence/feed",
+    "https://futurism.com/tags/ai/feed",
+    "https://github.blog/ai-and-ml/llms/feed/",
+    "https://gizmodo.com/tech/artificial-intelligence/feed",
+    "https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml",
+    "https://ollama.com/blog/rss.xml",
+    "https://openai.com/news/rss.xml",
+    "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "https://www.microsoft.com/en-us/research/feed/",
+    "https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/spotlight/artificial-intelligence/rss.xml",
+    "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml",
+    "https://www.wired.com/feed/tag/ai/latest/rss",
+
+    // Nature
+    "https://blogs.law.columbia.edu/climatechange/feed/",
+    "https://braveneweurope.com/category/sustainability/climate-change/feed",
+    "https://eos.org/tag/climate/feed",
+    "https://feeds.bbci.co.uk/news/topics/cmj34zmwm1zt/rss.xml",
+    "https://naturalengland.blog.gov.uk/category/climate-change/feed/",
+    "https://theconversation.com/topics/climate-change-27/articles.atom",
+    "https://www.euronews.com/rss?level=theme&name=climate",
+    "https://www.nature.com/nclimate.rss",
+    "https://www.nature.com/subjects/climate-change/nature.rss",
+    "https://www.nature.com/subjects/renewable-energy.atom",
 
     // Culture
     "https://www.cosmopolitan.com/rss/all.xml",

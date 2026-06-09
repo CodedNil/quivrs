@@ -237,13 +237,18 @@ fn first_img_alt(root: &ElementRef<'_>) -> Option<String> {
 }
 
 fn clean_element_text(el: ElementRef<'_>) -> String {
-    el.text().join(" ").split_whitespace().join(" ")
+    clean_caption(&el.text().join(" "))
 }
 
 fn img_alt(img: &ElementRef<'_>) -> String {
-    img.value()
-        .attr("alt")
-        .unwrap_or_default()
+    clean_caption(img.value().attr("alt").unwrap_or_default())
+}
+
+fn clean_caption(caption: &str) -> String {
+    caption
+        .split(" Credit:")
+        .next()
+        .unwrap_or(caption)
         .split_whitespace()
         .join(" ")
 }

@@ -8,16 +8,6 @@ const MIN_TITLE_LEN: usize = 6;
 static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 
 pub fn parse(page: &PageData) -> Option<String> {
-    if let Some(title) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {
-        obj.get("headline")
-            .or_else(|| obj.get("name"))
-            .and_then(Value::as_str)
-            .map(decode)
-            .filter(|s| s.len() > MIN_TITLE_LEN)
-    }) {
-        return Some(title);
-    }
-
     if let Some(title) = page
         .meta
         .iter()
@@ -25,6 +15,16 @@ pub fn parse(page: &PageData) -> Option<String> {
         .map(|tag| decode(&tag.content))
         .filter(|s| s.len() > MIN_TITLE_LEN)
     {
+        return Some(title);
+    }
+
+    if let Some(title) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {
+        obj.get("headline")
+            .or_else(|| obj.get("name"))
+            .and_then(Value::as_str)
+            .map(decode)
+            .filter(|s| s.len() > MIN_TITLE_LEN)
+    }) {
         return Some(title);
     }
 
