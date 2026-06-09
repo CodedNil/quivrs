@@ -2,14 +2,10 @@
     // News
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.tomsguide.com/rss",
-    "https://feeds.bbci.co.uk/news/rss.xml",
-    "https://www.tomsguide.com/rss",
     "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
     "https://www.pbs.org/newshour/feeds/rss/headlines",
     "https://www.wired.com/feed/rss",
     "https://www.npr.org/rss/rss.php?id=1001",
-    "https://rsshub.app/apnews/topics/ap-top-news",
-    "https://rsshub.app/reuters/world",
     "https://www.ft.com/news-feed?format=rss",
     "https://theconversation.com/articles.atom",
 
@@ -34,7 +30,6 @@
     "https://www.sciencedaily.com/rss/all.xml",
     "https://www.pbs.org/newshour/feeds/rss/science",
     "https://www.nasa.gov/news-release/feed/",
-    "https://www.youtube.com/@TomScottGo",
     "https://www.nature.com/nature.rss",
 
     // AI

@@ -1,6 +1,6 @@
 use crate::server::{
     HTTP_CLIENT,
-    parsers::{get_cached_or_fetch_ext, normalize_image_url},
+    parsers::{get_cached_or_fetch_ext, is_host_or_subdomain, normalize_image_url},
 };
 use crate::shared::{CaptionedImage, PendingSource};
 use anyhow::{Context, Result};
@@ -70,9 +70,9 @@ fn short_title(text: &str, handle: &str) -> String {
 
 /// Fetch the content of an individual social post
 pub async fn fetch_social_content(url: &str) -> Result<Option<PendingSource>> {
-    if url.contains("twitter.com") || url.contains("x.com") {
+    if is_host_or_subdomain(url, &["twitter.com", "x.com"]) {
         fetch_twitter_native(url).await
-    } else if url.contains("bsky.app") {
+    } else if is_host_or_subdomain(url, &["bsky.app"]) {
         fetch_bluesky_native(url).await
     } else {
         Ok(None)
@@ -81,7 +81,7 @@ pub async fn fetch_social_content(url: &str) -> Result<Option<PendingSource>> {
 
 /// Read recent posts from a profile
 pub async fn scan_social_profile(url: &str) -> Result<Vec<String>> {
-    if url.contains("bsky.app/profile/") {
+    if is_host_or_subdomain(url, &["bsky.app"]) && url.contains("/profile/") {
         scan_bluesky_profile(url).await
     } else {
         scan_twitter_profile(url).await

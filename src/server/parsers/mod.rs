@@ -12,6 +12,7 @@ use social::fetch_social_content;
 use std::fmt::Write;
 use std::path::PathBuf;
 use tokio::fs;
+use url::Url;
 use url_normalize::{Options as NormalizeOptions, QueryFilter, RemoveQueryParameters};
 use websites::fetch_source_content;
 
@@ -25,8 +26,7 @@ pub async fn fetch_page_content_with_hint(
     url: &str,
     published_hint: Option<DateTime<Utc>>,
 ) -> Result<Option<PendingSource>> {
-    let result = if url.contains("twitter.com") || url.contains("x.com") || url.contains("bsky.app")
-    {
+    let result = if is_host_or_subdomain(url, &["twitter.com", "x.com", "bsky.app"]) {
         fetch_social_content(url).await
     } else {
         fetch_source_content(url, published_hint).await
@@ -44,6 +44,17 @@ pub async fn fetch_page_content_with_hint(
         return Ok(None);
     }
     result
+}
+
+fn is_host_or_subdomain(url: &str, domains: &[&str]) -> bool {
+    Url::parse(url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| {
+            domains
+                .iter()
+                .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+        })
 }
 
 fn sha256_hex(data: &[u8]) -> String {

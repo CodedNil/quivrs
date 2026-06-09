@@ -29,6 +29,11 @@ const BOT_TITLES: &[&str] = &[
     "403 forbidden",
     "enable javascript",
 ];
+const BOT_BODY_MARKERS: &[&str] = &[
+    "captcha-delivery.com",
+    "x-datadome",
+    "please enable js and disable any ad blocker",
+];
 
 static SEL_JSONLD: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(r#"script[type="application/ld+json"]"#).unwrap());
@@ -201,7 +206,7 @@ pub async fn fetch_source_content(
         .or_else(|| metadata.get("sl_section").map(|s| vec![s.clone()]))
         .unwrap_or_default();
 
-    if !title.is_empty() && BOT_TITLES.iter().any(|t| title.to_lowercase().contains(t)) {
+    if is_bot_protection_page(&title, &html) {
         let _ = fs::remove_file(&cache_path).await;
         return Err(anyhow!("bot-protection page: {title}"));
     }
@@ -266,6 +271,15 @@ pub async fn fetch_source_content(
 
         ..Default::default()
     }))
+}
+
+fn is_bot_protection_page(title: &str, html: &str) -> bool {
+    let lower_title = title.to_ascii_lowercase();
+    let lower_html = html.to_ascii_lowercase();
+    BOT_TITLES.iter().any(|marker| lower_title.contains(marker))
+        || BOT_BODY_MARKERS
+            .iter()
+            .any(|marker| lower_html.contains(marker))
 }
 
 fn decode(s: &str) -> String {

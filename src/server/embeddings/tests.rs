@@ -150,8 +150,8 @@ const TEST_CASES: &[TestCase] = &[
         summary: "Search-and-rescue operations are ongoing, with the number of casualties yet to be confirmed",
         category: Category::Law,
         regions: &[Region::SubSaharanAfrica],
-        sentiment: 0.1,
-        importance: 0.8,
+        sentiment: 0.0,
+        importance: 0.7,
     },
     TestCase {
         title: "Teenage patients 'ignored' before fatal NHS trust failures",
@@ -502,7 +502,7 @@ const TEST_CASES: &[TestCase] = &[
         summary: "A report of a extended ceasefire, subject to Donald Trump's approval, has led to global oil prices to fall on Thursday.",
         category: Category::Business,
         regions: &[Region::Global, Region::MiddleEastNorthAfrica],
-        sentiment: 0.7,
+        sentiment: 0.6,
         importance: 0.9,
     },
     TestCase {
@@ -655,7 +655,7 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Politics,
         regions: &[Region::UnitedStates],
         sentiment: 0.5,
-        importance: 0.8,
+        importance: 0.6,
     },
     TestCase {
         title: "Jared Kushner-backed luxury resort plan sparks protest in Albania",
@@ -711,7 +711,7 @@ const TEST_CASES: &[TestCase] = &[
         category: Category::Politics,
         regions: &[Region::MiddleEastNorthAfrica, Region::Global],
         sentiment: 0.0,
-        importance: 0.8,
+        importance: 1.0,
     },
     TestCase {
         title: "My drinking days are over. Here are my tips for an alcohol-free World Cup",
@@ -728,6 +728,30 @@ const TEST_CASES: &[TestCase] = &[
         regions: &[Region::Global],
         sentiment: 0.8,
         importance: 0.3,
+    },
+    TestCase {
+        title: "Top five-a-day foods new study says your heart needs",
+        summary: "Not all fruit and veg is equal for getting nutrients called flavanols, say researchers.",
+        category: Category::Health,
+        regions: &[Region::Global],
+        sentiment: 0.7,
+        importance: 0.2,
+    },
+    TestCase {
+        title: "New drug to stop 'Ozempic butt' muscle loss side effect of obesity jabs",
+        summary: "A third of the weight loss from obesity jabs can come from muscle, say experts.",
+        category: Category::Health,
+        regions: &[Region::Global],
+        sentiment: 0.8,
+        importance: 0.5,
+    },
+    TestCase {
+        title: "I use AI every morning before 9 a.m. — these 5 habits make my day easier",
+        summary: "From coffee to conference calls, these simple AI routines help me stay organized, calmer and more productive",
+        category: Category::AI,
+        regions: &[Region::Global],
+        sentiment: 0.8,
+        importance: 0.1,
     },
 ];
 

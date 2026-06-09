@@ -1,4 +1,7 @@
-use crate::server::{HTTP_CLIENT, parsers::usable_article_url};
+use crate::server::{
+    HTTP_CLIENT,
+    parsers::{is_host_or_subdomain, usable_article_url},
+};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -16,8 +19,8 @@ pub async fn scan_feed(url_rss: &str) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
 
-    let is_twitter = url_rss.contains("twitter.com") || url_rss.contains("x.com");
-    let is_bluesky = url_rss.contains("bsky.app/profile/");
+    let is_twitter = is_host_or_subdomain(url_rss, &["twitter.com", "x.com"]);
+    let is_bluesky = is_host_or_subdomain(url_rss, &["bsky.app"]) && url_rss.contains("/profile/");
     if (is_twitter || is_bluesky) && !url_rss.contains("/status/") && !url_rss.contains("/post/") {
         return super::social::scan_social_profile(url_rss).await;
     }

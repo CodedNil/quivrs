@@ -118,22 +118,20 @@ pub const fn domain_bonus(rating: Rating) -> f32 {
 
 pub async fn refresh_all_feeds() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "feeds.ron".to_string());
-    let config_file: HashMap<String, String> =
-        ron::from_str(&fs::read_to_string(&config_path).await?)
-            .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
+    let config_file: Vec<String> = ron::from_str(&fs::read_to_string(&config_path).await?)
+        .map_err(|e| anyhow!("Failed to read {config_path}: {e}"))?;
 
     info!("Scanning {} feeds", config_file.len());
-    let candidate_urls: HashSet<String> =
-        join_all(config_file.into_iter().map(|(id, url)| async move {
-            scan_feed(&url).await.unwrap_or_else(|err| {
-                warn!(feed_id = %id, "Feed scan failed: {err:#}");
-                vec![]
-            })
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
+    let candidate_urls: HashSet<String> = join_all(config_file.into_iter().map(|url| async move {
+        scan_feed(&url).await.unwrap_or_else(|err| {
+            warn!(url = %url, "Feed scan failed: {err:#}");
+            vec![]
+        })
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .collect();
 
     let new_urls = database::filter_new_urls(&candidate_urls).await?;
     if new_urls.is_empty() {
@@ -337,7 +335,7 @@ pub async fn promote_articles() -> Result<()> {
 
         match fetch_web_search_merge_sources(&sources_to_merge).await {
             Ok(search_sources) => {
-                for source in search_sources {
+                for source in search_sources.into_iter().take(8) {
                     if promoted_urls.insert(source.url.clone()) {
                         info!("  [WEB MERGE] adding '{}'", source.title);
                         sources_to_merge.push(source);
