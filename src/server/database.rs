@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::{
-    QueryBuilder, Row, Sqlite, SqlitePool,
+    QueryBuilder, Row, SqlitePool,
     sqlite::{
         SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow, SqliteSynchronous,
     },
@@ -23,24 +23,6 @@ static REGISTER_SQLITE_VEC: Once = Once::new();
 const DEFAULT_DATABASE_URL: &str = "sqlite://quivrs.db";
 const PREFERENCE_NEIGHBOURS: usize = 64;
 const SIMILAR_SOURCE_NEIGHBOURS: i64 = 30;
-
-#[derive(Clone)]
-pub struct LabelEmbeddingRecord {
-    pub id: String,
-    pub label_group: String,
-    pub label_value: String,
-    pub hash: String,
-    pub text: String,
-    pub embedding: Vec<f32>,
-}
-
-pub struct LabelScore {
-    pub label_group: String,
-    pub label_value: String,
-    #[allow(dead_code)]
-    pub text: String,
-    pub similarity: f32,
-}
 
 #[derive(Clone, Copy)]
 pub enum EmbeddingTable {
@@ -289,91 +271,6 @@ pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
     .execute(pool()?)
     .await?;
     Ok(())
-}
-
-pub async fn get_label_hashes() -> Result<HashMap<String, String>> {
-    let rows = sqlx::query("SELECT id, hash FROM label_embeddings")
-        .fetch_all(pool()?)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.get("id"), row.get("hash")))
-        .collect())
-}
-
-pub async fn sync_label_embeddings(
-    records: &[LabelEmbeddingRecord],
-    keep_keys: &HashSet<String>,
-) -> Result<()> {
-    let mut tx = pool()?.begin().await?;
-    for record in records {
-        sqlx::query("DELETE FROM label_embeddings WHERE id = ?")
-            .bind(&record.id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO label_embeddings
-                (embedding, id, label_group, label_value, hash, text)
-             VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(serde_json::to_string(&record.embedding)?)
-        .bind(&record.id)
-        .bind(&record.label_group)
-        .bind(&record.label_value)
-        .bind(&record.hash)
-        .bind(&record.text)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if keep_keys.is_empty() {
-        sqlx::query("DELETE FROM label_embeddings")
-            .execute(&mut *tx)
-            .await?;
-    } else {
-        let mut query: QueryBuilder<Sqlite> =
-            QueryBuilder::new("DELETE FROM label_embeddings WHERE id NOT IN (");
-        let mut values = query.separated(", ");
-        for key in keep_keys {
-            values.push_bind(key);
-        }
-        values.push_unseparated(")");
-        query.build().execute(&mut *tx).await?;
-    }
-
-    tx.commit().await?;
-
-    Ok(())
-}
-
-pub async fn get_label_scores(embedding: &[f32]) -> Result<Vec<LabelScore>> {
-    let label_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_embeddings")
-        .fetch_one(pool()?)
-        .await?;
-    if label_count == 0 {
-        return Ok(Vec::new());
-    }
-
-    let rows = sqlx::query(
-        "SELECT label_group, label_value, text, distance
-         FROM label_embeddings
-         WHERE embedding MATCH ? AND k = ?
-         ORDER BY distance",
-    )
-    .bind(serde_json::to_string(embedding)?)
-    .bind(label_count)
-    .fetch_all(pool()?)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| LabelScore {
-            label_group: row.get("label_group"),
-            label_value: row.get("label_value"),
-            text: row.get("text"),
-            similarity: 1.0 - row.get::<f32, _>("distance"),
-        })
-        .collect())
 }
 
 /// Returns the preference score for a given embedding, based on the users ratings.

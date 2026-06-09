@@ -61,7 +61,7 @@ pub fn start() {
             error!("Database initialisation failed: {err}");
             return;
         }
-        if let Err(err) = embeddings::maintenance_embeddings().await {
+        if let Err(err) = embeddings::maintenance_article_embeddings().await {
             error!("Embedding maintenance failed: {err}");
             return;
         }

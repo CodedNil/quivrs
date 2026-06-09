@@ -97,12 +97,3 @@ CREATE TABLE IF NOT EXISTS item_ratings (
     id TEXT PRIMARY KEY,
     rating TEXT NOT NULL
 );
-
-CREATE VIRTUAL TABLE IF NOT EXISTS label_embeddings USING vec0(
-    embedding FLOAT[512] distance_metric=cosine,
-    id TEXT PRIMARY KEY,
-    label_group TEXT,
-    label_value TEXT,
-    hash TEXT,
-    text TEXT
-);

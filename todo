@@ -10,13 +10,9 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
-have self improvement cycle for embedding classification, on generating the article the ai can flag incorrect classifications and we can create tests for those automatically when its running in dev mode
-
 to reduce serving similar articles repeatedly, dont allow articles that have been published within an hour to give it some room to settle, then down score articles based on their similarity to recently read articles if very similar
 
-give the llm each source image as one tile for efficiency, so it has visual idea of what they are
-then we also know its size if we are downloading it
-also let the llm generate using one article fed at a time so it builds iteratively, then it can add additional sources each time and it can tag every sentence to its source, it can also have smarter merging
+have a separate users feeds which gets served unedited, youtube etc
 
 
 support youtube feeds

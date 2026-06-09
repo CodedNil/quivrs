@@ -67,6 +67,7 @@ const WEBSITE_BLACKLIST_CONTAINS: &[&str] = &[
     "bbc.co.uk/news/videos",
     "bbc.co.uk/iplayer",
     "bbc.co.uk/sounds",
+    "euronews.com/video",
     "linkedin.com/pulse",
     ".pdf",
 ];

@@ -2,7 +2,7 @@ use crate::{
     server::{
         database,
         embeddings::{
-            EMBEDDING_TITLE_REPEAT, article_text, classify, embedding_model_id, generate_embeddings,
+            EMBEDDING_TITLE_REPEAT, article_text, embedding_model_id, generate_embeddings,
         },
         llm_functions::run,
         parsers::{
@@ -12,8 +12,8 @@ use crate::{
         },
     },
     shared::{
-        Article, ArticleSource, ArticleStatus, CaptionedImage, PendingSource, Rating,
-        theme::THEME_CSS_VARS,
+        Article, ArticleSource, ArticleStatus, CaptionedImage, Category, PendingSource, Rating,
+        Region, theme::THEME_CSS_VARS,
     },
 };
 use anyhow::{Result, anyhow};
@@ -27,8 +27,10 @@ use std::{
     env,
     f32::consts::LN_2,
     fmt::Write,
+    str::FromStr,
     sync::LazyLock,
 };
+use strum::IntoEnumIterator;
 use tokio::{fs, time::Instant};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -42,6 +44,7 @@ const MERGE_HALF_LIFE_SECS: f32 = 4.0 * 3600.0;
 
 const SENTIMENT_BONUS: f32 = 0.1; // How much to boost the score for a positive article
 const IMPORTANCE_BONUS: f32 = 0.1; // How much to boost the score for an important article
+const CLASSIFICATION_BATCH_SIZE: usize = 20;
 
 static IMG_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<img>(.*?)(?:</img>|<\\img>)").unwrap());
@@ -70,6 +73,14 @@ struct ScoredPendingSource {
     estimated_liked: f32,
     bonus: f32,
     category_target: i64,
+}
+
+#[derive(Clone, Copy)]
+struct SourceClassification {
+    category: Category,
+    region: Region,
+    sentiment: f32,
+    importance: f32,
 }
 
 /// Minimum number of new articles to maintain in each category
@@ -114,6 +125,118 @@ pub const fn domain_bonus(rating: Rating) -> f32 {
         Rating::Liked => 0.15,
         Rating::Loved => 0.4,
     }
+}
+
+async fn classify_sources_with_llm(sources: &[PendingSource]) -> Result<Vec<SourceClassification>> {
+    let categories: String = Category::iter().map(|v| v.to_string()).join(", ");
+    let regions: String = Region::iter().map(|v| v.to_string()).join(", ");
+
+    let newline_sanitise = |s: &str| s.replace('\n', " ");
+
+    let mut classifications = Vec::with_capacity(sources.len());
+    for batch in sources.chunks(CLASSIFICATION_BATCH_SIZE) {
+        let articles: String = batch
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let tags = s.tags.iter().take(8).join(", ").replace('\n', " ");
+                let tags_part = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" | Tags: {tags}")
+                };
+                format!(
+                    "{i}: URL: {} | Title: {}{tags_part} | Summary: {}",
+                    newline_sanitise(&s.url),
+                    newline_sanitise(&s.title),
+                    newline_sanitise(&s.summary),
+                )
+            })
+            .join("\n");
+
+        let context = format!(
+            r"Classify each article below.
+
+Output as CSV lines, with no preamble or extra text.
+Each output line must correspond to exactly one input article by index and use this format:
+0,Technology,UnitedKingdom,0.8,0.2
+
+Fields:
+- index: the input article number.
+- category: exactly one of {categories}.
+- region: exactly one of {regions}.
+- sentiment: decimal from 0.0 to 1.0, where 0.0 is very negative, 0.5 is neutral/mixed, and 1.0 is very positive.
+- importance: decimal from 0.0 to 1.0, where 0.0 is trivial/low-stakes and 1.0 is highly consequential.
+
+Choose the most specific applicable category. Choose the most specific applicable region when the article is clearly about a place; use Global for worldwide, non-geographic, or ambiguous items.
+
+Articles:
+{articles}",
+        );
+
+        let output = run(&context)
+            .await
+            .map_err(|err| anyhow!("Article classification failed: {err}"))?;
+
+        let n = batch.len();
+        let mut by_index = vec![None; n];
+        for line in output.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let fields: Vec<&str> = line.split(',').map(str::trim).collect();
+            anyhow::ensure!(
+                fields.len() == 5,
+                "Expected 5 fields in classification line '{line}', found {}",
+                fields.len()
+            );
+            let idx = fields[0]
+                .parse::<usize>()
+                .map_err(|e| anyhow!("Invalid classification index '{}': {e}", fields[0]))?;
+            if idx >= n {
+                anyhow::bail!("Classification index {idx} outside batch size {n}");
+            }
+
+            let classification = SourceClassification {
+                category: Category::from_str(fields[1])
+                    .map_err(|e| anyhow!("Invalid category '{}': {e}", fields[1]))?,
+                region: Region::from_str(fields[2])
+                    .map_err(|e| anyhow!("Invalid region '{}': {e}", fields[2]))?,
+                sentiment: parse_score(fields[3], "sentiment")?,
+                importance: parse_score(fields[4], "importance")?,
+            };
+
+            if by_index[idx].replace(classification).is_some() {
+                anyhow::bail!("Duplicate classification index {idx}");
+            }
+        }
+
+        classifications.extend(
+            by_index
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| c.ok_or_else(|| anyhow!("Missing classification for index {i}")))
+                .collect::<Result<Vec<_>>>()?,
+        );
+    }
+    for (source, classification) in sources.iter().zip(&classifications) {
+        info!(
+            "[NEW] '{}' {}, {}, sentiment: {:.2} importance: {:.2}",
+            article_text(source, 1),
+            classification.category,
+            classification.region,
+            classification.sentiment,
+            classification.importance
+        );
+    }
+    Ok(classifications)
+}
+
+fn parse_score(value: &str, field: &str) -> Result<f32> {
+    let score = value
+        .parse::<f32>()
+        .map_err(|err| anyhow!("Invalid {field} score '{value}': {err}"))?;
+    if !(0.0..=1.0).contains(&score) {
+        return Err(anyhow!("{field} score {score} outside 0.0..=1.0"));
+    }
+    Ok(score)
 }
 
 pub async fn refresh_all_feeds() -> Result<()> {
@@ -168,35 +291,25 @@ pub async fn refresh_all_feeds() -> Result<()> {
     let embeddings = generate_embeddings(&texts)
         .await
         .inspect_err(|e| error!("Batch embedding generation failed: {e}"))?;
+    let classifications = classify_sources_with_llm(&new_entries)
+        .await
+        .inspect_err(|e| error!("Batch article classification failed: {e}"))?;
 
     let mut classified_sources = Vec::with_capacity(new_entries.len());
-    for ((mut source, embedding_text), embedding) in
-        new_entries.into_iter().zip(texts).zip(embeddings)
+    for (((mut source, embedding_text), embedding), classification) in new_entries
+        .into_iter()
+        .zip(texts)
+        .zip(embeddings)
+        .zip(classifications)
     {
-        let (category, region, sentiment, importance) = match classify(&embedding).await {
-            Ok(scores) => scores,
-            Err(err) => {
-                warn!("Classification failed for '{}': {err:#}", source.title);
-                continue;
-            }
-        };
-
         source.embedding = embedding;
         source.embedding_text = embedding_text;
         source.embedding_model = embedding_model_id();
-        source.category = category;
-        source.region = region;
-        source.sentiment = sentiment;
-        source.importance = importance;
+        source.category = classification.category;
+        source.region = classification.region;
+        source.sentiment = classification.sentiment;
+        source.importance = classification.importance;
 
-        info!(
-            "[NEW] '{}' {}, {}, sentiment: {:.2} importance: {:.2}",
-            article_text(&source, 1),
-            category,
-            region,
-            sentiment,
-            importance
-        );
         classified_sources.push(source);
     }
     database::insert_sources(classified_sources).await?;
@@ -619,9 +732,19 @@ Sources with information:
 {articles_content}"#
     );
 
-    let entry = run::<ArticleEntry>(&context)
+    let entry = run(&context)
         .await
         .map_err(|e| anyhow!("Article generation failed: {e}"))?;
+    let entry = serde_json::from_str::<ArticleEntry>(&entry).map_err(|e| {
+        anyhow!(
+            "Serialization failed: {e} - Output received: {}",
+            entry
+                .replace('\n', " ")
+                .chars()
+                .take(500)
+                .collect::<String>()
+        )
+    })?;
 
     let mut search_images = HashMap::new();
     let content_with_images = resolve_image_html(

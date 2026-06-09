@@ -155,6 +155,101 @@ fn proton_article_full_parse() {
     });
 }
 
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn twig_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://thisweek.gnome.org/posts/2026/06/twig-252/",
+        domain: "thisweek.gnome.org",
+        title: "#252 Stronger Together",
+        summary: "Updates on what happens across the GNOME project from week to week",
+        published: "2026-06-06T00:00:00Z",
+        tags: &[],
+        content_contains: &[
+            "A previewer companion for GNOME Files.",
+            "You can test these changes in GNOME OS or by installing sushi and nautilus from the gnome-nightly Flatpak repository.",
+            "Finally, in the diff view (the one you see on vertimus workflows) between a file and a previous version of a PO file",
+        ],
+        content_not_contains: &[
+            "No matter if core, circle or third-party project - we are interested in all news",
+        ],
+        images: &[ExpectedImage {
+            url: "https://thisweek.gnome.org/_astro/Vinyl.CrqFjvMH_Z1GeNC0.webp",
+            caption: "",
+        }],
+    });
+}
+
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn nasa_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://www.nasa.gov/news-release/nasa-marches-toward-artemis-iii-mission-in-2027-names-crew-members/",
+        domain: "nasa.gov",
+        title: "NASA Marches Toward Artemis III Mission in 2027, Names Crew Members - NASA",
+        summary: "Taking another step toward one of the most complex human spaceflight missions in recent history, NASA on Tuesday provided new Artemis III details and",
+        published: "2026-06-09T16:12:02Z",
+        tags: &["Artemis", "Artemis 3", "Missions"],
+        content_contains: &[
+            "During Artemis III, the agency’s SLS (Space Launch System) rocket will launch the Orion",
+            "Europeans can take pride in being part of this exciting journey",
+        ],
+        content_not_contains: &["More NASA Social Accounts"],
+        images: &[ExpectedImage {
+            url: "https://www.nasa.gov/wp-content/uploads/2026/06/artemis-iii-crew.jpg",
+            caption: "The Artemis III crew poses for an official portrait (from left: Andre Douglas, Luca Parmitano, Randy Bresnik, Frank Rubio).",
+        }],
+    });
+}
+
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn openai_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://openai.com/index/built-to-benefit-everyone-our-plan/",
+        domain: "openai.com",
+        title: "Built to benefit everyone: Our plan",
+        summary: "A vision for the future of AI, focusing on access, safety, and shared prosperity as OpenAI works to ensure AGI benefits everyone.",
+        published: "2026-06-08T14:00:00Z",
+        tags: &[],
+        content_contains: &[
+            "Imagine electricity reaching a rural American town in the 1920s. Before power lines arrived, daily life was shaped by physical limits: hauling water",
+            "The first phase of OpenAI was about doing research toward AGI. The second phase began when our research became relevant",
+        ],
+        content_not_contains: &["Confidential submission of draft S-1 to the SEC"],
+        images: &[],
+    });
+}
+
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn euronews_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://www.euronews.com/my-europe/2026/06/09/bogs-almost-like-a-minefield-europes-wetlands-gain-military-importance",
+        domain: "euronews.com",
+        title: "Bogs 'almost like a minefield': Europe's wetlands gain military importance",
+        summary: "Peatlands are more than carbon sinks and havens for rare species. Amid rising security tensions, they are seen across Europe as natural barriers to attackers.",
+        published: "2026-06-09T09:44:22Z",
+        tags: &[
+            "Lithuania Brigade",
+            "Lithuania",
+            "Defence",
+            "Germany",
+            "nature",
+            "nature conservation",
+        ],
+        content_contains: &[
+            "The Baltic states – Estonia, Latvia and Lithuania – are examining, as part of the Baltic",
+            "Even so, Jan Peters calls for careful language. Peatland restoration must not be understood as a way of sealing off Germany from EU and NATO partners",
+        ],
+        content_not_contains: &["Not investing in nature poses security risk"],
+        images: &[ExpectedImage {
+            url: "https://images.euronews.com/articles/stories/09/78/37/54/1536x864_cmsv2_ef53f4f3-ff3e-5f6a-a375-8f776543ce97-9783754.jpg",
+            caption: "Peatlands cover only about three per cent of the world’s land surface, yet store roughly twice as much carbon as the biomass of all the planet’s forests.",
+        }],
+    });
+}
+
 fn assert_website_case(case: &WebsiteCase) {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
