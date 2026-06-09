@@ -28,7 +28,7 @@ pub struct PendingSource {
     pub embedding_model: String,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CaptionedImage {
     pub url: String,
     pub caption: String,

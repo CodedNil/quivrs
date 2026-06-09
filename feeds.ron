@@ -1,4 +1,7 @@
 [
+    // General
+    "https://www.nytimes.com/wirecutter/feed/",
+
     // News
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.tomsguide.com/rss",
@@ -6,7 +9,6 @@
     "https://www.pbs.org/newshour/feeds/rss/headlines",
     "https://www.wired.com/feed/rss",
     "https://www.npr.org/rss/rss.php?id=1001",
-    "https://www.ft.com/news-feed?format=rss",
     "https://theconversation.com/articles.atom",
 
     // Tech
@@ -17,15 +19,28 @@
     "https://arstechnica.com/feed",
 
     // Open Source
+    "https://blogs.kde.org/categories/this-week-in-kde-apps/index.xml",
     "https://blogs.kde.org/categories/this-week-in-plasma/index.xml",
     "https://thisweek.gnome.org/index.xml",
     "https://9to5linux.com/feed",
     "https://system76.com/blog/rss.xml",
     "https://blog.linuxmint.com/?feed=rss2",
+    "https://servo.org/blog/feed.xml",
+    "https://brave.com/blog/index.xml",
+    "https://thisweekinbevy.com/feed.xml",
+    "https://blog.rust-lang.org/feed.xml",
+    "https://this-week-in-rust.org/atom.xml",
+    "https://proton.me/blog/feed",
+    "https://zed.dev/blog.rss",
+    "https://blog.nightly.mozilla.org/feed/",
+    "https://itsfoss.com/rss/",
+    "https://pointieststick.com/feed/",
+    "https://www.redox-os.org/index.xml",
+    "https://thisweek.gnome.org/index.xml",
+    "https://omgubuntu.co.uk/feed",
 
     // Learning
     "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-    // "https://www.youtube.com/@TomScottGo",
     "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
     "https://www.sciencedaily.com/rss/all.xml",
     "https://www.pbs.org/newshour/feeds/rss/science",
@@ -35,6 +50,7 @@
     // AI
     "https://x.com/ArtificialAnlys",
     "https://papers.takara.ai/api/feed",
+    "https://deepmind.google/blog/rss.xml",
 
     // Culture
     "https://www.cosmopolitan.com/rss/all.xml",
@@ -43,6 +59,10 @@
     "https://variety.com/feed/",
     "https://www.thewrap.com/feed/",
     "https://www.tmz.com/rss.xml",
+
+    // Gaming
+    "https://sbox.facepunch.com/rss/news",
+    "https://store.steampowered.com/feeds/news/collection/steam",
 
     // UK
     "https://feeds.bbci.co.uk/news/uk/rss.xml",
@@ -57,7 +77,6 @@
     "https://politico.eu/section/united-kingdom/feed/",
 
     // USA
-    "https://thehill.com/feed/",
     "https://rss.politico.com/politics-news.xml",
     "https://www.salon.com/feed",
 

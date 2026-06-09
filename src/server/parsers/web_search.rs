@@ -20,6 +20,8 @@ const WATERMARK_IMAGE_DOMAINS: &[&str] = &[
     "dreamstime.com",
     "123rf.com",
     "depositphotos.com",
+    "magnific.com",
+    "freepik.com",
 ];
 const WATERMARK_IMAGE_TEXT: &[&str] = &[
     "alamy",

@@ -37,6 +37,7 @@ pub struct LabelEmbeddingRecord {
 pub struct LabelScore {
     pub label_group: String,
     pub label_value: String,
+    #[allow(dead_code)]
     pub text: String,
     pub similarity: f32,
 }

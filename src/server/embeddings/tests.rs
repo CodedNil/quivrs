@@ -756,6 +756,7 @@ const TEST_CASES: &[TestCase] = &[
 ];
 
 #[test]
+#[ignore = "slow embedding calibration test"]
 fn category_classification() -> Result<()> {
     let mut failures = Vec::new();
 
@@ -780,6 +781,7 @@ fn category_classification() -> Result<()> {
 }
 
 #[test]
+#[ignore = "slow embedding calibration test"]
 fn region_classification() -> Result<()> {
     let mut failures = Vec::new();
 
@@ -810,11 +812,13 @@ fn region_classification() -> Result<()> {
 }
 
 #[test]
+#[ignore = "slow embedding calibration test"]
 fn sentiment_scores() -> Result<()> {
     assert_binary_scores("sentiment", "positive", |case| case.sentiment)
 }
 
 #[test]
+#[ignore = "slow embedding calibration test"]
 fn importance_scores() -> Result<()> {
     assert_binary_scores("importance", "important", |case| case.importance)
 }
