@@ -1,3 +1,20 @@
+experimental
+ai has a feedback loop, it has a TASTE.md which is a tracking issue of the users taste which it takes feedback to make small edits at a time
+each feedback loop it first is given list of articles its created in the last few days, and then all the recent articles from the feeds, plus a few web searches for recent news etc
+then its job is to pull out a few articles to create features on
+when creating the feature it has the seed article, it uses the text directly unmodified, then it scans for extra articles, adding them one at a time
+it can only add or remove full lines, and move them around
+then it does a feature design pass which tries to make it really fancy
+
+
+
+
+
+
+
+
+
+
 download and locally host the images, use burn to describe the images
 do a web search to find related articles immediately upon making a new article
 better ground with citations embedded
@@ -13,10 +30,6 @@ quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 have self improvement cycle for embedding classification, on generating the article the ai can flag incorrect classifications and we can create tests for those automatically when its running in dev mode
 
 to reduce serving similar articles repeatedly, dont allow articles that have been published within an hour to give it some room to settle, then down score articles based on their similarity to recently read articles if very similar
-
-give the llm each source image as one tile for efficiency, so it has visual idea of what they are
-then we also know its size if we are downloading it
-also let the llm generate using one article fed at a time so it builds iteratively, then it can add additional sources each time and it can tag every sentence to its source, it can also have smarter merging
 
 
 support youtube feeds
