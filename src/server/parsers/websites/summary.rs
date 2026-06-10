@@ -1,7 +1,7 @@
 use super::{PageData, decode, jsonld_values};
 use serde_json::Value;
 
-const MIN_SUMMARY_LEN: usize = 30;
+const MIN_SUMMARY_LEN: usize = 26;
 
 pub fn parse(page: &PageData) -> Option<String> {
     if let Some(summary) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {

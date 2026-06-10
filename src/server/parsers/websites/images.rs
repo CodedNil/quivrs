@@ -94,13 +94,18 @@ pub fn dedupe_images(mut images: Vec<CaptionedImage>) -> Vec<CaptionedImage> {
 
     for image in images
         .into_iter()
-        .filter(|image| usable_image_url(&image.url) && !image.caption.trim().is_empty())
+        .filter(|image| usable_image_url(&image.url))
     {
         let url = image_dedupe_key(&image.url);
-        let caption = caption_dedupe_key(&image.caption);
-        if seen_urls.insert(url) && seen_captions.insert(caption) {
-            deduped.push(image);
+        if !seen_urls.insert(url) {
+            continue;
         }
+        // Only deduplicate by caption when it's non-empty
+        let caption = caption_dedupe_key(&image.caption);
+        if !caption.is_empty() && !seen_captions.insert(caption) {
+            continue;
+        }
+        deduped.push(image);
     }
 
     deduped
@@ -143,6 +148,7 @@ fn extract_images_with_caption(
 
 fn best_image_url(root: &ElementRef<'_>, base: Option<&Url>) -> Option<String> {
     let mut candidates = Vec::new();
+    let mut src_url: Option<String> = None;
 
     for source in root.select(&SEL_SOURCE) {
         collect_image_candidates(&source, base, &mut candidates);
@@ -151,7 +157,35 @@ fn best_image_url(root: &ElementRef<'_>, base: Option<&Url>) -> Option<String> {
         collect_image_candidates(&img, base, &mut candidates);
     }
     if root.value().name() == "img" || root.value().name() == "source" {
+        // Collect src separately so we can prefer absolute src over relative srcset entries
+        if let Some(src) = root.value().attr("src") {
+            let url = resolve_url(base, src);
+            if usable_image_url(&url) {
+                src_url = Some(url);
+            }
+        }
         collect_image_candidates(root, base, &mut candidates);
+    }
+
+    // When src is an absolute URL, prefer it over candidates resolved from relative srcset paths
+    // that produce a different domain
+    if let Some(ref src) = src_url
+        && let Some(src_domain) = Url::parse(src)
+            .ok()
+            .and_then(|u| u.host_str().map(String::from))
+    {
+        if let Some(best) = candidates
+            .iter()
+            .max_by(|a, b| image_candidate_score(a).total_cmp(&image_candidate_score(b)))
+            && let Some(best_domain) = Url::parse(&best.url)
+                .ok()
+                .and_then(|u| u.host_str().map(String::from))
+            && src_domain == best_domain
+        {
+            return Some(best.url.clone());
+        }
+        // src has a different domain from the best candidate — trust src
+        return Some(src.clone());
     }
 
     candidates
@@ -293,9 +327,10 @@ fn image_dedupe_key(url: &str) -> String {
     let url = Url::parse(url)
         .ok()
         .and_then(|parsed| {
-            parsed
-                .query_pairs()
-                .find_map(|(key, value)| (key == "url").then(|| value.into_owned()))
+            // Try 'url' param first (common in CDN proxies), fall back to 'image'
+            parsed.query_pairs().find_map(|(key, value)| {
+                (key == "url" || key == "image").then(|| value.into_owned())
+            })
         })
         .unwrap_or_else(|| url.to_string());
 

@@ -1,42 +1,48 @@
 use super::{PageData, jsonld_values};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use scraper::{Html, Selector};
-use serde_json::Value;
 use std::sync::LazyLock;
 
 static SEL_TIME_DATETIME: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("time[datetime]").unwrap());
 static SEL_VISIBLE_DATE: LazyLock<Selector> = LazyLock::new(|| {
-    Selector::parse(".date, .post-date, .entry-date, .published-at, #date_posted").unwrap()
+    Selector::parse(
+        ".date, .post-date, .entry-date, .published-at, #date_posted, \
+         article strong, .post-meta, .entry-meta",
+    )
+    .unwrap()
 });
 
 pub fn parse(page: &PageData) -> Option<DateTime<Utc>> {
+    // 1. JSON-LD
     if let Some(date) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {
-        obj.get("datePublished")
+        let key = obj
+            .get("datePublished")
             .or_else(|| obj.get("dateModified"))
             .or_else(|| obj.get("published_at"))
-            .or_else(|| obj.get("updated_at"))
-            .and_then(Value::as_str)
-            .and_then(parse_any)
+            .or_else(|| obj.get("updated_at"))?;
+        parse_any(key.as_str()?)
     }) {
         return Some(date);
     }
 
-    if let Some(date) = page
-        .meta
-        .iter()
-        .find(|tag| {
-            matches!(
-                tag.name.as_str(),
-                "og:article:published_time" | "article:published_time" | "last-modified"
-            )
-        })
-        .and_then(|tag| parse_any(&tag.content))
-    {
+    // 2. Meta tags
+    if let Some(date) = page.meta.iter().find_map(|tag| {
+        matches!(
+            tag.name.as_str(),
+            "og:article:published_time"
+                | "article:published_time"
+                | "parsely-pub-date"
+                | "last-modified"
+        )
+        .then(|| parse_any(&tag.content))?
+    }) {
         return Some(date);
     }
 
     let doc = Html::parse_document(&page.html);
+
+    // 3. <time datetime="..."> elements
     if let Some(date) = doc
         .select(&SEL_TIME_DATETIME)
         .filter_map(|el| el.value().attr("datetime"))
@@ -45,9 +51,24 @@ pub fn parse(page: &PageData) -> Option<DateTime<Utc>> {
         return Some(date);
     }
 
+    // 4. Visible date elements and common inline containers
     doc.select(&SEL_VISIBLE_DATE)
         .map(|el| el.text().collect::<String>())
-        .find_map(|text| parse_any(text.trim()))
+        .find_map(|text| parse_text(text.trim()))
+}
+
+/// Parse a date string that may have trailing metadata (e.g. "June 6, 2026 • 8 Notes").
+fn parse_text(s: &str) -> Option<DateTime<Utc>> {
+    parse_any(s).or_else(|| {
+        // Split on common delimiters and try the first part
+        [" • ", " | ", " · ", " — ", " – ", " - ", "\t", "\n"]
+            .iter()
+            .find_map(|sep| {
+                s.split(sep)
+                    .next()
+                    .and_then(|first| parse_any(first.trim()))
+            })
+    })
 }
 
 fn parse_any(s: &str) -> Option<DateTime<Utc>> {
@@ -60,6 +81,7 @@ fn parse_any(s: &str) -> Option<DateTime<Utc>> {
         .ok()
         .or_else(|| {
             NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M"))
                 .ok()
                 .map(|date| date.and_utc())
         })

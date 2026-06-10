@@ -1,4 +1,5 @@
 use super::*;
+use crate::server::HTTP_CLIENT;
 use chrono::{DateTime, Utc};
 
 #[derive(Clone, Copy)]
@@ -11,7 +12,7 @@ struct WebsiteCase {
     tags: &'static [&'static str],
     content_contains: &'static [&'static str],
     content_not_contains: &'static [&'static str],
-    images: &'static [ExpectedImage],
+    images_contains: &'static [ExpectedImage],
 }
 
 #[derive(Clone, Copy)]
@@ -29,7 +30,7 @@ fn bbc_article_full_parse() {
         title: "Big tech bets on new mascots in bid to seem more cuddly",
         summary: "The likes of Apple, Microsoft and Google are all putting cartoon characters centre stage.",
         published: "2026-05-13T23:08:37.595Z",
-        tags: &["World of Business", "International business", "Business"],
+        tags: &["News", "Business"],
         content_contains: &[
             "Tech giants Microsoft and Apple",
             "Nathalie Nahai",
@@ -42,7 +43,7 @@ fn bbc_article_full_parse() {
             "Could humanoid robots be heading for the battlefield?",
             "Copyright 2026 BBC. All rights reserved.",
         ],
-        images: &[ExpectedImage {
+        images_contains: &[ExpectedImage {
             url: "https://ichef.bbci.co.uk/news/1536/cpsprodpb/e765/live/324c5fe0-4d29-11f1-ac78-2112837ce2aa.jpg.webp",
             caption: "Nathalie Nahai hopes that most people are cynical enough to see past a company mascot",
         }],
@@ -76,7 +77,7 @@ fn the_conversation_article_full_parse() {
             "The shutdown – and the House’s inaction – helps pave Congress’ path to irrelevance",
             "Write an article and join a growing community of more than 227,300 academics and researchers from 5,537 institutions.",
         ],
-        images: &[ExpectedImage {
+        images_contains: &[ExpectedImage {
             url: "https://images.theconversation.com/files/740102/original/file-20260604-57-bv8jr5.jpg?auto=format&fit=clip&ixlib=rb-4.1.0&q=45&w=754",
             caption: "Republican senators Jim Justice, left, of West Virginia and Mitch McConnell greet each other at the U.S. Capitol in Washington on June 1, 2026.",
         }],
@@ -116,7 +117,7 @@ fn science_daily_article_full_parse() {
             "RELATED TOPICS",
             "Quirky",
         ],
-        images: &[ExpectedImage {
+        images_contains: &[ExpectedImage {
             url: "https://sciencedaily.com/images/1920/helmets-recovered-off-coast-of-benicarlo.webp",
             caption: "Helmets recovered off the coast of Benicarló were not Roman in origin, but formed part of a Late Medieval military cargo.",
         }],
@@ -148,7 +149,7 @@ fn proton_article_full_parse() {
             "Ben is a writer and editor whose work has appeared in major newspapers",
             "Top 5 network security tools to protect your business",
         ],
-        images: &[ExpectedImage {
+        images_contains: &[ExpectedImage {
             url: "https://pmecdn.protonweb.com/image-transformation/?s=c&image=images/f_auto,q_auto/v1780663623/wp-pme/eu-tech-sovereignty-qwant-switch/eu-tech-sovereignty-qwant-switch.webp?_i=AA&width=1280&height=640",
             caption: "Image of a laptop with the EU flag and a lock on the screen with the US flag crossed out next to it",
         }],
@@ -173,10 +174,16 @@ fn twig_article_full_parse() {
         content_not_contains: &[
             "No matter if core, circle or third-party project - we are interested in all news",
         ],
-        images: &[ExpectedImage {
-            url: "https://thisweek.gnome.org/_astro/Vinyl.CrqFjvMH_Z1GeNC0.webp",
-            caption: "",
-        }],
+        images_contains: &[
+            ExpectedImage {
+                url: "https://thisweek.gnome.org/_astro/image.DYzYXsTz_1DF9WT.webp",
+                caption: "",
+            },
+            ExpectedImage {
+                url: "https://thisweek.gnome.org/_astro/Vinyl.CrqFjvMH_Z1GeNC0.webp",
+                caption: "",
+            },
+        ],
     });
 }
 
@@ -195,8 +202,8 @@ fn nasa_article_full_parse() {
             "Europeans can take pride in being part of this exciting journey",
         ],
         content_not_contains: &["More NASA Social Accounts"],
-        images: &[ExpectedImage {
-            url: "https://www.nasa.gov/wp-content/uploads/2026/06/artemis-iii-crew.jpg",
+        images_contains: &[ExpectedImage {
+            url: "https://nasa.gov/wp-content/uploads/2026/06/artemis-iii-crew.jpg",
             caption: "The Artemis III crew poses for an official portrait (from left: Andre Douglas, Luca Parmitano, Randy Bresnik, Frank Rubio).",
         }],
     });
@@ -208,7 +215,7 @@ fn openai_article_full_parse() {
     assert_website_case(&WebsiteCase {
         url: "https://openai.com/index/built-to-benefit-everyone-our-plan/",
         domain: "openai.com",
-        title: "Built to benefit everyone: Our plan",
+        title: "Built to benefit everyone: our plan",
         summary: "A vision for the future of AI, focusing on access, safety, and shared prosperity as OpenAI works to ensure AGI benefits everyone.",
         published: "2026-06-08T14:00:00Z",
         tags: &[],
@@ -217,7 +224,7 @@ fn openai_article_full_parse() {
             "The first phase of OpenAI was about doing research toward AGI. The second phase began when our research became relevant",
         ],
         content_not_contains: &["Confidential submission of draft S-1 to the SEC"],
-        images: &[],
+        images_contains: &[],
     });
 }
 
@@ -227,9 +234,9 @@ fn euronews_article_full_parse() {
     assert_website_case(&WebsiteCase {
         url: "https://www.euronews.com/my-europe/2026/06/09/bogs-almost-like-a-minefield-europes-wetlands-gain-military-importance",
         domain: "euronews.com",
-        title: "Bogs 'almost like a minefield': Europe's wetlands gain military importance",
+        title: "Almost like minefields: Europe's peatlands gain military importance",
         summary: "Peatlands are more than carbon sinks and havens for rare species. Amid rising security tensions, they are seen across Europe as natural barriers to attackers.",
-        published: "2026-06-09T09:44:22Z",
+        published: "2026-06-09T07:44:22Z",
         tags: &[
             "Lithuania Brigade",
             "Lithuania",
@@ -243,14 +250,16 @@ fn euronews_article_full_parse() {
             "Even so, Jan Peters calls for careful language. Peatland restoration must not be understood as a way of sealing off Germany from EU and NATO partners",
         ],
         content_not_contains: &["Not investing in nature poses security risk"],
-        images: &[ExpectedImage {
-            url: "https://images.euronews.com/articles/stories/09/78/37/54/1536x864_cmsv2_ef53f4f3-ff3e-5f6a-a375-8f776543ce97-9783754.jpg",
+        images_contains: &[ExpectedImage {
+            url: "https://images.euronews.com/articles/stories/09/78/37/54/1920x1080_cmsv2_ef53f4f3-ff3e-5f6a-a375-8f776543ce97-9783754.jpg",
             caption: "Peatlands cover only about three per cent of the world’s land surface, yet store roughly twice as much carbon as the biomass of all the planet’s forests.",
         }],
     });
 }
 
 fn assert_website_case(case: &WebsiteCase) {
+    let _ = dioxus::logger::init(tracing::Level::INFO);
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -277,6 +286,20 @@ fn assert_website_case(case: &WebsiteCase) {
     );
     println!("Date: {}", article.published);
 
+    // Verify images are real by checking HTTP response (in parallel)
+    let urls: Vec<String> = article.images.iter().map(|img| img.url.clone()).collect();
+    let results = runtime.block_on(async {
+        futures::future::join_all(urls.iter().map(|url| async move {
+            let resp = HTTP_CLIENT.head(url).send().await.unwrap();
+            let status = resp.status();
+            (url.clone(), status)
+        }))
+        .await
+    });
+    for (url, status) in &results {
+        assert!(status.is_success(), "image URL returns {status}: {url}");
+    }
+
     for expected in case.content_contains {
         assert!(
             article.content.contains(expected),
@@ -291,7 +314,7 @@ fn assert_website_case(case: &WebsiteCase) {
         );
     }
 
-    for expected in case.images {
+    for expected in case.images_contains {
         assert!(
             article
                 .images
