@@ -202,16 +202,19 @@ fn collect_image_candidates(
     let fallback_width = el.value().attr("width").and_then(|w| w.parse::<f32>().ok());
 
     if let Some(srcset) = el.value().attr("srcset") {
-        candidates.extend(srcset.split(',').filter_map(|candidate| {
-            let mut parts = candidate.split_whitespace();
-            let src = parts.next()?;
-            let descriptor = parts.next();
+        static RE_SRCSET: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(\S+)(?:\s+(\d+[wx]|[0-9.]+x))?\s*(?:,\s*|$)").unwrap());
+        for cap in RE_SRCSET.captures_iter(srcset) {
+            let src = cap.get(1).unwrap().as_str();
+            let descriptor = cap.get(2).map(|m| m.as_str());
             let url = resolve_url(base, src);
-            usable_image_url(&url).then_some(ImageCandidate {
-                url,
-                width: image_candidate_width(descriptor, fallback_width),
-            })
-        }));
+            if usable_image_url(&url) {
+                candidates.push(ImageCandidate {
+                    url,
+                    width: image_candidate_width(descriptor, fallback_width),
+                });
+            }
+        }
     }
 
     if let Some(src) = el.value().attr("src") {

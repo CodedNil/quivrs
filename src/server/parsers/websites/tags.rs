@@ -3,35 +3,6 @@ use itertools::Itertools;
 use serde_json::Value;
 
 pub fn parse(page: &PageData) -> Vec<String> {
-    if let Some(tags) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {
-        obj.get("keywords")
-            .map(|kw| match kw {
-                Value::Array(arr) => arr
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|s| decode(s.trim()))
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                Value::String(s) => split_csv(s),
-                _ => Vec::new(),
-            })
-            .filter(|tags: &Vec<String>| !tags.is_empty())
-            .or_else(|| {
-                obj.get("articleSection")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| vec![decode(s)])
-            })
-            .or_else(|| {
-                obj.get("content_topic")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(split_csv)
-            })
-    }) {
-        return tags;
-    }
-
     if let Some(tags) = page
         .meta
         .iter()
@@ -71,6 +42,35 @@ pub fn parse(page: &PageData) -> Vec<String> {
         .collect_vec();
     if !page_sections.is_empty() {
         return page_sections;
+    }
+
+    if let Some(tags) = page.jsonld.iter().flat_map(jsonld_values).find_map(|obj| {
+        obj.get("keywords")
+            .map(|kw| match kw {
+                Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| decode(s.trim()))
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                Value::String(s) => split_csv(s),
+                _ => Vec::new(),
+            })
+            .filter(|tags: &Vec<String>| !tags.is_empty())
+            .or_else(|| {
+                obj.get("articleSection")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| vec![decode(s)])
+            })
+            .or_else(|| {
+                obj.get("content_topic")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(split_csv)
+            })
+    }) {
+        return tags;
     }
 
     Vec::new()

@@ -78,7 +78,7 @@ fn the_conversation_article_full_parse() {
             "Write an article and join a growing community of more than 227,300 academics and researchers from 5,537 institutions.",
         ],
         images_contains: &[ExpectedImage {
-            url: "https://images.theconversation.com/files/740102/original/file-20260604-57-bv8jr5.jpg?auto=format&fit=clip&ixlib=rb-4.1.0&q=45&w=754",
+            url: "https://images.theconversation.com/files/740102/original/file-20260604-57-bv8jr5.jpg?ixlib=rb-4.1.0&q=45&auto=format&w=754&fit=clip",
             caption: "Republican senators Jim Justice, left, of West Virginia and Mitch McConnell greet each other at the U.S. Capitol in Washington on June 1, 2026.",
         }],
     });
@@ -150,7 +150,7 @@ fn proton_article_full_parse() {
             "Top 5 network security tools to protect your business",
         ],
         images_contains: &[ExpectedImage {
-            url: "https://pmecdn.protonweb.com/image-transformation/?s=c&image=images/f_auto,q_auto/v1780663623/wp-pme/eu-tech-sovereignty-qwant-switch/eu-tech-sovereignty-qwant-switch.webp?_i=AA&width=1280&height=640",
+            url: "https://pmecdn.protonweb.com/image-transformation/?s=c&image=images/f_auto,q_auto/v1780663623/wp-pme/eu-tech-sovereignty-qwant-switch/eu-tech-sovereignty-qwant-switch.webp?_i=AA&width=1920&height=960",
             caption: "Image of a laptop with the EU flag and a lock on the screen with the US flag crossed out next to it",
         }],
     });
@@ -253,6 +253,37 @@ fn euronews_article_full_parse() {
         images_contains: &[ExpectedImage {
             url: "https://images.euronews.com/articles/stories/09/78/37/54/1920x1080_cmsv2_ef53f4f3-ff3e-5f6a-a375-8f776543ce97-9783754.jpg",
             caption: "Peatlands cover only about three per cent of the world’s land surface, yet store roughly twice as much carbon as the biomass of all the planet’s forests.",
+        }],
+    });
+}
+
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn wired_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://www.wired.com/story/threats-against-politicians-skyrocketed-after-meta-changed-its-speech-rules/",
+        domain: "wired.com",
+        title: "Meta Changed Its Speech Rules. Then Threats Against Politicians Skyrocketed",
+        summary: "New research finds that in the six months after Meta relaxed rules in the name of free speech, violent threats against lawmakers—including President Donald Trump—surged on Facebook.",
+        published: "2026-06-09T10:00:00Z",
+        tags: &[
+            "politics",
+            "donald trump",
+            "facebook",
+            "social media",
+            "meta",
+        ],
+        content_contains: &[
+            "Comments that violated Meta’s policies around violent threats quadrupled",
+            "Senator John Curtis, a Republican from Utah and a member of the Committee on Commerce, Science, and Transportation",
+        ],
+        content_not_contains: &[
+            "Join the WIRED community to add comments",
+            "You Might Also Like",
+        ],
+        images_contains: &[ExpectedImage {
+            url: "https://media.wired.com/photos/6a27d2a80d6aa02c6a8cda54/master/w_2240,c_limit/Politics_ThreatsAgainstPoliticiansSkyrocketedAfterMetaChangedItsSpeechRules_v2.jpg",
+            caption: "Photo Illustration of a Politician being yelled at by multiple people",
         }],
     });
 }

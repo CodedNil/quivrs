@@ -131,6 +131,8 @@ fn normalize_image_url(url: &str) -> String {
         url.trim(),
         &NormalizeOptions {
             force_https: true,
+            sort_query_parameters: false, // Protons CDN is picky about order
+            remove_trailing_slash: false,
             ..Default::default()
         },
     )
