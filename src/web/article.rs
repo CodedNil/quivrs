@@ -5,7 +5,10 @@ use crate::{
         Article, ArticleStatus, Rating, Region,
         server_functions::{set_article_status, set_rating},
     },
-    web::{Route, article_exists_in_tab, route_after_status_change, status_for_tab},
+    web::{
+        Route, article_exists_in_tab, route_after_status_change, route_parts,
+        set_article_rating_local, set_article_status_local, status_for_tab,
+    },
 };
 use dioxus::prelude::*;
 use uuid::Uuid;
@@ -30,6 +33,7 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
             CenteredMessage { text: if loaded { "Article not found".to_string() } else { "Loading article".to_string() } }
         };
     };
+    let source_domains = source_domain_urls(article);
 
     rsx! {
         div {
@@ -174,32 +178,13 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                             }
                             InfoPill { label: format!("Sentiment {:.0}%", article.sentiment * 100.0) }
                             InfoPill { label: format!("Importance {:.0}%", article.importance * 100.0) }
-                            {
-                                let mut seen: Vec<String> = Vec::new();
-                                article
-                                    .sources
-                                    .iter()
-                                    .filter_map(move |source| {
-                                        if seen.contains(&source.domain) {
-                                            None
-                                        } else {
-                                            seen.push(source.domain.clone());
-                                            let urls: Vec<String> = article
-                                                .sources
-                                                .iter()
-                                                .filter(|s| s.domain == source.domain)
-                                                .map(|s| s.url.clone())
-                                                .collect();
-                                            Some(rsx! {
-                                                RatingPill {
-                                                    key: "{source.domain}",
-                                                    label: source.domain.clone(),
-                                                    item_key: format!("domain:{}", source.domain),
-                                                    urls,
-                                                }
-                                            })
-                                        }
-                                    })
+                            for (domain, urls) in source_domains {
+                                RatingPill {
+                                    key: "{domain}",
+                                    label: domain.clone(),
+                                    item_key: format!("domain:{domain}"),
+                                    urls,
+                                }
                             }
                         }
                     }
@@ -243,6 +228,23 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
             }
         }
     }
+}
+
+fn source_domain_urls(article: &Article) -> Vec<(String, Vec<String>)> {
+    let mut domains = Vec::<(String, Vec<String>)>::new();
+
+    for source in &article.sources {
+        if let Some((_, urls)) = domains
+            .iter_mut()
+            .find(|(domain, _)| domain == &source.domain)
+        {
+            urls.push(source.url.clone());
+        } else {
+            domains.push((source.domain.clone(), vec![source.url.clone()]));
+        }
+    }
+
+    domains
 }
 
 #[component]
@@ -289,10 +291,7 @@ pub fn StatusButtons(id: Uuid) -> Element {
         None => return rsx! {},
     };
 
-    let (tab, selected_id) = match route {
-        Route::ArticleDetail { tab, id } => (tab, Some(id)),
-        Route::TabHome { tab } => (tab, None),
-    };
+    let (tab, selected_id) = route_parts(&route);
 
     let current_status = status_for_tab(&tab);
 
@@ -433,19 +432,5 @@ pub fn StarRating(current: Option<Rating>, estimated_liked: Option<f32>, id: Uui
                 }
             }
         }
-    }
-}
-
-fn set_article_status_local(articles: Signal<Vec<Article>>, id: Uuid, status: ArticleStatus) {
-    let mut articles = articles;
-    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
-        article.status = status;
-    }
-}
-
-fn set_article_rating_local(articles: Signal<Vec<Article>>, id: Uuid, rating: Option<Rating>) {
-    let mut articles = articles;
-    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
-        article.rating = rating;
     }
 }

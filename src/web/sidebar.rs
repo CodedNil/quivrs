@@ -1,5 +1,5 @@
 use super::{
-    Route,
+    Route, STATUS_LANES,
     article::{StarRating, StatusButtons},
     components::MaterialIcon,
     status_for_tab,
@@ -11,6 +11,15 @@ use std::{
     rc::Rc,
 };
 use uuid::Uuid;
+
+#[derive(Clone, Copy)]
+struct ArticleCounts {
+    new: usize,
+    stored: usize,
+    binned: usize,
+}
+
+type ArticleGroups = BTreeMap<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>;
 
 /// Fixed width of the sidebar panel.
 const SIDEBAR_WIDTH: &str = "30rem";
@@ -41,30 +50,36 @@ pub const SIDEBAR_STYLES: &str = "
     .tab-bubble-active { animation: bubble-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
 ";
 
+fn sidebar_data(articles: &[Article]) -> (ArticleCounts, ArticleGroups) {
+    let mut counts = ArticleCounts {
+        new: 0,
+        stored: 0,
+        binned: 0,
+    };
+    let mut groups = ArticleGroups::new();
+
+    for article in articles {
+        match article.status {
+            ArticleStatus::New => counts.new += 1,
+            ArticleStatus::Stored => counts.stored += 1,
+            ArticleStatus::Binned => counts.binned += 1,
+        }
+
+        groups
+            .entry(article.status)
+            .or_default()
+            .entry(article.category)
+            .or_default()
+            .push(article.id);
+    }
+
+    (counts, groups)
+}
+
 #[component]
 pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
     let articles = use_context::<Signal<Vec<Article>>>();
-
-    let (counts, all_groups) = {
-        let mut counts = (0, 0, 0);
-        let mut groups = BTreeMap::<ArticleStatus, BTreeMap<Category, Vec<Uuid>>>::new();
-
-        for a in articles.read().iter() {
-            match a.status {
-                ArticleStatus::New => counts.0 += 1,
-                ArticleStatus::Stored => counts.1 += 1,
-                ArticleStatus::Binned => counts.2 += 1,
-            }
-            groups
-                .entry(a.status)
-                .or_default()
-                .entry(a.category)
-                .or_default()
-                .push(a.id);
-        }
-        (counts, groups)
-    };
-
+    let (counts, all_groups) = sidebar_data(&articles.read());
     let current_status = status_for_tab(&tab);
 
     let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
@@ -102,9 +117,9 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 }
                 TabNav {
                     tab: tab.clone(),
-                    new_count: counts.0,
-                    stored_count: counts.1,
-                    binned_count: counts.2,
+                    new_count: counts.new,
+                    stored_count: counts.stored,
+                    binned_count: counts.binned,
                 }
                 CategoryScrollbar {
                     groups: current_groups,
@@ -130,7 +145,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     transform: "translateX(calc(-{current_status as usize} * 100% - {current_status as usize} * 40px))",
                     will_change: "transform",
 
-                    for status in [ArticleStatus::Stored, ArticleStatus::New, ArticleStatus::Binned] {
+                    for status in STATUS_LANES {
                         StatusLane {
                             key: "{status}",
                             status,

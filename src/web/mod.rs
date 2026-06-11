@@ -17,6 +17,12 @@ use std::{
 };
 use uuid::Uuid;
 
+const STATUS_LANES: [ArticleStatus; 3] = [
+    ArticleStatus::Stored,
+    ArticleStatus::New,
+    ArticleStatus::Binned,
+];
+
 #[component]
 fn AppHead() -> Element {
     rsx! {
@@ -144,11 +150,7 @@ fn MainLayout() -> Element {
     // Store handle for the content container element to control scrolling smoothly
     let mut content_container_handle = use_signal(|| None::<Rc<MountedData>>);
 
-    let (tab, selected_id) = match route {
-        Route::ArticleDetail { tab, id } => (tab, Some(id)),
-        Route::TabHome { tab } => (tab, None),
-    };
-
+    let (tab, selected_id) = route_parts(&route);
     let current_status = status_for_tab(&tab);
 
     // Filter dynamic IDs reactively
@@ -158,31 +160,16 @@ fn MainLayout() -> Element {
     let onkeydown = {
         let tab = tab.clone();
         move |event: KeyboardEvent| {
-            let mut articles = articles;
             let Some(id) = selected_id else {
                 return;
             };
-            let list = filtered_articles.read();
-            let pos = list.iter().position(|&item_id| item_id == id);
 
-            let navigate_delta = |delta: i32, wrap: bool| {
-                if let (Some(p), false) = (pos, list.is_empty()) {
-                    let len = list.len();
-                    let target_index = if wrap {
-                        (p as i32 + delta).rem_euclid(len as i32) as usize
-                    } else if p + 1 < len {
-                        p + 1
-                    } else {
-                        p.saturating_sub(1)
-                    };
-
-                    let target_id = list[target_index];
-                    if target_id != id {
-                        navigator.push(Route::ArticleDetail {
-                            tab: tab.clone(),
-                            id: target_id,
-                        });
-                    }
+            let navigate_delta = |delta: i32| {
+                if let Some(target_id) = adjacent_article_id(&filtered_articles.read(), id, delta) {
+                    navigator.push(Route::ArticleDetail {
+                        tab: tab.clone(),
+                        id: target_id,
+                    });
                 }
             };
 
@@ -204,15 +191,15 @@ fn MainLayout() -> Element {
             };
 
             match event.key() {
-                Key::ArrowLeft => navigate_delta(-1, true),
-                Key::ArrowRight => navigate_delta(1, true),
+                Key::ArrowLeft => navigate_delta(-1),
+                Key::ArrowRight => navigate_delta(1),
                 Key::ArrowUp => scroll_content(-1.0),
                 Key::ArrowDown => scroll_content(1.0),
                 Key::Character(c) => match c.to_lowercase().as_str() {
                     "w" => scroll_content(-1.0),
                     "s" => scroll_content(1.0),
-                    "a" => navigate_delta(-1, true),
-                    "d" => navigate_delta(1, true),
+                    "a" => navigate_delta(-1),
+                    "d" => navigate_delta(1),
                     "1" | "2" | "3" | "4" | "5" => {
                         let rating = match c.as_str() {
                             "1" => Rating::Hated,
@@ -222,9 +209,7 @@ fn MainLayout() -> Element {
                             _ => Rating::Loved,
                         };
                         spawn(async move {
-                            if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                                a.rating = Some(rating);
-                            }
+                            set_article_rating_local(articles, id, Some(rating));
                             let _ = set_rating(id, rating).await;
                         });
                     }
@@ -243,9 +228,7 @@ fn MainLayout() -> Element {
                         );
                         navigator.push(route);
 
-                        if let Some(a) = articles.write().iter_mut().find(|a| a.id == id) {
-                            a.status = status;
-                        }
+                        set_article_status_local(articles, id, status);
                         spawn(async move {
                             let _ = set_article_status(id, status).await;
                         });
@@ -295,6 +278,13 @@ fn status_for_tab(tab: &str) -> ArticleStatus {
     }
 }
 
+fn route_parts(route: &Route) -> (String, Option<Uuid>) {
+    match route {
+        Route::ArticleDetail { tab, id } => (tab.clone(), Some(*id)),
+        Route::TabHome { tab } => (tab.clone(), None),
+    }
+}
+
 fn article_ids_for_status(articles: &[Article], status: ArticleStatus) -> Vec<Uuid> {
     let mut groups = BTreeMap::<Category, Vec<Uuid>>::new();
     for article in articles {
@@ -303,6 +293,16 @@ fn article_ids_for_status(articles: &[Article], status: ArticleStatus) -> Vec<Uu
         }
     }
     groups.into_values().flatten().collect()
+}
+
+fn adjacent_article_id(list: &[Uuid], id: Uuid, delta: i32) -> Option<Uuid> {
+    if list.len() < 2 {
+        return None;
+    }
+
+    let current = list.iter().position(|&item_id| item_id == id)?;
+    let target = (current as i32 + delta).rem_euclid(list.len() as i32) as usize;
+    (list[target] != id).then_some(list[target])
 }
 
 fn article_exists_in_tab(articles: &[Article], tab: &str, id: Uuid) -> bool {
@@ -334,4 +334,16 @@ fn route_after_status_change(
     }
 
     Route::TabHome { tab }
+}
+
+fn set_article_status_local(mut articles: Signal<Vec<Article>>, id: Uuid, status: ArticleStatus) {
+    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
+        article.status = status;
+    }
+}
+
+fn set_article_rating_local(mut articles: Signal<Vec<Article>>, id: Uuid, rating: Option<Rating>) {
+    if let Some(article) = articles.write().iter_mut().find(|a| a.id == id) {
+        article.rating = rating;
+    }
 }
