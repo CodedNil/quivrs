@@ -573,7 +573,11 @@ fn ArticleItem(id: Uuid, selected: Option<Uuid>, tab: String) -> Element {
                     top: "0.5rem",
                     left: "1rem",
                     z_index: "20",
-                    StarRating { current: article.rating, estimated_liked: article.estimated_liked, id }
+                    StarRating {
+                        current: article.rating,
+                        estimated_liked: article.estimated_liked,
+                        id,
+                    }
                 }
                 div {
                     position: "absolute",

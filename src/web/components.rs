@@ -90,11 +90,12 @@ pub fn InfoPill(label: String) -> Element {
 
 /// A rating pill that expands with rating buttons on hover.
 #[component]
-pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Element {
+pub fn RatingPill(label: String, item_key: String, urls: Vec<String>) -> Element {
     let item_ratings = use_context::<Signal<HashMap<String, Rating>>>();
     let current = item_ratings.read().get(&item_key).copied();
     let bg = current.unwrap_or(Rating::Neutral).color();
     let mut hovered = use_signal(|| false);
+    let mut hover_idx = use_signal(|| None::<usize>);
 
     rsx! {
         div {
@@ -105,7 +106,7 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
 
-            // Expanding background — grows to cover button panels, carries the border
+            // Expanding background
             div {
                 position: "absolute",
                 left: if hovered() { "-3rem" } else { "0" },
@@ -119,7 +120,7 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
                 z_index: "-1",
             }
 
-            // Left buttons — right edge flush with pill left edge
+            // Left rating buttons
             div {
                 position: "absolute",
                 right: "100%",
@@ -148,6 +149,7 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
 
             // Core pill label — in-flow, sets the wrapper's size
             div {
+                position: "relative",
                 display: "inline-flex",
                 align_items: "center",
                 background_color: bg,
@@ -157,21 +159,60 @@ pub fn RatingPill(label: String, item_key: String, url: Option<String>) -> Eleme
                 font_size: "0.62rem",
                 font_weight: "700",
                 white_space: "nowrap",
-                if let Some(href) = url {
+
+                // The label text
+                if urls.len() > 1 {
+                    span {
+                        position: "relative",
+                        z_index: "0",
+                        pointer_events: "none",
+                        "{label}"
+                    }
+                } else if urls.is_empty() {
+                    span { "{label}" }
+                } else {
                     a {
-                        href: "{href}",
+                        href: "{urls[0]}",
                         target: "_blank",
                         rel: "noopener noreferrer",
                         color: "inherit",
                         text_decoration: "none",
                         "{label}"
                     }
-                } else {
-                    span { "{label}" }
+                }
+
+                // Overlay link buttons for multi-URL domains
+                if urls.len() > 1 {
+                    div {
+                        position: "absolute",
+                        left: "0",
+                        top: "0",
+                        right: "0",
+                        bottom: "0",
+                        display: "flex",
+                        gap: "2px",
+                        padding: "2px",
+                        z_index: "1",
+                        for (i, url) in urls.iter().enumerate() {
+                            a {
+                                href: "{url}",
+                                target: "_blank",
+                                rel: "noopener noreferrer",
+                                flex: "1",
+                                border_radius: "9999px",
+                                background_color: if hover_idx() == Some(i) { "rgba(255,255,255,0.25)" } else { "transparent" },
+                                transition: "background-color 0.15s ease",
+                                display: "block",
+                                aria_label: "{label} article {i + 1}",
+                                onmouseenter: move |_| hover_idx.set(Some(i)),
+                                onmouseleave: move |_| hover_idx.set(None),
+                            }
+                        }
+                    }
                 }
             }
 
-            // Right buttons — left edge flush with pill right edge
+            // Right rating buttons
             div {
                 position: "absolute",
                 left: "100%",

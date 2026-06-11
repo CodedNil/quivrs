@@ -157,7 +157,11 @@ Fields:
 - region: exactly one of {regions}.
 - sentiment: decimal from 0.00 to 1.00, where 0 is very negative (this will frustrate, anger or upset the user to read), and 1 is very positive (this will make the user happy to read). Don't be afraid of going to either pole.
 - importance: decimal from 0.00 to 1.00, where 0 is trivial/low-stakes (opinion pieces, sales marketing, minor local events, celebrity gossip), and 1 is highly consequential (major political or economic events, active disasters). Don't be afraid of going to either pole, realistically a lot of articles will be in the 0.00-0.33 range.
-ALWAYS use 2 decimal places (0.80,0.81,0.82,0.83,0.84,0.85 not just 0.8,0.85) for sentiment and importance.
+ALWAYS use 2 decimal places (0.83 not just 0.8) for sentiment and importance.
+
+Examples:
+Manchester University to offer work placements to all undergraduates. Russell Group university promises students, from chemical engineering to classics, ‘meaningful real-world experience -> 0,Business,England,0.87,0.66
+Former US Attorney General Pam Bondi diagnosed with cancer. Bondi, who was diagnosed shortly after being ousted in April, is also joining the White House's new advisory council on AI -> 1,Politics,UnitedStates, 0.07,0.55
 
 Choose the most specific applicable category. Choose the most specific applicable region when the article is clearly about a place; use Global for worldwide, non-geographic, or ambiguous items.
 
@@ -684,7 +688,7 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 2. **Feature Box**: <div class="box"><strong>Title</strong><p>Description</p></div>, renders with a filled background behind it
 3. **Layout Grids**:
    - Vertical Stack: <div class="flexbox-columns">...</div>
-   - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes), max 3 columns, maybe 4 if the items are small, use multiple rows if necessary.
+   - Horizontal Grid: <div class="flexbox-rows">...</div> (Great for image galleries or side-by-side boxes)
 4. **Images**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
 5. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">29th May 2005 OR May 2005 OR 2005</span><span class="event">Event</span></div></div>
 6. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
@@ -698,7 +702,7 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 - **Content: Main Body**:
   - Start with a 2-3 paragraph overview.
   - Increase depth and detail as the article progresses (stop if you run out of source material).
-  - **Custom Visuals**: If it's a particularly interesting article you'd like to make a feature of, use one or more custom and/or interactive elements.
+  - **Custom Visuals**: If it's a particularly interesting article you'd like to make a feature of, use one or more custom and/or interactive elements. Think hard *should this be a hero article?* if it has a ton of content lots of images, visually appealling potential etc. If it could be a hero article, think about how you can boost it with custom elements.
   - **Timeline (Optional)**: Include a "Timeline" section if the subject has a clear chronological history.
   - **Perspectives (Optional)**: Include a "Perspectives" section at the end using <div class="flexbox-rows"> with <div class="box"> elements to show different viewpoints (e.g., "Critics", "Supporters", "Experts").
   - **Tone**: Professional, objective, and deeply informative.

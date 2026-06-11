@@ -150,7 +150,11 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                             font_weight: "900",
                             {article.published.format("%b %d, %Y %H:%M UTC").to_string()}
                         }
-                        StarRating { current: article.rating, estimated_liked: article.estimated_liked, id }
+                        StarRating {
+                            current: article.rating,
+                            estimated_liked: article.estimated_liked,
+                            id,
+                        }
                         div {
                             display: "flex",
                             align_items: "center",
@@ -159,22 +163,43 @@ pub fn ArticleDetail(tab: String, id: Uuid) -> Element {
                             RatingPill {
                                 label: article.category.to_string(),
                                 item_key: format!("category:{}", article.category),
+                                urls: Vec::new(),
                             }
                             if article.region != Region::Global {
                                 RatingPill {
                                     label: article.region.to_string(),
                                     item_key: format!("region:{}", article.region),
+                                    urls: Vec::new(),
                                 }
                             }
                             InfoPill { label: format!("Sentiment {:.0}%", article.sentiment * 100.0) }
                             InfoPill { label: format!("Importance {:.0}%", article.importance * 100.0) }
-                            for source in &article.sources {
-                                RatingPill {
-                                    key: "{source.url}",
-                                    label: source.domain.clone(),
-                                    item_key: format!("domain:{}", source.domain),
-                                    url: Some(source.url.clone()),
-                                }
+                            {
+                                let mut seen: Vec<String> = Vec::new();
+                                article
+                                    .sources
+                                    .iter()
+                                    .filter_map(move |source| {
+                                        if seen.contains(&source.domain) {
+                                            None
+                                        } else {
+                                            seen.push(source.domain.clone());
+                                            let urls: Vec<String> = article
+                                                .sources
+                                                .iter()
+                                                .filter(|s| s.domain == source.domain)
+                                                .map(|s| s.url.clone())
+                                                .collect();
+                                            Some(rsx! {
+                                                RatingPill {
+                                                    key: "{source.domain}",
+                                                    label: source.domain.clone(),
+                                                    item_key: format!("domain:{}", source.domain),
+                                                    urls,
+                                                }
+                                            })
+                                        }
+                                    })
                             }
                         }
                     }
@@ -369,10 +394,11 @@ pub fn StarRating(current: Option<Rating>, estimated_liked: Option<f32>, id: Uui
         div { display: "flex", align_items: "center", gap: "0.05rem",
             for (i, &this_rating) in RATINGS.iter().enumerate() {
                 {
-                    let fill = fill_to.map_or_else(
-                        || (estimated_fill - i as f32).clamp(0.0, 1.0),
-                        |h| if i <= h { 1.0 } else { 0.0 },
-                    );
+                    let fill = fill_to
+                        .map_or_else(
+                            || (estimated_fill - i as f32).clamp(0.0, 1.0),
+                            |h| if i <= h { 1.0 } else { 0.0 },
+                        );
                     let filled = fill > 0.0;
                     let is_hover = hover_idx().is_some_and(|h| i == h);
                     let is_current = current_idx == Some(i);
