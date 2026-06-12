@@ -210,7 +210,9 @@ fn MainLayout() -> Element {
                         };
                         spawn(async move {
                             set_article_rating_local(articles, id, Some(rating));
-                            let _ = set_rating(id, rating).await;
+                            if let Err(e) = set_rating(id, rating).await {
+                                error!("Failed to set rating: {}", e);
+                            }
                         });
                     }
                     "r" | "t" => {
@@ -220,17 +222,20 @@ fn MainLayout() -> Element {
                             ArticleStatus::Stored
                         };
 
-                        let route = route_after_status_change(
-                            tab.clone(),
-                            &articles.read(),
-                            current_status,
-                            id,
-                        );
-                        navigator.push(route);
-
-                        set_article_status_local(articles, id, status);
+                        let tab = tab.clone();
                         spawn(async move {
-                            let _ = set_article_status(id, status).await;
+                            let route = route_after_status_change(
+                                tab,
+                                &articles.read(),
+                                current_status,
+                                id,
+                            );
+                            navigator.push(route);
+
+                            set_article_status_local(articles, id, status);
+                            if let Err(e) = set_article_status(id, status).await {
+                                error!("Failed to set article status: {}", e);
+                            }
                         });
                     }
                     _ => {}

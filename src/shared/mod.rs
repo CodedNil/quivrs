@@ -75,6 +75,7 @@ pub struct ArticleSource {
 }
 
 #[derive(
+    Debug,
     Serialize,
     Deserialize,
     Default,
@@ -108,7 +109,18 @@ pub enum Category {
 }
 
 #[derive(
-    Serialize, Deserialize, Default, Clone, Copy, Display, EnumIter, EnumString, PartialEq, Eq, Hash,
+    Debug,
+    Serialize,
+    Deserialize,
+    Default,
+    Clone,
+    Copy,
+    Display,
+    EnumIter,
+    EnumString,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 pub enum Region {
     #[default]
@@ -159,6 +171,7 @@ pub enum Region {
 }
 
 #[derive(
+    Debug,
     Serialize,
     Deserialize,
     Default,
@@ -178,7 +191,9 @@ pub enum ArticleStatus {
     Binned,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(
+    Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, EnumString,
+)]
 pub enum Rating {
     Hated,
     Disliked,

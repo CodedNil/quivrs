@@ -306,7 +306,9 @@ pub fn StatusButtons(id: Uuid) -> Element {
 
         set_article_status_local(articles, id, new_status);
         spawn(async move {
-            let _ = set_article_status(id, new_status).await;
+            if let Err(e) = set_article_status(id, new_status).await {
+                error!("Failed to set article status: {}", e);
+            }
         });
     };
 
@@ -424,7 +426,9 @@ pub fn StarRating(current: Option<Rating>, estimated_liked: Option<f32>, id: Uui
                                     id,
                                     if is_current { None } else { Some(new) },
                                 );
-                                let _ = set_rating(id, new).await;
+                                if let Err(e) = set_rating(id, new).await {
+                                    error!("Failed to set rating: {}", e);
+                                }
                             },
                             StarGlyph { fill, opacity: if ghost_mode { 0.2 } else { 1.0 } }
                         }

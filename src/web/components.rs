@@ -28,7 +28,7 @@ pub fn MaterialIcon(name: String, size: u32) -> Element {
         "Culture" => material_icon_svg!("theater_comedy"),
         "Lifestyle" => material_icon_svg!("chair"),
         "Transport" => material_icon_svg!("directions_car"),
-        "Nature" => material_icon_svg!("nature"),
+        "Nature" => material_icon_svg!("park"),
         "Technology" => material_icon_svg!("memory"),
         "Software" => material_icon_svg!("code"),
         "AI" => material_icon_svg!("neurology"),
@@ -269,7 +269,9 @@ pub fn RatingPillBtn(
                     } else {
                         target
                     };
-                    let _ = set_item_rating(k.clone(), new_rating).await;
+                    if let Err(e) = set_item_rating(k.clone(), new_rating).await {
+                        error!("Failed to set item rating: {}", e);
+                    }
                     item_ratings.write().insert(k, new_rating);
                 }
             },

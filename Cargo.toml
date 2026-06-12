@@ -48,7 +48,7 @@ tower-http = { version = "0.6.11", features = [
     "compression-gzip",
 ] }
 futures = "0.3.32"
-fastembed = { version = "5.16.0", default-features = false, features = [
+fastembed = { version = "5.16.1", default-features = false, features = [
     "hf-hub-rustls-tls",
     "ort-download-binaries-rustls-tls",
 ] }

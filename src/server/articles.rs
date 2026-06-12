@@ -36,7 +36,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const LIKED_SERVE_THRESHOLD: f32 = 0.9; // If the liked guess is above this, it is automatically served
-const LIKED_MIN_THRESHOLD: f32 = 0.6; // If the liked guess is above this, it is served to meet quota
+const LIKED_MIN_THRESHOLD: f32 = 0.5; // If the liked guess is above this, it is served to meet quota
 
 const MERGE_SIMILARITY_THRESHOLD: f32 = 0.58; // Threshold for merging similar articles
 const TIME_BONUS_MAX: f32 = 0.03; // How much to boost the score for merging a recent article

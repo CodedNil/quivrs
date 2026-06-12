@@ -84,8 +84,20 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
 
     let current_groups = all_groups.get(&current_status).cloned().unwrap_or_default();
     let scroll_top_val = use_signal(|| 0.0);
+    let scroll_container_height = use_signal(|| 600.0);
 
     let category_elements = use_signal(HashMap::<String, Rc<MountedData>>::new);
+
+    // Capture the scroll container's client height on mount
+    let on_container_mounted = move |cx: Event<MountedData>| {
+        let data = cx.data();
+        let mut height = scroll_container_height;
+        spawn(async move {
+            if let Ok(rect) = data.get_client_rect().await {
+                height.set(rect.size.height);
+            }
+        });
+    };
 
     rsx! {
         div {
@@ -126,6 +138,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                     status: current_status,
                     scroll_top: scroll_top_val,
                     category_elements,
+                    container_height: scroll_container_height(),
                 }
             }
 
@@ -136,6 +149,7 @@ pub fn Sidebar(tab: String, selected_id: Option<Uuid>) -> Element {
                 position: "relative",
                 background_color: "var(--mantle)",
                 border_radius: "20px 40px 40px 20px",
+                onmounted: on_container_mounted,
 
                 div {
                     display: "flex",
@@ -313,6 +327,7 @@ fn CategoryScrollbar(
     status: ArticleStatus,
     scroll_top: Signal<f64>,
     category_elements: Signal<HashMap<String, Rc<MountedData>>>,
+    container_height: f64,
 ) -> Element {
     if groups.is_empty() {
         return rsx! {};
@@ -328,8 +343,10 @@ fn CategoryScrollbar(
         })
         .collect();
 
+    let total_h: f64 = cat_heights.iter().sum();
+
+    // Proportional widths for each category segment (icons spread across the bar)
     let segment_pcts = {
-        let total_h: f64 = cat_heights.iter().sum();
         if total_h <= 0.0 {
             vec![0.0; cat_heights.len()]
         } else {
@@ -342,22 +359,23 @@ fn CategoryScrollbar(
         }
     };
 
-    let dot_pct = {
-        let st = scroll_top();
-        let (mut cur_h, mut cur_adj) = (0.0, 0.0);
-
-        let mut calculated_pct = 0.0;
-        for (i, h) in cat_heights.iter().enumerate() {
-            if st < cur_h + *h || i == cat_heights.len() - 1 {
-                let t = if *h > 0.0 { (st - cur_h) / *h } else { 0.0 };
-                calculated_pct = t.clamp(0.0, 1.0).mul_add(segment_pcts[i], cur_adj);
-                break;
-            }
-            cur_h += *h;
-            cur_adj += segment_pcts[i];
-        }
-        calculated_pct
+    // Thumb width: proportion of visible area vs total content.
+    // At minimum 5% so it's always grabbable, at maximum 100% (full bar = no scrolling needed).
+    let thumb_fraction = if total_h <= container_height {
+        1.0
+    } else {
+        (container_height / total_h).clamp(0.05, 1.0)
     };
+
+    // Thumb position: scroll_top linearly mapped so it reaches the right edge when fully scrolled to the bottom.
+    let max_scroll = (total_h - container_height).max(0.0);
+    let left_pct = if thumb_fraction >= 1.0 || max_scroll <= 0.0 {
+        0.0
+    } else {
+        (scroll_top() / max_scroll) * (100.0 - thumb_fraction * 100.0)
+    };
+
+    let thumb_width_pct = thumb_fraction * 100.0;
 
     rsx! {
         div {
@@ -372,13 +390,13 @@ fn CategoryScrollbar(
             overflow: "hidden",
             div {
                 position: "absolute",
-                left: "{dot_pct:.2}%",
+                left: "{left_pct:.2}%",
+                width: "{thumb_width_pct:.2}%",
                 height: "100%",
-                aspect_ratio: "1.2",
                 background_color: "var(--accent)",
                 border_radius: "9999px",
-                transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
-                will_change: "left",
+                transition: "left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1), width 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1)",
+                will_change: "left, width",
             }
             for (i, &category) in groups.keys().enumerate() {
                 div {
