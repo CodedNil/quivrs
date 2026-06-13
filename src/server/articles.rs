@@ -18,7 +18,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
-use futures::future::join_all;
+use futures::{future::join_all, stream::StreamExt};
 use itertools::Itertools;
 use regex::Regex;
 use serde::Deserialize;
@@ -119,7 +119,7 @@ pub const fn domain_bonus(rating: Rating) -> f32 {
     }
 }
 
-async fn classify_and_insert_batch(sources: &mut Vec<PendingSource>) {
+async fn classify_and_insert_batch(mut sources: Vec<PendingSource>) {
     let categories: String = Category::iter().map(|v| v.to_string()).join(", ");
     let regions: String = Region::iter().map(|v| v.to_string()).join(", ");
     let sanitise = |s: &str| s.replace('\n', " ");
@@ -304,9 +304,18 @@ pub async fn refresh_all_feeds() -> Result<()> {
         return Ok(());
     }
 
+    let mut futs = Vec::new();
     while !new_entries.is_empty() {
-        classify_and_insert_batch(&mut new_entries).await;
+        futs.push(classify_and_insert_batch(
+            new_entries
+                .drain(..CLASSIFICATION_BATCH_SIZE.min(new_entries.len()))
+                .collect(),
+        ));
     }
+    futures::stream::iter(futs)
+        .buffer_unordered(5)
+        .for_each(|()| async {})
+        .await;
 
     Ok(())
 }
@@ -378,6 +387,7 @@ pub async fn promote_articles() -> Result<()> {
 
     let mut cat_counts = database::get_category_article_counts().await?;
     let mut promoted_urls = HashSet::new();
+    let mut to_promote = Vec::new();
 
     for scored in scored_pending {
         let ScoredPendingSource {
@@ -416,6 +426,7 @@ pub async fn promote_articles() -> Result<()> {
 
         let candidate_ts = candidate.published.timestamp() as f32;
 
+        let candidate_category = candidate.category;
         let mut sources_to_merge = vec![candidate];
 
         for (other, similarity) in similar_sources {
@@ -455,9 +466,18 @@ pub async fn promote_articles() -> Result<()> {
             ),
         }
 
-        match generate_promoted_content(&sources_to_merge).await {
+        to_promote.push(Box::pin(async move {
+            let result = generate_promoted_content(&sources_to_merge).await;
+            (sources_to_merge, estimated_liked, result)
+        }));
+        *cat_counts.entry(candidate_category).or_default() += 1;
+    }
+
+    let mut stream = futures::stream::iter(to_promote).buffer_unordered(5);
+    while let Some((sources_to_merge, estimated_liked, result)) = stream.next().await {
+        match result {
             Ok(entry) => {
-                let (urls, article_sources): (Vec<_>, Vec<_>) = sources_to_merge
+                let (urls, article_sources) = sources_to_merge
                     .iter()
                     .map(|source| {
                         (
@@ -473,7 +493,6 @@ pub async fn promote_articles() -> Result<()> {
                     .into_iter()
                     .next()
                     .expect("candidate source is present");
-                let category = candidate.category;
                 let article = Article {
                     id: Uuid::new_v4(),
                     sources: article_sources,
@@ -484,7 +503,7 @@ pub async fn promote_articles() -> Result<()> {
                     thumbnail: entry.thumbnail,
                     background: entry.background,
                     published: candidate.published,
-                    category,
+                    category: candidate.category,
                     region: candidate.region,
                     status: ArticleStatus::New,
                     status_changed: Utc::now(),
@@ -497,7 +516,6 @@ pub async fn promote_articles() -> Result<()> {
                     importance: candidate.importance,
                 };
                 database::insert_promoted_article(article, urls).await?;
-                *cat_counts.entry(category).or_default() += 1;
             }
             Err(e) => error!(
                 "Failed to generate content for '{}': {}",
@@ -692,7 +710,8 @@ Use these HTML patterns to structure the "content" and "sidebar" fields:
 4. **Images**: Use image placeholders only: <img>#0</img> for provided source images, <img>$0</img> for suggested search images, or <img>search(short visual search term)</img> to use the first image from a web image search. For #N and $N images, you may optionally provide a display caption after a pipe, for example <img>#0|Moore sculptures on display at Wakehurst</img>.
 5. **Timeline**: <div class="timeline"><div class="timeline-item"><span class="date">29th May 2005 OR May 2005 OR 2005</span><span class="event">Event</span></div></div>
 6. **Quotes**: <blockquote class="quote">Expert statement...</blockquote>
-7. **Custom / Interactive**: To bring a special visual flair, you are HIGHLY encouraged to use custom elements, html with inlined css, data visualizations, long-form storytelling visuals, CSS animated elements, etc. If you need JavaScript for interactivity or dynamic data visualizations, wrap the complete HTML/CSS/JS payload in a custom <interactive>...</interactive> element. Anything inside <interactive> will render in a sandboxed iframe where JavaScript can run; ordinary article HTML outside <interactive> is sanitized and cannot run JavaScript.
+7. **Custom**: To bring a special visual flair, you are HIGHLY encouraged to use custom elements, html with inlined css, data visualizations, long-form storytelling visuals, CSS animated elements, etc.
+8. **Interactive**: If you need JavaScript for interactivity or dynamic data visualizations, wrap the complete HTML/CSS/JS payload in a <interactive>...</interactive> element. Anything inside <interactive> will render in a sandboxed iframe where JavaScript can run; ordinary article HTML outside <interactive> is sanitized and cannot run JavaScript.
 
 ### EDITORIAL REQUIREMENTS
 - **Image Usage**: Use most relevant provided images, have a hero image near the start, distribute the rest logically. Ignore images that are clearly unnecessary, like branding. Prefer provided source images first, then use suggested search images with <img>$N</img> when they add useful context. Captions are optional; only provide one when it adds useful context.

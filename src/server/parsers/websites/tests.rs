@@ -86,6 +86,25 @@ fn the_conversation_article_full_parse() {
 
 #[test]
 #[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
+fn the_conversation2_article_full_parse() {
+    assert_website_case(&WebsiteCase {
+        url: "https://theconversation.com/pieter-obels-and-feng-xiao-min-a-compelling-exploration-of-nature-through-steel-and-paint-284856",
+        domain: "theconversation.com",
+        title: "Pieter Obels and Feng Xiao-Min: a compelling exploration of nature through steel and paint",
+        summary: "The two artists have very different, yet curiously complimentary, responses to nature.",
+        published: "2026-06-12T15:07:27Z",
+        tags: &["Art", "Exhibition", "Painting", "Sculpture"],
+        content_contains: &[],
+        content_not_contains: &[],
+        images_contains: &[ExpectedImage {
+            url: "https://images.theconversation.com/files/740725/original/file-20260609-57-80oxll.jpg?ixlib=rb-4.1.0&q=30&auto=format&w=600&h=804&fit=crop&dpr=2",
+            caption: "I See Myself by Pieter Obels.",
+        }],
+    });
+}
+
+#[test]
+#[ignore = "downloads HTML on first run, then uses /tmp/quivrs cache"]
 fn science_daily_article_full_parse() {
     assert_website_case(&WebsiteCase {
         url: "https://sciencedaily.com/releases/2026/06/260606075515.htm",

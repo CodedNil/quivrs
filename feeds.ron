@@ -5,7 +5,6 @@
     // News
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.tomsguide.com/rss",
-    "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
     "https://www.pbs.org/newshour/feeds/rss/headlines",
     "https://www.wired.com/feed/rss",
     "https://www.npr.org/rss/rss.php?id=1001",
@@ -57,7 +56,6 @@
     "https://blog.google/products/gemini/rss/",
     "https://blog.samaltman.com/posts.atom",
     "https://futurism.com/categories/ai-artificial-intelligence/feed",
-    "https://futurism.com/tags/ai/feed",
     "https://github.blog/ai-and-ml/llms/feed/",
     "https://gizmodo.com/tech/artificial-intelligence/feed",
     "https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml",
@@ -65,13 +63,10 @@
     "https://openai.com/news/rss.xml",
     "https://techcrunch.com/category/artificial-intelligence/feed/",
     "https://www.microsoft.com/en-us/research/feed/",
-    "https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/spotlight/artificial-intelligence/rss.xml",
     "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml",
     "https://www.wired.com/feed/tag/ai/latest/rss",
 
     // Nature
-    "https://blogs.law.columbia.edu/climatechange/feed/",
-    "https://braveneweurope.com/category/sustainability/climate-change/feed",
     "https://eos.org/tag/climate/feed",
     "https://feeds.bbci.co.uk/news/topics/cmj34zmwm1zt/rss.xml",
     "https://naturalengland.blog.gov.uk/category/climate-change/feed/",

@@ -21,7 +21,7 @@ static DB: OnceLock<SqlitePool> = OnceLock::new();
 static REGISTER_SQLITE_VEC: Once = Once::new();
 
 const DEFAULT_DATABASE_URL: &str = "sqlite://quivrs.db";
-const PREFERENCE_NEIGHBOURS: usize = 64;
+const PREFERENCE_NEIGHBOURS: usize = 32;
 const SIMILAR_SOURCE_NEIGHBOURS: i64 = 30;
 
 #[derive(Clone, Copy)]
@@ -275,10 +275,11 @@ pub async fn set_item_rating(key: &str, rating: Rating) -> Result<()> {
 
 /// Returns the preference score for a given embedding, based on the users ratings.
 pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_article_embeddings")
-        .fetch_one(pool()?)
-        .await?;
-    if count == 0 {
+    let rated_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM articles WHERE rating IS NOT NULL")
+            .fetch_one(pool()?)
+            .await?;
+    if rated_count == 0 {
         return Ok(0.5);
     }
 
@@ -290,11 +291,11 @@ pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
          ORDER BY vectors.distance",
     )
     .bind(serde_json::to_string(embedding)?)
-    .bind(count)
+    .bind(rated_count.max(PREFERENCE_NEIGHBOURS as i64))
     .fetch_all(pool()?)
     .await?;
 
-    let rows = rows
+    let rows: Vec<_> = rows
         .into_iter()
         .map(|row| {
             Ok((
@@ -310,8 +311,11 @@ pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
     }
 
     let (sum, weight) = rows.into_iter().fold((0.0, 0.0), |(sum, weight), row| {
-        let sim = row.1.clamp(-1.0, 1.0);
-        let p = (sim * 10.0).exp();
+        // Change range from 0.2-0.8
+        // This is because articles are never going to be perfectly similar to the ones you previously liked,
+        // but if they are quite similar that's good enough for a strong match
+        let sim = ((row.1 - 0.2) / 0.6).clamp(0.0, 1.0);
+        let w = sim * sim;
         let val = match row.0 {
             Rating::Loved => 1.0,
             Rating::Liked => 0.75,
@@ -319,7 +323,7 @@ pub async fn get_preference_score(embedding: &[f32]) -> Result<f32> {
             Rating::Disliked => 0.25,
             Rating::Hated => 0.0,
         };
-        (sum + val * p, weight + p)
+        (sum + val * w, weight + w)
     });
 
     Ok(if weight > 0.0 { sum / weight } else { 0.5 })

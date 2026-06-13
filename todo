@@ -10,6 +10,8 @@ https://medium.com/bbc-news-labs/beyond-800-words-new-digital-story-formats-for-
 quizzes in article: https://www.bbc.co.uk/news/articles/c5y7qz806q3o
 
 
+feed raw articles full html to the ai one at a time, incrementally update the article, extract images (doesnt need to be hd one), at a single tile in token usage, feed all images to the ai so it has visual context
+
 to reduce serving similar articles repeatedly, dont allow articles that have been published within an hour to give it some room to settle, then down score articles based on their similarity to recently read articles if very similar
 
 have a separate users feeds which gets served unedited, youtube etc
