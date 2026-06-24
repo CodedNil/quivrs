@@ -1,5 +1,5 @@
-use crate::feed::{FeedConfigFile, FeedData, HTTP_CLIENT};
-use anyhow::{Ok, Result};
+use crate::HTTP_CLIENT;
+use anyhow::Result;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -12,8 +12,14 @@ use tracing::{info, warn};
 
 static MINIFLUX_URL: LazyLock<String> = LazyLock::new(|| env::var("MINIFLUX_URL").unwrap());
 static MINIFLUX_KEY: LazyLock<String> = LazyLock::new(|| env::var("MINIFLUX_KEY").unwrap());
-static QUIVRS_URL: LazyLock<String> = LazyLock::new(|| env::var("QUIVRS_URL").unwrap());
-static QUIVRS_URL_PREFIX: LazyLock<String> = LazyLock::new(|| format!("{}/feeds/", *QUIVRS_URL));
+
+#[derive(Debug, Clone)]
+pub struct FeedTarget {
+    pub name: String,
+    pub category: String,
+    pub feed_url: String,
+    pub site_url: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 struct MinifluxCategory {
@@ -30,194 +36,190 @@ struct MinifluxFeed {
     category: MinifluxCategory,
 }
 
-async fn post_api(url: &str, body: Value) -> Result<()> {
-    let request = HTTP_CLIENT
-        .request(Method::POST, format!("{}/{url}", *MINIFLUX_URL))
+async fn get_api<T>(path: &str) -> Result<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let bytes = HTTP_CLIENT
+        .request(Method::GET, format!("{}/{path}", *MINIFLUX_URL))
         .header("X-Auth-Token", MINIFLUX_KEY.as_str())
         .header("Content-Type", "application/json")
-        .body(serde_json::to_vec(&body).unwrap());
-    if !cfg!(debug_assertions)
-        && let Err(err) = request.send().await?.error_for_status()
-    {
-        warn!("Failed to post to Miniflux API: {}", err);
-    }
-    Ok(())
+        .send()
+        .await?
+        .bytes()
+        .await?;
+
+    Ok(serde_json::from_slice::<T>(&bytes)?)
 }
 
-async fn put_api(url: &str, body: Option<&Value>) -> Result<()> {
+async fn send_api(method: Method, path: &str, body: Option<Value>) -> Result<()> {
     let mut request = HTTP_CLIENT
-        .request(Method::PUT, format!("{}/{url}", *MINIFLUX_URL))
+        .request(method.clone(), format!("{}/{path}", *MINIFLUX_URL))
         .header("X-Auth-Token", MINIFLUX_KEY.as_str())
         .header("Content-Type", "application/json");
+
     if let Some(body) = body {
-        request = request.body(serde_json::to_vec(&body).unwrap());
+        request = request.body(serde_json::to_vec(&body)?);
     }
+
     if !cfg!(debug_assertions)
         && let Err(err) = request.send().await?.error_for_status()
     {
-        warn!("Failed to put to Miniflux API: {}", err);
+        warn!("Miniflux {} {path} failed: {err}", method.as_str());
     }
+
     Ok(())
 }
 
-async fn delete_api(url: &str) -> Result<()> {
-    let request = HTTP_CLIENT
-        .request(Method::DELETE, format!("{}/{url}", *MINIFLUX_URL))
-        .header("X-Auth-Token", MINIFLUX_KEY.as_str())
-        .header("Content-Type", "application/json");
-    if !cfg!(debug_assertions)
-        && let Err(err) = request.send().await?.error_for_status()
-    {
-        warn!("Failed to delete to Miniflux API: {}", err);
-    }
-    Ok(())
-}
-
-pub async fn update_feeds(
-    config_feeds: &FeedConfigFile,
-    database_feeds: HashMap<String, FeedData>,
-    updated_feeds: HashSet<String>,
+pub async fn update_feeds<'a>(
+    wanted_categories: impl Iterator<Item = &'a String>,
+    feed_targets: Vec<FeedTarget>,
 ) -> Result<()> {
-    let wanted_categories: HashSet<String> = config_feeds.keys().cloned().collect();
+    let wanted_categories = wanted_categories.cloned().collect::<HashSet<_>>();
+    let targets_by_url = feed_targets
+        .into_iter()
+        .map(|target| (target.feed_url.clone(), target))
+        .collect::<HashMap<_, _>>();
 
-    // Get existing categories on miniflux
-    let miniflux_categories = serde_json::from_slice::<Vec<MinifluxCategory>>(
-        &HTTP_CLIENT
-            .request(Method::GET, format!("{}/v1/categories", *MINIFLUX_URL))
-            .header("X-Auth-Token", MINIFLUX_KEY.as_str())
-            .header("Content-Type", "application/json")
-            .send()
-            .await?
-            .bytes()
-            .await?,
-    )?;
-    let miniflux_categories_names: HashSet<String> = miniflux_categories
-        .iter()
-        .map(|c| c.title.clone())
-        .collect();
-    let miniflux_category_ids: HashMap<String, usize> = miniflux_categories
-        .iter()
-        .map(|c| (c.title.clone(), c.id))
-        .collect();
+    let categories = sync_categories(&wanted_categories).await?;
+    let feeds = get_api::<Vec<MinifluxFeed>>("v1/feeds").await?;
 
-    // Add missing categories
-    for category in wanted_categories.difference(&miniflux_categories_names) {
+    add_missing_feeds(&targets_by_url, &categories, &feeds).await?;
+
+    let feeds = get_api::<Vec<MinifluxFeed>>("v1/feeds").await?;
+    update_or_delete_feeds(&targets_by_url, &categories, &wanted_categories, &feeds).await?;
+    delete_stale_categories(&categories, &wanted_categories).await
+}
+
+async fn sync_categories(wanted_categories: &HashSet<String>) -> Result<Vec<MinifluxCategory>> {
+    let mut categories = get_api::<Vec<MinifluxCategory>>("v1/categories").await?;
+    let existing_names = categories
+        .iter()
+        .map(|category| category.title.clone())
+        .collect::<HashSet<_>>();
+
+    for category in wanted_categories.difference(&existing_names) {
         info!("Adding category: {category}");
-        post_api("v1/categories", json!({ "title": category })).await?;
+        send_api(
+            Method::POST,
+            "v1/categories",
+            Some(json!({ "title": category })),
+        )
+        .await?;
     }
 
-    // Remove excess categories
-    for category in miniflux_categories_names.difference(&wanted_categories) {
-        if let Some(id) = miniflux_category_ids.get(category) {
-            info!("Removing category: {category} {id}");
-            delete_api(&format!("v1/categories/{id}")).await?;
-        }
+    if !wanted_categories.is_subset(&existing_names) {
+        categories = get_api::<Vec<MinifluxCategory>>("v1/categories").await?;
     }
 
-    // Get existing feeds
-    let miniflux_feeds = serde_json::from_slice::<Vec<MinifluxFeed>>(
-        &HTTP_CLIENT
-            .request(Method::GET, format!("{}/v1/feeds", *MINIFLUX_URL))
-            .header("X-Auth-Token", MINIFLUX_KEY.as_str())
-            .header("Content-Type", "application/json")
-            .send()
-            .await?
-            .bytes()
-            .await?,
-    )?;
+    Ok(categories)
+}
 
-    // Add missing feeds
-    for (feed_id, database_feed) in &database_feeds {
-        let feed_url = format!("{}{}", *QUIVRS_URL_PREFIX, feed_id);
-        let Some(Some(category_id)) = config_feeds
-            .iter()
-            .find(|(_, inner_map)| inner_map.contains_key(feed_id))
-            .map(|(category, _)| miniflux_category_ids.get(category))
-        else {
+async fn add_missing_feeds(
+    targets_by_url: &HashMap<String, FeedTarget>,
+    categories: &[MinifluxCategory],
+    feeds: &[MinifluxFeed],
+) -> Result<()> {
+    let category_ids = category_ids(categories);
+
+    for target in targets_by_url.values() {
+        let Some(category_id) = category_ids.get(&target.category) else {
             continue;
         };
-        if !miniflux_feeds.iter().any(|feed| feed.feed_url == feed_url) {
+        if feeds.iter().any(|feed| feed.feed_url == target.feed_url) {
+            continue;
+        }
+
+        info!("Adding feed: {} {}", target.name, target.feed_url);
+        send_api(
+            Method::POST,
+            "v1/feeds",
+            Some(json!({
+                "feed_url": target.feed_url,
+                "category_id": category_id,
+            })),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn update_or_delete_feeds(
+    targets_by_url: &HashMap<String, FeedTarget>,
+    categories: &[MinifluxCategory],
+    wanted_categories: &HashSet<String>,
+    feeds: &[MinifluxFeed],
+) -> Result<()> {
+    let category_ids = category_ids(categories);
+
+    for feed in feeds {
+        if let Some(target) = targets_by_url.get(&feed.feed_url) {
+            update_feed_if_needed(feed, target, &category_ids).await?;
+        } else if wanted_categories.contains(&feed.category.title) {
+            info!("Deleting unmanaged feed: {}", feed.title);
+            send_api(Method::DELETE, &format!("v1/feeds/{}", feed.id), None).await?;
+        } else {
             info!(
-                "Adding feed: {} {} {}",
-                database_feed.title, feed_url, category_id
+                "Deleting feed from stale category {}: {}",
+                feed.category.title, feed.title
             );
-            post_api(
-                "v1/feeds",
-                json!({
-                    "feed_url": feed_url,
-                    "category_id": category_id,
-                }),
-            )
-            .await?;
-        }
-    }
-
-    // If title, site_url or category of the feed differs from our local data, update it
-    for miniflux_feed in &miniflux_feeds {
-        // Get associated config and config_feeds
-        let Some(feed_id) = miniflux_feed.feed_url.strip_prefix(&*QUIVRS_URL_PREFIX) else {
-            continue;
-        };
-        let Some((category, _)) = config_feeds
-            .iter()
-            .find(|(_, inner_map)| inner_map.contains_key(feed_id))
-        else {
-            // Delete unused feeds
-            info!("Deleting feed: {}", miniflux_feed.title);
-            delete_api(&format!("v1/feeds/{}", miniflux_feed.id)).await?;
-            continue;
-        };
-        let Some(category_id) = miniflux_category_ids.get(category) else {
-            continue;
-        };
-        let Some(database_feed) = database_feeds.get(feed_id) else {
-            continue;
-        };
-
-        // Update feed data if necessary
-        if miniflux_feed.title != database_feed.title
-            || miniflux_feed.category.id != *category_id
-            || (!database_feed.url.is_empty() && miniflux_feed.site_url != database_feed.url)
-        {
-            if miniflux_feed.title != database_feed.title {
-                info!(
-                    "Updating feed title: {} -> {}",
-                    miniflux_feed.title, database_feed.title
-                );
-            }
-            if miniflux_feed.category.id != *category_id {
-                info!(
-                    "Updating feed category {}: {} -> {} {category}",
-                    miniflux_feed.title, miniflux_feed.category.id, *category_id
-                );
-            }
-            if miniflux_feed.site_url != database_feed.url {
-                info!(
-                    "Updating feed URL {}: {} -> {}",
-                    miniflux_feed.title, miniflux_feed.site_url, database_feed.url
-                );
-            }
-
-            put_api(
-                &format!("v1/feeds/{}", miniflux_feed.id),
-                Some(&json!({
-                    "title": database_feed.title,
-                    "category_id": category_id,
-                    "site_url": database_feed.url,
-                })),
-            )
-            .await?;
-        }
-    }
-
-    // Force a miniflux refresh for changed feeds
-    for feed_id in &updated_feeds {
-        let feed_url = format!("{}{}", *QUIVRS_URL_PREFIX, feed_id);
-        if let Some(miniflux_feed) = miniflux_feeds.iter().find(|feed| feed.feed_url == feed_url) {
-            info!("Refreshing miniflux feed {}", miniflux_feed.title);
-            put_api(&format!("v1/feeds/{}/refresh", miniflux_feed.id), None).await?;
+            send_api(Method::DELETE, &format!("v1/feeds/{}", feed.id), None).await?;
         }
     }
 
     Ok(())
+}
+
+async fn update_feed_if_needed(
+    feed: &MinifluxFeed,
+    target: &FeedTarget,
+    category_ids: &HashMap<String, usize>,
+) -> Result<()> {
+    let Some(category_id) = category_ids.get(&target.category) else {
+        return Ok(());
+    };
+    let site_url_changed = target
+        .site_url
+        .as_ref()
+        .is_some_and(|site_url| feed.site_url != *site_url);
+
+    if feed.category.id == *category_id && !site_url_changed {
+        return Ok(());
+    }
+
+    info!("Updating feed: {}", feed.title);
+    let mut body = json!({ "category_id": category_id });
+    if let Some(site_url) = &target.site_url {
+        body["site_url"] = json!(site_url);
+    }
+    send_api(Method::PUT, &format!("v1/feeds/{}", feed.id), Some(body)).await
+}
+
+async fn delete_stale_categories(
+    categories: &[MinifluxCategory],
+    wanted_categories: &HashSet<String>,
+) -> Result<()> {
+    for category in categories {
+        if wanted_categories.contains(&category.title) {
+            continue;
+        }
+
+        info!("Deleting stale category: {}", category.title);
+        send_api(
+            Method::DELETE,
+            &format!("v1/categories/{}", category.id),
+            None,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+fn category_ids(categories: &[MinifluxCategory]) -> HashMap<String, usize> {
+    categories
+        .iter()
+        .map(|category| (category.title.clone(), category.id))
+        .collect()
 }

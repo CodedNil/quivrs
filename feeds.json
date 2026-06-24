@@ -1,28 +1,9 @@
 {
-  "Test": {
-    "kagi_ai": {
-      "url_rss": "https://news.kagi.com/ai.xml",
-      "original_title": true,
-      "original_content": true
-    },
-    "bbc_tech": {
-      "url_rss": "https://feeds.bbci.co.uk/news/technology/rss.xml"
-    },
-    "verge": {
-      "url_rss": "https://www.theverge.com/rss/index.xml",
-      "filters": [
-        "Posts that are not related to technology, especially political articles",
-        "Posts that are primarily marketing, examples being 'These headphones are 20% off today' and the site has a referral link to purchase (unless this is a new product announcement)"
-      ]
-    },
-    "veritasium": {
-      "source": "Youtube"
-    },
-    "ArtificialAnlys": {
-      "source": "Twitter"
-    },
-    "TechnologyConnections": {
-      "source": "Youtube"
-    }
-  }
+    "Test": [
+        "bbc_tech/https://feeds.bbci.co.uk/news/technology/rss.xml",
+        "verge/https://www.theverge.com/rss/index.xml",
+        "youtube/veritasium",
+        "twitter/ArtificialAnlys",
+        "youtube/TechnologyConnections"
+    ]
 }

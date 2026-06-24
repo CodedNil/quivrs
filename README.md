@@ -1,13 +1,30 @@
 # Quivrs
 
-Quivrs is a Rust-based service that ingests RSS-style feeds, applies configurable filtering and summaries via LLM prompts, cleaning up the content and titles (especially useful for twitter feeds). It declaratively configures your Miniflux feeds, making it easy to keep your reader in sync with curated sources.
+Quivrs is a small Rust service that keeps Miniflux categories and feeds in sync with `feeds.json`.
 
 ## Features
 
-- Refreshes multiple feeds defined in `feeds.json`, storing normalised data in a Redb database.
-- Supports website, YouTube, Twitter, and Reddit sources with source-specific handling.
-- Allows per feed filtering in plain english, to filter out unwanted content.
-- Can condense feeds to timed summaries instead of individual articles.
-- Uses OpenRouter so backend LLM can be configured.
+- Syncs feeds defined in `feeds.json` once, then exits.
+- Supports direct RSS feeds with `name/feed-url` entries.
+- Resolves YouTube handles to channel RSS URLs.
+- Resolves Twitter and Bluesky handles to FxEmbed Atom feeds.
+- Keeps Miniflux declarative, deleting feeds and categories that are no longer configured.
 
-Configuration defaults to `feeds.json`, and the local database path can be set with the `DATABASE_URL` environment variable.
+## Configuration
+
+Each top-level key is a Miniflux category. Each feed is a string split on the first slash:
+
+```json
+{
+  "Test": [
+    "bbc_tech/https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "youtube/veritasium",
+    "twitter/ArtificialAnlys",
+    "bluesky/user.bsky.social"
+  ]
+}
+```
+
+`youtube`, `twitter`, and `bluesky` are source keywords. `twitter` and `bluesky` use FxEmbed Atom feeds. Any other first segment is treated as a direct-feed label; it is only used for logging.
+
+Configuration defaults to `feeds.json`. Set `MINIFLUX_URL` and `MINIFLUX_KEY` for the Miniflux API.
